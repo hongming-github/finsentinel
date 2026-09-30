@@ -1,0 +1,13 @@
+package com.finsentinel.common;
+
+/** Kafka topic names. Versioned so a breaking schema change gets a new topic. */
+public final class Topics {
+
+    public static final String TRANSACTIONS = "txn.transactions.v1";
+    public static final String TRANSACTIONS_DLQ = "txn.transactions.dlq.v1";
+    public static final String ALERTS = "risk.alerts.v1";
+    public static final String ALERTS_DLT = "risk.alerts.v1.DLT";
+
+    private Topics() {
+    }
+}

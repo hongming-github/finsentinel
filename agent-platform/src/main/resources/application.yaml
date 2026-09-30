@@ -1,0 +1,27 @@
+server:
+  port: 8090
+
+spring:
+  application:
+    name: agent-platform
+  threads:
+    virtual:
+      enabled: true
+  datasource:
+    url: jdbc:postgresql://localhost:5432/finsentinel
+    username: finsentinel
+    password: finsentinel
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      auto-offset-reset: earliest
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
+logging:
+  level:
+    org.apache.kafka: warn

@@ -1,0 +1,135 @@
+# Local environment, split into profiles so a 16 GB laptop only runs what the task needs.
+#
+#   docker compose -f deploy/docker-compose.yml --profile core up -d            # daily dev (~1.2 GB)
+#   docker compose -f deploy/docker-compose.yml --profile core --profile stream up -d
+#   docker compose -f deploy/docker-compose.yml --profile obs up -d
+#
+# Flink runs inside the IDE (embedded MiniCluster) during development; the `stream` profile is
+# for benchmarks and demos only.
+
+name: finsentinel
+
+services:
+
+  # ---------- core ----------
+
+  kafka:
+    image: apache/kafka:4.2.1
+    profiles: [core]
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: INTERNAL://:19092,EXTERNAL://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:19092,EXTERNAL://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_HEAP_OPTS: -Xms512m -Xmx512m
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server kafka:19092 > /dev/null 2>&1"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+    mem_limit: 1g
+
+  # One-shot: topics are created explicitly (auto-create is off) so partition counts are deliberate.
+  kafka-init:
+    image: apache/kafka:4.2.1
+    profiles: [core]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -e
+        create() { /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --create --if-not-exists --topic "$$1" --partitions "$$2" --replication-factor 1; }
+        create txn.transactions.v1 6
+        create txn.transactions.dlq.v1 1
+        create risk.alerts.v1 3
+        create risk.alerts.v1.DLT 1
+        echo "topics ready"
+    restart: "no"
+
+  postgres:
+    image: pgvector/pgvector:0.8.6-pg17
+    profiles: [core]
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: finsentinel
+      POSTGRES_USER: finsentinel
+      POSTGRES_PASSWORD: finsentinel
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U finsentinel -d finsentinel"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    mem_limit: 512m
+
+  redis:
+    image: redis:8.2-alpine
+    profiles: [core]
+    ports:
+      - "6380:6379"  # 6379 is often taken by other local projects
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    mem_limit: 320m
+
+  # ---------- stream (benchmarks / demos) ----------
+
+  flink-jobmanager:
+    image: flink:2.2.1-java21
+    profiles: [stream]
+    ports:
+      - "8081:8081"
+    command: jobmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        jobmanager.memory.process.size: 768m
+        execution.checkpointing.dir: file:///tmp/flink-checkpoints
+    volumes:
+      - ../stream-job/target:/opt/finsentinel:ro
+    mem_limit: 900m
+
+  flink-taskmanager:
+    image: flink:2.2.1-java21
+    profiles: [stream]
+    depends_on:
+      - flink-jobmanager
+    command: taskmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        taskmanager.memory.process.size: 1200m
+        taskmanager.numberOfTaskSlots: 4
+        execution.checkpointing.dir: file:///tmp/flink-checkpoints
+    mem_limit: 1400m
+
+  # ---------- obs ----------
+
+  # Grafana + Prometheus + Tempo + Loki + OTel collector in one container. Grafana on :3000.
+  lgtm:
+    image: grafana/otel-lgtm:0.30.1
+    profiles: [obs]
+    ports:
+      - "3000:3000"
+      - "4317:4317"
+      - "4318:4318"
+    mem_limit: 1200m
+
+volumes:
+  kafka-data:
+  pg-data:

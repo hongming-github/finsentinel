@@ -1,0 +1,93 @@
+package com.finsentinel.simulator;
+
+import com.finsentinel.common.Topics;
+import com.finsentinel.common.Transaction;
+import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.serialization.ByteArraySerializer;
+import org.apache.kafka.common.serialization.StringSerializer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import tools.jackson.databind.json.JsonMapper;
+
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+
+/** Publishes a week of backfill, then live traffic at a fixed rate with periodic fraud injection. */
+public class Simulator {
+
+    private static final Logger log = LoggerFactory.getLogger(Simulator.class);
+
+    private final SimulatorConfig config;
+    private final TrafficGenerator generator;
+    private final KafkaProducer<String, byte[]> producer;
+    private final JsonMapper json = JsonMapper.builder().build();
+
+    Simulator(SimulatorConfig config) {
+        this.config = config;
+        this.generator = new TrafficGenerator(config.accountsPerTenant(), config.seed());
+        this.producer = new KafkaProducer<>(Map.of(
+                ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, config.bootstrapServers(),
+                ProducerConfig.ACKS_CONFIG, "all",
+                ProducerConfig.LINGER_MS_CONFIG, 20,
+                ProducerConfig.CLIENT_ID_CONFIG, "txn-simulator"),
+                new StringSerializer(), new ByteArraySerializer());
+    }
+
+    public static void main(String[] args) throws InterruptedException {
+        SimulatorConfig config = SimulatorConfig.parse(args);
+        Simulator simulator = new Simulator(config);
+        Runtime.getRuntime().addShutdownHook(new Thread(simulator.producer::close));
+        simulator.run();
+    }
+
+    void run() throws InterruptedException {
+        log.info("Simulating {} accounts across {} at {} tps -> {}",
+                generator.accounts().size(), TrafficGenerator.TENANTS, config.tps(), config.bootstrapServers());
+
+        if (config.backfillPerAccount() > 0) {
+            List<Transaction> history = generator.backfill(config.backfillPerAccount(), Instant.now());
+            history.forEach(this::send);
+            producer.flush();
+            log.info("Backfilled {} historical transactions", history.size());
+        }
+
+        long start = System.currentTimeMillis();
+        long nextFraudAt = start + config.fraudEverySeconds() * 1000L;
+        long sent = 0;
+        while (config.durationSeconds() == 0 || System.currentTimeMillis() - start < config.durationSeconds() * 1000L) {
+            long tick = System.currentTimeMillis();
+            for (int i = 0; i < config.tps(); i++) {
+                send(generator.normal(Instant.now()));
+            }
+            sent += config.tps();
+
+            if (config.fraudEverySeconds() > 0 && tick >= nextFraudAt) {
+                inject(generator.randomScenario(), generator.randomAccount());
+                nextFraudAt = tick + config.fraudEverySeconds() * 1000L;
+            }
+            if (sent % (config.tps() * 30L) == 0) {
+                log.info("Sent {} live transactions", sent);
+            }
+            Thread.sleep(Math.max(0, 1000 - (System.currentTimeMillis() - tick)));
+        }
+        producer.close();
+    }
+
+    private void inject(Scenario scenario, Account account) {
+        if (scenario == Scenario.MALFORMED) {
+            producer.send(new ProducerRecord<>(Topics.TRANSACTIONS, account.tenantId() + "|" + account.accountId(),
+                    "{\"txnId\": \"broken".getBytes(StandardCharsets.UTF_8)));
+        } else {
+            generator.scenario(scenario, account, Instant.now()).forEach(this::send);
+        }
+        log.info("Injected {} on {}/{}", scenario, account.tenantId(), account.accountId());
+    }
+
+    private void send(Transaction txn) {
+        producer.send(new ProducerRecord<>(Topics.TRANSACTIONS, txn.accountKey(), json.writeValueAsBytes(txn)));
+    }
+}

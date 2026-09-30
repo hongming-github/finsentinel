@@ -1,0 +1,22 @@
+# Roadmap
+
+Twelve weeks at 10–15 hours/week. Each phase ends with something runnable and a measured result.
+
+| Phase | Weeks | Scope | Done when |
+|---|---|---|---|
+| 1. Data path ✅ | 1–2 | Simulator → Kafka → Flink rules → alerts → platform intake. DLQs, idempotent consumer. | Injected fraud shows up at `/api/tenants/{t}/alerts`; bad messages land in the DLQ |
+| 2. First agent | 3–4 | Transaction store; Spring AI `ChatClient`; in-process tools (alert, transaction history); structured case report | One alert → one case report with the evidence it used |
+| 3. RAG | 5 | Ingest public MAS guidance into pgvector; hybrid search + rerank; citations in reports | Every regulatory claim in a report cites a retrieved chunk |
+| 4. MCP + orchestration | 6–7 | WireMock systems; `mcp-banking`, `mcp-compliance`; triage → investigator → reviewer agents; **durable, resumable investigation state machine**; human approval API; **outbox** to ticketing | Kill the platform mid-investigation, restart, it resumes from the last checkpoint |
+| 5. LLM gateway | 8 | **Model routing** by task; provider fallback; rate limits; Redis **semantic cache**; per-case token and cost accounting | Report shows cost per case and cache hit rate; fallback works with the primary provider down |
+| 6. Tenancy + security | 9 | **Multi-tenant** isolation (data, vectors, prompts, tool permissions); Keycloak; RBAC; OAuth 2.1 on MCP; PII masking before LLM calls; prompt-injection defenses; audit log | Cross-tenant access tests fail closed; injected CRM note does not change agent behavior |
+| 7. Evaluation | 10 | Golden dataset; LLM-as-judge; tool-selection accuracy; RAG recall; **output schema + citation validation**; CI gate | CI fails when accuracy drops below the threshold |
+| 8. Batch + contracts | 11 | Spark daily customer baselines fed back to Flink; **Apicurio schema registry** and Avro migration; OpenTelemetry end to end | Schema change is rejected by the registry; one trace spans Kafka → agent → MCP |
+| 9. Prove it | 12 | **Chaos drills** (TaskManager kill, MCP outage, slow LLM); Gatling load test; README numbers; demo video; client-workshop deck | Published P95 alert-to-report latency, Flink throughput, and recovery behavior |
+
+Bold items are the six additions agreed on top of the base design.
+
+## Deliberately out of scope
+
+Kubernetes before phase 9, fine-tuning, local model hosting, more microservices, multiple vector stores,
+Kafka Streams alongside Flink.
