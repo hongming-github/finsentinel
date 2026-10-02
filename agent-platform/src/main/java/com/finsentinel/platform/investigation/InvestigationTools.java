@@ -2,7 +2,6 @@ package com.finsentinel.platform.investigation;
 
 import com.finsentinel.common.Transaction;
 import com.finsentinel.platform.alert.AlertRepository;
-import com.finsentinel.platform.alert.StoredAlert;
 import com.finsentinel.platform.knowledge.KnowledgeSearch;
 import com.finsentinel.platform.knowledge.RegulationHit;
 import com.finsentinel.platform.transaction.AccountProfile;
@@ -32,7 +31,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 class InvestigationTools {
 
-    private final StoredAlert alert;
+    private final CaseContext caseContext;
     private final TransactionRepository transactions;
     private final AlertRepository alerts;
     private final KnowledgeSearch knowledge;
@@ -42,9 +41,9 @@ class InvestigationTools {
     private final Set<String> seenChunkIds = ConcurrentHashMap.newKeySet();
     private final AtomicInteger searches = new AtomicInteger();
 
-    InvestigationTools(StoredAlert alert, TransactionRepository transactions, AlertRepository alerts,
+    InvestigationTools(CaseContext caseContext, TransactionRepository transactions, AlertRepository alerts,
                        KnowledgeSearch knowledge, InvestigationProperties.Tools limits) {
-        this.alert = alert;
+        this.caseContext = caseContext;
         this.transactions = transactions;
         this.alerts = alerts;
         this.knowledge = knowledge;
@@ -67,10 +66,10 @@ class InvestigationTools {
         return new RegulationSearchResult(hits, hits.isEmpty() ? "No matching passages." : null);
     }
 
-    @Tool(description = "Get the transactions that triggered this alert, oldest first.")
+    @Tool(description = "Get the transactions behind every alert in this case, oldest first.")
     List<TxnView> getAlertTransactions() {
         long start = System.nanoTime();
-        List<Transaction> result = transactions.findByIds(tenant(), account(), alert.alert().txnIds());
+        List<Transaction> result = transactions.findByIds(tenant(), account(), caseContext.txnIds());
         return record("getAlertTransactions", "", result, start);
     }
 
@@ -94,7 +93,7 @@ class InvestigationTools {
         long start = System.nanoTime();
         int d = Math.clamp(days, 1, limits.maxDays());
         AccountProfile profile = transactions.profile(tenant(), account(), anchor().minus(Duration.ofDays(d)), anchor(),
-                alert.alert().txnIds());
+                caseContext.txnIds());
         calls.add(new ToolCall("getAccountProfile", "days=" + d, (int) profile.amounts().transactionCount(), millisSince(start)));
         return profile;
     }
@@ -104,12 +103,12 @@ class InvestigationTools {
             + "largest earlier amount. A priorCount of 0 means a counterparty the customer has never used.")
     List<CounterpartyCheck> getCounterpartyHistory() {
         long start = System.nanoTime();
-        List<Transaction> alertTxns = transactions.findByIds(tenant(), account(), alert.alert().txnIds());
+        List<Transaction> alertTxns = transactions.findByIds(tenant(), account(), caseContext.txnIds());
         alertTxns.forEach(t -> seenTxnIds.add(t.txnId()));
         Map<String, TransactionRepository.CounterpartyStats> history = transactions.counterpartyHistory(tenant(), account(),
                 alertTxns.stream().map(Transaction::merchantId).filter(Objects::nonNull).distinct().toList(),
                 alertTxns.stream().map(Transaction::eventTime).min(Instant::compareTo).orElse(anchor()),
-                alert.alert().txnIds());
+                caseContext.txnIds());
         List<CounterpartyCheck> result = alertTxns.stream().map(t -> {
             TransactionRepository.CounterpartyStats stats = history.get(t.merchantId());
             return stats == null
@@ -121,15 +120,16 @@ class InvestigationTools {
         return result;
     }
 
-    @Tool(description = "Get other alerts raised on this account in the given number of days before this alert.")
+    @Tool(description = "Get alerts raised on this account in earlier cases, in the given number of days before this "
+            + "case, with how each case ended (e.g. closed as FALSE_POSITIVE or CONFIRMED_FRAUD by an analyst).")
     List<PriorAlert> getPriorAlerts(
             @ToolParam(description = "How many days before the alert to look back; large values are capped") int days) {
         long start = System.nanoTime();
         int d = Math.clamp(days, 1, limits.maxDays());
-        List<PriorAlert> result = alerts.findForAccount(tenant(), account(), anchor().minus(Duration.ofDays(d)),
-                        alert.alert().alertId()).stream()
-                .map(a -> new PriorAlert(a.alert().rule().name(), a.alert().severity().name(), a.alert().reason(),
-                        a.alert().eventTime(), a.status().name()))
+        List<PriorAlert> result = alerts.findPrior(tenant(), account(), anchor().minus(Duration.ofDays(d)),
+                        caseContext.caseId()).stream()
+                .map(p -> new PriorAlert(p.alert().rule().name(), p.alert().severity().name(), p.alert().reason(),
+                        p.alert().eventTime(), p.caseStage(), p.caseDecision()))
                 .toList();
         calls.add(new ToolCall("getPriorAlerts", "days=" + d, result.size(), millisSince(start)));
         return result;
@@ -156,7 +156,7 @@ class InvestigationTools {
 
     /** Read from the data, not from what the model said, so the transfer rule cannot be argued away. */
     boolean involvesTransfer() {
-        return transactions.findByIds(tenant(), account(), alert.alert().txnIds()).stream()
+        return transactions.findByIds(tenant(), account(), caseContext.txnIds()).stream()
                 .anyMatch(t -> t.channel() == com.finsentinel.common.Channel.TRANSFER);
     }
 
@@ -167,15 +167,16 @@ class InvestigationTools {
     }
 
     private String tenant() {
-        return alert.alert().tenantId();
+        return caseContext.tenantId();
     }
 
     private String account() {
-        return alert.alert().accountId();
+        return caseContext.accountId();
     }
 
+    /** Baselines and look-backs are measured from the first alert of the case. */
     private Instant anchor() {
-        return alert.alert().eventTime();
+        return caseContext.firstEventTime();
     }
 
     private static long millisSince(long startNanos) {
@@ -207,7 +208,8 @@ class InvestigationTools {
     record RegulationSearchResult(List<RegulationHit> passages, String note) {
     }
 
-    record PriorAlert(String rule, String severity, String reason, Instant eventTime, String status) {
+    record PriorAlert(String rule, String severity, String reason, Instant eventTime, String caseStage,
+                      String caseDecision) {
     }
 
     record CounterpartyCheck(String txnId, String channel, String counterparty, long priorCount, Instant firstSeen,

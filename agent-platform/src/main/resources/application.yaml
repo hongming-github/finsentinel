@@ -66,6 +66,11 @@ finsentinel:
         enabled: true
         model: gpt-5.4-nano
         max-passage-chars: 700
+  outbox:
+    enabled: true
+    poll-interval: 1s
+    batch-size: 100
+    send-timeout: 5s
   alerts:
     max-page-size: 200
     retry-interval: 1s

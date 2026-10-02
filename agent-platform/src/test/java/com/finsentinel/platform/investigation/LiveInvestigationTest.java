@@ -6,9 +6,7 @@ import com.finsentinel.common.Channel;
 import com.finsentinel.common.Severity;
 import com.finsentinel.common.Transaction;
 import com.finsentinel.platform.PlatformTest;
-import com.finsentinel.platform.alert.AlertRepository;
-import com.finsentinel.platform.alert.AlertStatus;
-import com.finsentinel.platform.alert.StoredAlert;
+import com.finsentinel.platform.cases.CaseIntake;
 import com.finsentinel.platform.transaction.TransactionRepository;
 import com.finsentinel.platform.knowledge.KnowledgeSync;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,7 +43,7 @@ class LiveInvestigationTest {
     @Autowired
     TransactionRepository transactions;
     @Autowired
-    AlertRepository alerts;
+    CaseIntake intake;
     @Autowired
     JsonMapper json;
     @Autowired
@@ -121,8 +119,9 @@ class LiveInvestigationTest {
     }
 
     private InvestigationResult run(Alert alert) {
-        alerts.insertIfAbsent(alert);
-        InvestigationResult result = investigator.investigate(new StoredAlert(alert, AlertStatus.INVESTIGATING, Instant.now()));
+        String caseId = intake.accept(alert).orElseThrow();
+        InvestigationResult result = investigator.investigate(new CaseContext(caseId, alert.tenantId(), alert.accountId(),
+                alert.customerId(), List.of(alert), 1, null));
         System.out.println(json.writerWithDefaultPrettyPrinter().writeValueAsString(result));
         return result;
     }

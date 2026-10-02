@@ -347,3 +347,71 @@
 - 4 份 MAS 文件，共约 160 页、625 个片段。第一次做 embedding 之后全部走本地缓存，重新索引不再产生费用。
 - 检索效果：混合 + 重排序在 Hit@5 上达到 0.94，MRR 达到 0.87。
 - 完整链路：9 条告警全部完成调查，跨国盗刷 97–99 分。涉及转账的案件，报告里引用了 Notice 626 §14.2（可疑交易报告）和 SRF §6.2（损失由谁承担）。
+
+---
+
+## 阶段 4（A）：案件生命周期
+
+数据流：告警 → **归并到账户的未关闭案件** → 案件队列（ANALYSIS）→ Agent 分析 → AWAITING_DECISION → 分析师审批（带 `If-Match`）→ CLOSED，同时通过 outbox 把事件发到 `case.events.v1`。
+
+### 必读
+
+#### 1. [ADR 0008](adr/0008-case-orchestration.md)：编排方案是怎么定下来的（面试必讲）
+
+- 先做了技术验证：用 LangGraph4j 1.9.3 跑和真实流程结构相同的图。`interrupt` 和条件边都很好用，但发现官方的 Postgres saver **每次加载 checkpoint 都会泄漏一个连接**，状态还是用 Java 序列化存的，而且它不知道我们的领取机制。
+- 最后定为两层架构：**外层是我们自己的案件生命周期，负责"哪个阶段、谁来处理"；内层是 LangGraph4j 多 Agent 图，负责"这次分析进行到哪一步"**；两层之间用自己写的、带防过期令牌的 saver 连接（第 B 步实现）。
+- 泄漏的根因：2026-09-12 的一次重构引入的回归（1.9.0 到 1.9.3）。默认的非连接池用法下，GC 会回收泄漏的连接，所以一直没人发现。我们向上游提交了修复：[langgraph4j#484](https://github.com/langgraph4j/langgraph4j/pull/484)。
+
+#### 2. [CaseRepository.java](../agent-platform/src/main/java/com/finsentinel/platform/cases/CaseRepository.java)
+
+- **`attach`（告警归并）**：利用"每个账户最多一个未关闭案件"的部分唯一索引，配合 `INSERT ... ON CONFLICT ... WHERE stage <> 'CLOSED' DO NOTHING RETURNING`；如果没插进去，就 `SELECT ... FOR UPDATE` 锁住已有的案件。8 个线程同时往同一个账户送告警，最后只会有一个案件（`CaseIntakeTest` 验证）。
+- **`analysis_run`**：新告警进来、或者分析师退回重查时，它会加 1。如果 worker 完成分析时发现它已经变了，就把报告存档，但案件**回到队列重新分析**（SUPERSEDED），保证分析师看到的报告不会漏掉某条告警。为什么不直接取消正在进行的分析？因为取消需要跨进程通知，而这种做法更简单，代价只是一次可能多花的 LLM 调用。
+- **`complete` 和 `fail`**：仍然以 `claimed_at` 作为防过期令牌，状态变化、审计事件、outbox 消息在同一个事务里写入。
+- **`decide`**：`WHERE version = :version AND stage IN (...)`。如果在分析师查看期间版本变了，就拒绝这次决定，并把当前状态返回给他。
+
+#### 3. [CaseController.java](../agent-platform/src/main/java/com/finsentinel/platform/cases/CaseController.java)：用 HTTP 条件请求实现乐观锁
+
+- 案件详情接口的 `ETag` 就是案件的版本号。提交决定时必须带 `If-Match`：
+  - 不带：返回 **428 Precondition Required**。
+  - 版本过期：返回 **409 Conflict**，并附带最新状态。
+- 面试可以这样讲：**人工审批的窗口可能长达几小时，这期间一定会有新数据进来，乐观锁保证没人能根据过时的证据关掉一个案件。**
+- 退回重查（`REQUEST_REANALYSIS`）必须填写备注，备注会写进下一轮分析的简报里，Agent 必须正面回应它。这正是"人在回路中"（human-in-the-loop）的双向交互：人不只是批准或拒绝，还可以给 Agent 下指示。
+
+#### 4. [OutboxRelay.java](../agent-platform/src/main/java/com/finsentinel/platform/cases/OutboxRelay.java)：事务性 outbox
+
+- **为什么不在业务事务里直接发 Kafka**：这是"双写问题"。数据库提交了、Kafka 发送失败，消息就丢了；Kafka 发出去了、数据库却回滚了，就成了一条幽灵消息。outbox 把消息和状态变化写在**同一个事务**里，由一个独立的转发器再发给 Kafka。
+- **至少一次投递**：如果 Kafka 已经确认、但标记"已发送"的事务没来得及提交，同一批消息会被再发一次，所以每条消息都带上 `eventId`，让消费者自己去重。
+- 多个实例用 `SKIP LOCKED` 并行转发。代价是同一个案件的事件，在不同实例之间不保证顺序，这一点写进了文档。
+
+### 设计取舍问答
+
+**问：告警和案件为什么要分开？**
+同一个账户短时间内往往会触发好几条告警，比如跨国刷卡的去程和回程、一连串小额试刷。分析师需要的是"这个客户发生了什么事"，而不是逐条处理告警。而且合并之后，LLM 只需要分析一次（省钱），报告也能综合所有信号（判断更准）。
+
+**问：人工审批为什么不用 LangGraph 的 interrupt？**
+interrupt 只是让图暂停，而生产环境里的审批还需要：分析师的身份、审计记录、乐观锁、按租户隔离、可以查询的待审批队列。这些都属于案件生命周期这一层。图只负责"分析"，生命周期负责"状态和权限"。
+
+**问：worker 怎么知道案件在分析过程中又来了新告警？**
+不需要主动通知。完成时比较 `analysis_run` 就知道了，状态全在数据库里，worker 之间不需要任何通信。
+
+### 踩过的坑
+
+1. **官方的 checkpoint saver 有连接泄漏**：用接近生产环境的配置（连接池加泄漏检测）跑一次就暴露了。官方示例的默认配置（不用连接池）会把问题掩盖起来。查到的根因是两周前一次重构引入的回归，同一个错误还被复制到了 4 个 saver 里。
+2. **Flyway 和第三方 jar 里的 `db/migration` 目录**：LangGraph4j 的 saver jar 里带了 `db/migration/v1.0__init.sql`，我们的 Flyway 之所以没执行它，只是因为文件名是小写的 `v`，属于碰巧。以后引入依赖时，要检查它的 jar 里有没有 `db/migration` 目录。
+3. **给别人的仓库提 PR 前，要先读完对方的规范**：这次 PR 提交之后，我才去读他们的 `AGENT.md` 和 CI 配置，又补跑了 JDK 17。好在都符合规范，但顺序反了。
+
+### 可以主动讲的不足和改进方向
+
+| 不足 | 改进方案 |
+|---|---|
+| 分析师身份取自 `X-Analyst-Id` 请求头，没有认证 | 第 6 阶段接入 Keycloak，从 JWT 里取身份，并校验租户 |
+| outbox 不保证同一案件的事件顺序 | 按 `aggregate_id` 分区转发，或者消费者按 `eventId` 和案件版本处理乱序 |
+| 分析结果过期（SUPERSEDED）时，那次 LLM 调用的钱已经花了 | 新告警进来时，主动中断正在进行的分析（需要跨实例通知），或者先等几秒，把一批告警收齐再开始分析 |
+| outbox 表会一直增长 | 定期清理已发送的消息，或者按月分区 |
+
+### 实测数据
+
+- 平台测试 78 个，新增 23 个，覆盖并发归并、分析结果过期、审批 API、outbox 发布到 Kafka 等场景。
+- V5 迁移在开发库的真实数据上执行：27 条告警、24 个账户，迁移成 24 个案件、24 份分析，没有遗漏的告警。
+- 完整链路：5 个注入的欺诈场景，产生 5 个案件，全部分析完成。用 curl 走了一遍审批：过期版本返回 409，带正确 ETag 后案件关闭，Kafka 上能收到 `case.ready_for_decision` 和 `case.decided` 两条事件。
+- 真实 LLM 测试连跑 3 轮，9 次判断方向全部正确。

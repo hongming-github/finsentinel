@@ -5,6 +5,7 @@ import com.finsentinel.common.AlertRule;
 import com.finsentinel.common.Channel;
 import com.finsentinel.common.Severity;
 import com.finsentinel.common.Transaction;
+import com.finsentinel.platform.investigation.CaseContext;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -32,6 +33,13 @@ public final class TestData {
         return new Transaction(UUID.randomUUID().toString(), tenant, account, "cus-" + account,
                 new BigDecimal(amount).setScale(2), "SGD", counterparty, "5411", channel, country,
                 at.truncatedTo(ChronoUnit.MICROS));
+    }
+
+    /** A context for a case that exists only in memory (tools tests that do not need the case row). */
+    public static CaseContext context(Alert... alerts) {
+        Alert first = alerts[0];
+        return new CaseContext(UUID.randomUUID().toString(), first.tenantId(), first.accountId(), first.customerId(),
+                List.of(alerts), 1, null);
     }
 
     public static Alert alert(String tenant, String account, AlertRule rule, Severity severity, List<String> txnIds,

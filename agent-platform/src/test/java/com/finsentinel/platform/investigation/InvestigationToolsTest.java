@@ -6,18 +6,18 @@ import com.finsentinel.common.Channel;
 import com.finsentinel.common.Severity;
 import com.finsentinel.common.Transaction;
 import com.finsentinel.platform.PlatformTest;
-import com.finsentinel.platform.alert.AlertRepository;
-import com.finsentinel.platform.alert.AlertStatus;
-import com.finsentinel.platform.alert.StoredAlert;
+import com.finsentinel.platform.cases.CaseIntake;
 import com.finsentinel.platform.transaction.TransactionRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.simple.JdbcClient;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
 
 import static com.finsentinel.platform.TestData.alert;
+import static com.finsentinel.platform.TestData.context;
 import static com.finsentinel.platform.TestData.txn;
 import static com.finsentinel.platform.TestData.uniqueTenant;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -29,9 +29,11 @@ class InvestigationToolsTest {
     @Autowired
     TransactionRepository transactions;
     @Autowired
-    AlertRepository alerts;
-    @Autowired
     InvestigationToolsFactory toolsFactory;
+    @Autowired
+    CaseIntake intake;
+    @Autowired
+    JdbcClient jdbc;
 
     @Test
     void toolsOnlySeeTheAlertsOwnTenantAndAccount() {
@@ -76,17 +78,23 @@ class InvestigationToolsTest {
     }
 
     @Test
-    void priorAlertsExcludeTheCurrentOne() {
+    void priorAlertsComeFromOtherCasesWithTheirOutcome() {
         String tenant = uniqueTenant();
         Instant now = Instant.now();
         Alert earlier = alert(tenant, "acc-1", AlertRule.LARGE_AMOUNT, Severity.MEDIUM, List.of("x"), now.minusSeconds(86_400));
+        String earlierCase = intake.accept(earlier).orElseThrow();
+        jdbc.sql("update fraud_case set stage = 'CLOSED', decision = 'FALSE_POSITIVE' where case_id = cast(:id as uuid)")
+                .param("id", earlierCase).update();
         Alert current = alert(tenant, "acc-1", AlertRule.GEO_JUMP, Severity.HIGH, List.of("y"), now);
-        alerts.insertIfAbsent(earlier);
-        alerts.insertIfAbsent(current);
+        String currentCase = intake.accept(current).orElseThrow();
 
-        List<InvestigationTools.PriorAlert> prior = toolsFor(current).getPriorAlerts(30);
+        List<InvestigationTools.PriorAlert> prior = toolsFactory.forCase(new CaseContext(currentCase, tenant, "acc-1",
+                current.customerId(), List.of(current), 1, null)).getPriorAlerts(30);
 
-        assertThat(prior).singleElement().extracting(InvestigationTools.PriorAlert::rule).isEqualTo("LARGE_AMOUNT");
+        assertThat(prior).singleElement().satisfies(p -> {
+            assertThat(p.rule()).isEqualTo("LARGE_AMOUNT");
+            assertThat(p.caseDecision()).isEqualTo("FALSE_POSITIVE");
+        });
     }
 
     @Test
@@ -127,6 +135,6 @@ class InvestigationToolsTest {
     }
 
     private InvestigationTools toolsFor(Alert alert) {
-        return toolsFactory.forCase(new StoredAlert(alert, AlertStatus.NEW, Instant.now()));
+        return toolsFactory.forCase(context(alert));
     }
 }

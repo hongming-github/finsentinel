@@ -3,6 +3,9 @@
 Portfolio project: Flink risk rules + Spring Boot AI investigation agents. Roadmap in `docs/roadmap.md`,
 decisions in `docs/adr/`.
 
+**If `HANDOFF.md` exists in the repository root, read it first**: it holds in-flight work, decisions not yet
+committed, and how the user likes to work. Keep it updated at the end of each session.
+
 ## Commands
 
 - Build: `./mvnw install -DskipTests`
@@ -20,6 +23,10 @@ decisions in `docs/adr/`.
 - Jackson 3 (`tools.jackson`) everywhere in our code.
 - Rule logic lives in `stream-job/.../rules` as pure Java; Flink functions stay thin wrappers.
 - Types that cross Flink operators or live in state must stay Flink POJOs; `SerializationTest` guards this.
+- The case (`fraud_case`), not the alert, is the unit of work, review and decision. Every state change writes a
+  `case_event`; anything downstream systems need goes through the outbox in the same transaction (never a direct
+  Kafka send inside a business transaction).
+- Analyst writes require `If-Match` with the case version; any change to a case bumps `version`.
 - Every read in the platform is tenant-scoped. Exception: the regulatory knowledge base (public MAS text) is global.
 - Rule-specific agent guidance goes in `prompts/playbooks/<RULE>.md`, never in the shared system prompt (ADR 0007).
 - After changing the chunker or retrieval, run `RetrievalEvalTest` and compare with the table in ADR 0007.

@@ -1,7 +1,6 @@
 package com.finsentinel.platform.investigation;
 
 import com.finsentinel.platform.alert.AlertRepository;
-import com.finsentinel.platform.alert.StoredAlert;
 import com.finsentinel.platform.knowledge.KnowledgeSearch;
 import com.finsentinel.platform.transaction.TransactionRepository;
 import org.springframework.stereotype.Component;
@@ -23,7 +22,7 @@ class InvestigationToolsFactory {
         this.props = props;
     }
 
-    InvestigationTools forCase(StoredAlert alert) {
-        return new InvestigationTools(alert, transactions, alerts, knowledge, props.tools());
+    InvestigationTools forCase(CaseContext caseContext) {
+        return new InvestigationTools(caseContext, transactions, alerts, knowledge, props.tools());
     }
 }

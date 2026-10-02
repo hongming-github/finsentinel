@@ -25,19 +25,20 @@ public class AlertRepository {
     }
 
     /**
-     * Inserts the alert unless one with the same id exists.
+     * Inserts the alert into the given case unless an alert with the same id exists.
      *
      * @return true if this call stored it, false if it was a redelivery
      */
-    public boolean insertIfAbsent(Alert alert) {
+    public boolean insertIfAbsent(Alert alert, String caseId) {
         int rows = jdbc.sql("""
-                        insert into alert (alert_id, tenant_id, account_id, customer_id, rule, severity, reason,
+                        insert into alert (alert_id, case_id, tenant_id, account_id, customer_id, rule, severity, reason,
                                            txn_ids, event_time, detected_at)
-                        values (:alertId, :tenantId, :accountId, :customerId, :rule, :severity, :reason,
+                        values (:alertId, :caseId, :tenantId, :accountId, :customerId, :rule, :severity, :reason,
                                 :txnIds, :eventTime, :detectedAt)
                         on conflict (alert_id) do nothing
                         """)
                 .param("alertId", UUID.fromString(alert.alertId()))
+                .param("caseId", UUID.fromString(caseId))
                 .param("tenantId", alert.tenantId())
                 .param("accountId", alert.accountId())
                 .param("customerId", alert.customerId())
@@ -49,6 +50,13 @@ public class AlertRepository {
                 .param("detectedAt", Timestamp.from(alert.detectedAt()))
                 .update();
         return rows == 1;
+    }
+
+    public boolean exists(String alertId) {
+        return jdbc.sql("select exists (select 1 from alert where alert_id = :alertId)")
+                .param("alertId", UUID.fromString(alertId))
+                .query(Boolean.class)
+                .single();
     }
 
     public List<StoredAlert> findRecent(String tenantId, int limit) {
@@ -72,20 +80,30 @@ public class AlertRepository {
                 .optional();
     }
 
-    /** Other alerts on the same account since {@code since}, newest first. */
-    public List<StoredAlert> findForAccount(String tenantId, String accountId, Instant since, String excludeAlertId) {
+    /** The alerts filed under a case, oldest first. */
+    public List<StoredAlert> findByCase(String tenantId, String caseId) {
+        return jdbc.sql("select * from alert where tenant_id = :tenantId and case_id = :caseId order by event_time")
+                .param("tenantId", tenantId)
+                .param("caseId", UUID.fromString(caseId))
+                .query((rs, n) -> map(rs))
+                .list();
+    }
+
+    /** Alerts on the same account since {@code since} that belong to other cases, newest first, with their outcome. */
+    public List<PriorAlert> findPrior(String tenantId, String accountId, Instant since, String excludeCaseId) {
         return jdbc.sql("""
-                        select * from alert
-                        where tenant_id = :tenantId and account_id = :accountId
-                          and event_time >= :since and alert_id <> :exclude
-                        order by event_time desc
+                        select a.*, c.stage as case_stage, c.decision as case_decision
+                        from alert a join fraud_case c using (case_id)
+                        where a.tenant_id = :tenantId and a.account_id = :accountId
+                          and a.event_time >= :since and a.case_id <> :exclude
+                        order by a.event_time desc
                         limit 50
                         """)
                 .param("tenantId", tenantId)
                 .param("accountId", accountId)
                 .param("since", Timestamp.from(since))
-                .param("exclude", UUID.fromString(excludeAlertId))
-                .query((rs, n) -> map(rs))
+                .param("exclude", UUID.fromString(excludeCaseId))
+                .query((rs, n) -> new PriorAlert(map(rs).alert(), rs.getString("case_stage"), rs.getString("case_decision")))
                 .list();
     }
 
@@ -102,7 +120,6 @@ public class AlertRepository {
                 List.of((String[]) txnIds.getArray()),
                 rs.getTimestamp("event_time").toInstant(),
                 rs.getTimestamp("detected_at").toInstant());
-        return new StoredAlert(alert, AlertStatus.valueOf(rs.getString("status")),
-                rs.getTimestamp("received_at").toInstant());
+        return new StoredAlert(alert, rs.getString("case_id"), rs.getTimestamp("received_at").toInstant());
     }
 }
