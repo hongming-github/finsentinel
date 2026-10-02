@@ -1,0 +1,242 @@
+{
+  "note": "Two styles. 'paraphrase': questions an investigator might ask, written in my own words after reading the passages. 'terms': keyword-heavy queries of the kind the agent itself writes when it calls searchRegulations. Every passage that answers a question is listed. Authored by the same person who built the chunker, so treat scores as a regression baseline, not an unbiased benchmark.",
+  "questions": [
+    {
+      "q": "How long must the bank stop risky actions such as adding a payee after the customer logs in on a new phone?",
+      "relevant": [
+        "eupg-2024:4.7",
+        "srf-2024:4.2.1"
+      ],
+      "style": "paraphrase"
+    },
+    {
+      "q": "What is the deadline for a customer to tell the bank about a transaction they did not make?",
+      "relevant": [
+        "eupg-2024:3.14"
+      ],
+      "style": "paraphrase"
+    },
+    {
+      "q": "When and how quickly must the bank alert customers about money leaving their account?",
+      "relevant": [
+        "eupg-2024:4.10",
+        "srf-2024:4.2.3"
+      ],
+      "style": "paraphrase"
+    },
+    {
+      "q": "Must customers be able to freeze their own account access immediately without calling anyone?",
+      "relevant": [
+        "eupg-2024:4.14",
+        "srf-2024:4.2.4"
+      ],
+      "style": "paraphrase"
+    },
+    {
+      "q": "Is the bank expected to catch and hold suspicious unauthorised payments before they are executed?",
+      "relevant": [
+        "eupg-2024:4.21",
+        "srf-2024:4.2.5",
+        "trm-2021:14.3.1"
+      ],
+      "style": "paraphrase"
+    },
+    {
+      "q": "In which situation does the customer carry the whole loss from an unauthorised payment?",
+      "relevant": [
+        "eupg-2024:5.2"
+      ],
+      "style": "paraphrase"
+    },
+    {
+      "q": "Who pays back a phishing victim if the bank failed one of its anti-scam obligations?",
+      "relevant": [
+        "srf-2024:6.2"
+      ],
+      "style": "paraphrase"
+    },
+    {
+      "q": "Under what conditions is the mobile operator responsible for a scam loss?",
+      "relevant": [
+        "srf-2024:6.4"
+      ],
+      "style": "paraphrase"
+    },
+    {
+      "q": "If neither the bank nor the telco breached any duty, who absorbs the money lost to a phishing scam?",
+      "relevant": [
+        "srf-2024:6.7"
+      ],
+      "style": "paraphrase"
+    },
+    {
+      "q": "Does a scam victim have to go to the police?",
+      "relevant": [
+        "eupg-2024:3.19"
+      ],
+      "style": "paraphrase"
+    },
+    {
+      "q": "Who inside the bank should review a customer's claim that a payment was unauthorised?",
+      "relevant": [
+        "eupg-2024:4.22"
+      ],
+      "style": "paraphrase"
+    },
+    {
+      "q": "Is there a minimum amount below which a suspicious transaction need not be reported to the authorities?",
+      "relevant": [
+        "notice-626-2025:14.2"
+      ],
+      "style": "paraphrase"
+    },
+    {
+      "q": "Should the bank write down its reasons when it decides a case does not warrant a suspicious transaction report?",
+      "relevant": [
+        "notice-626-2025:14.3"
+      ],
+      "style": "paraphrase"
+    },
+    {
+      "q": "What if carrying out due diligence would alert the customer that they are suspected of laundering money?",
+      "relevant": [
+        "notice-626-2025:14.4"
+      ],
+      "style": "paraphrase"
+    },
+    {
+      "q": "For how many years must customer identification and transaction records be kept?",
+      "relevant": [
+        "notice-626-2025:12.3"
+      ],
+      "style": "paraphrase"
+    },
+    {
+      "q": "What additional checks apply when the customer is a politically exposed person?",
+      "relevant": [
+        "notice-626-2025:8.3",
+        "notice-626-2025:8.2"
+      ],
+      "style": "paraphrase"
+    },
+    {
+      "q": "Is two-factor authentication required when customers sign in to internet banking?",
+      "relevant": [
+        "trm-2021:14.2.1"
+      ],
+      "style": "paraphrase"
+    },
+    {
+      "q": "What should the bank do about customers using its app on rooted or jailbroken devices?",
+      "relevant": [
+        "trm-2021:14.1.7"
+      ],
+      "style": "paraphrase"
+    },
+    {
+      "q": "What must telcos do to stop fake sender IDs on scam SMS messages?",
+      "relevant": [
+        "srf-2024:5.2.1",
+        "srf-2024:5.2.2",
+        "srf-2024:5.2.3"
+      ],
+      "style": "paraphrase"
+    },
+    {
+      "q": "What details about the sender must travel with an overseas funds transfer above S$1,500?",
+      "relevant": [
+        "notice-626-2025:11.5"
+      ],
+      "style": "paraphrase"
+    },
+    {
+      "q": "May the bank include clickable links in the SMS messages it sends to retail customers?",
+      "relevant": [
+        "eupg-2024:4.4"
+      ],
+      "style": "paraphrase"
+    },
+    {
+      "q": "How often should the bank review the parameters it uses to detect unauthorised transactions?",
+      "relevant": [
+        "eupg-2024:4.21"
+      ],
+      "style": "paraphrase"
+    },
+    {
+      "q": "cooling off period 12 hours high-risk activities new device",
+      "relevant": [
+        "eupg-2024:4.7",
+        "srf-2024:4.2.1"
+      ],
+      "style": "terms"
+    },
+    {
+      "q": "kill switch block further access protected account",
+      "relevant": [
+        "eupg-2024:4.14",
+        "srf-2024:4.2.4"
+      ],
+      "style": "terms"
+    },
+    {
+      "q": "suspicious transaction report STR regardless of amount",
+      "relevant": [
+        "notice-626-2025:14.2"
+      ],
+      "style": "terms"
+    },
+    {
+      "q": "enhanced CDD politically exposed person",
+      "relevant": [
+        "notice-626-2025:8.3",
+        "notice-626-2025:8.2"
+      ],
+      "style": "terms"
+    },
+    {
+      "q": "cross-border wire transfer exceeds S$1,500 originator information",
+      "relevant": [
+        "notice-626-2025:11.5"
+      ],
+      "style": "terms"
+    },
+    {
+      "q": "real-time fraud surveillance detect block unauthorised transactions",
+      "relevant": [
+        "eupg-2024:4.21",
+        "srf-2024:4.2.5",
+        "trm-2021:14.3.1"
+      ],
+      "style": "terms"
+    },
+    {
+      "q": "record retention period CDD information",
+      "relevant": [
+        "notice-626-2025:12.3"
+      ],
+      "style": "terms"
+    },
+    {
+      "q": "account holder liable actual loss recklessness",
+      "relevant": [
+        "eupg-2024:5.2"
+      ],
+      "style": "terms"
+    },
+    {
+      "q": "telco bears loss seemingly authorised transaction SMS",
+      "relevant": [
+        "srf-2024:6.4"
+      ],
+      "style": "terms"
+    },
+    {
+      "q": "multi-factor authentication login online financial services",
+      "relevant": [
+        "trm-2021:14.2.1"
+      ],
+      "style": "terms"
+    }
+  ]
+}

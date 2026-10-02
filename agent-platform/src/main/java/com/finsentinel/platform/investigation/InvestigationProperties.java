@@ -44,8 +44,11 @@ public record InvestigationProperties(boolean enabled, int batchSize, Duration c
      * @param fraudMinScore      a LIKELY_FRAUD report must score at least this
      * @param legitimateMaxScore a LIKELY_LEGITIMATE report must score at most this
      * @param maxRepairs         extra LLM calls allowed to fix a rejected report; bounds cost per case
+     * @param requireRegulationsForTransfers a case involving a transfer that is not judged LIKELY_LEGITIMATE must
+     *                                       carry regulatory notes; the model skipped the search too often to leave it
+     *                                       to the prompt
      */
-    public record Report(int fraudMinScore, int legitimateMaxScore, int maxRepairs) {
+    public record Report(int fraudMinScore, int legitimateMaxScore, int maxRepairs, boolean requireRegulationsForTransfers) {
 
         public Report {
             require(legitimateMaxScore >= 0 && legitimateMaxScore < fraudMinScore && fraudMinScore <= 100,

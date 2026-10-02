@@ -9,6 +9,8 @@ decisions in `docs/adr/`.
 - Test: `./mvnw test` (Docker required; agent-platform uses Testcontainers)
 - Infra: `docker compose -f deploy/docker-compose.yml --profile core up -d`
 - Run: see README "Quick start"
+- Retrieval eval (costs a little): `./mvnw -pl agent-platform test -Dtest=RetrievalEvalTest -Dlive=true -Dsurefire.failIfNoSpecifiedTests=false`
+- Knowledge documents: `./scripts/fetch-knowledge.sh` (PDFs are gitignored, MAS copyright)
 - Live LLM tests (cost money): `./mvnw -pl agent-platform test -Dtest=LiveInvestigationTest -Dlive=true -Dsurefire.failIfNoSpecifiedTests=false`
 
 ## Rules
@@ -18,7 +20,9 @@ decisions in `docs/adr/`.
 - Jackson 3 (`tools.jackson`) everywhere in our code.
 - Rule logic lives in `stream-job/.../rules` as pure Java; Flink functions stay thin wrappers.
 - Types that cross Flink operators or live in state must stay Flink POJOs; `SerializationTest` guards this.
-- Every read in the platform is tenant-scoped.
+- Every read in the platform is tenant-scoped. Exception: the regulatory knowledge base (public MAS text) is global.
+- Rule-specific agent guidance goes in `prompts/playbooks/<RULE>.md`, never in the shared system prompt (ADR 0007).
+- After changing the chunker or retrieval, run `RetrievalEvalTest` and compare with the table in ADR 0007.
 - Alert ids are deterministic (ADR 0003). Do not change `Alert.idFor` casually.
 - Check dependency versions on Maven Central before adding or bumping; do not guess.
 - Agent tools are scoped by construction (tenant/account fixed in `InvestigationTools`); never add a tool

@@ -107,10 +107,21 @@ class InvestigationToolsTest {
     }
 
     @Test
+    void regulationSearchesAreCappedPerCase() {
+        InvestigationTools tools = toolsFor(alert(uniqueTenant(), "acc-1", AlertRule.VELOCITY, Severity.LOW, List.of(), Instant.now()));
+
+        for (int i = 0; i < 3; i++) {
+            assertThat(tools.searchRegulations("cooling off period").note()).doesNotContain("limit");
+        }
+
+        assertThat(tools.searchRegulations("one more").note()).contains("limit");
+    }
+
+    @Test
     void citedIdsTheToolsNeverReturnedAreFlagged() {
         CaseReport report = new CaseReport(Disposition.LIKELY_FRAUD, 90, "s", List.of(
                 new CaseReport.Finding("seen", List.of("a", "b")),
-                new CaseReport.Finding("invented", List.of("b", "zzz"))), List.of());
+                new CaseReport.Finding("invented", List.of("b", "zzz"))), List.of(), List.of());
 
         assertThat(CaseReportValidator.ungrounded(report, Set.of("a", "b"))).containsExactly("zzz");
     }

@@ -11,11 +11,16 @@ import java.lang.annotation.Target;
 /**
  * Shared setup for platform integration tests. Every test class uses the same properties and imports,
  * so Spring caches one context (and one set of containers) for the whole run. Scheduled investigation
- * polling is off; tests drive {@code InvestigationWorker.runOnce()} directly.
+ * polling and knowledge sync are off, reranking is off, and embeddings are faked: normal tests never call a
+ * model API. Live tests opt back in with {@code finsentinel.test.fake-ai=false}.
  */
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
-@SpringBootTest(properties = "finsentinel.investigation.enabled=false")
-@Import({TestcontainersConfig.class, StubCaseInvestigator.class})
+@SpringBootTest(properties = {
+        "finsentinel.investigation.enabled=false",
+        "finsentinel.knowledge.sync-on-startup=false",
+        "finsentinel.knowledge.search.rerank.enabled=false",
+        "finsentinel.knowledge.dir=../knowledge"})
+@Import({TestcontainersConfig.class, StubCaseInvestigator.class, FakeEmbedder.class})
 public @interface PlatformTest {
 }
