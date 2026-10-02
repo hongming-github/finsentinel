@@ -13,18 +13,21 @@ import java.time.Duration;
  * @param maxAttempts  after this many failed attempts the alert is marked FAILED
  * @param maxPerHour   spend circuit breaker: investigations started per rolling hour; 0 = unlimited.
  *                     An upstream alert storm must not turn directly into an unbounded LLM bill.
+ * @param claimLockTimeout longest wait for the cross-instance claim lock before skipping a poll
  * @param tools        limits on what one tool call may fetch
  * @param report       acceptance rules for the agent's report
  */
 @ConfigurationProperties("finsentinel.investigation")
 public record InvestigationProperties(boolean enabled, int batchSize, Duration claimTimeout, int maxAttempts,
-                                      int maxPerHour, Tools tools, Report report) {
+                                      int maxPerHour, Duration claimLockTimeout, Tools tools, Report report) {
 
     public InvestigationProperties {
         require(batchSize > 0, "batch-size must be positive");
         require(maxAttempts > 0, "max-attempts must be positive");
         require(maxPerHour >= 0, "max-per-hour must be 0 (unlimited) or positive");
         require(claimTimeout != null && !claimTimeout.isNegative() && !claimTimeout.isZero(), "claim-timeout must be positive");
+        require(claimLockTimeout != null && !claimLockTimeout.isNegative() && !claimLockTimeout.isZero(),
+                "claim-lock-timeout must be positive");
         require(tools != null, "tools settings are required");
         require(report != null, "report settings are required");
     }

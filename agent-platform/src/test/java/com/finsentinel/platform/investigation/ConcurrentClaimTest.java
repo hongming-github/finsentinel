@@ -3,11 +3,13 @@ package com.finsentinel.platform.investigation;
 import com.finsentinel.common.AlertRule;
 import com.finsentinel.common.Severity;
 import com.finsentinel.platform.PlatformTest;
+import com.finsentinel.platform.StubCaseInvestigator;
 import com.finsentinel.platform.alert.AlertRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -40,6 +42,10 @@ class ConcurrentClaimTest {
     AlertRepository alerts;
     @Autowired
     JdbcClient jdbc;
+    @Autowired
+    TransactionTemplate transactions;
+    @Autowired
+    StubCaseInvestigator investigator;
 
     @BeforeEach
     void freshQueue() {
@@ -67,6 +73,43 @@ class ConcurrentClaimTest {
         assertThat(claimed).hasSize(10).doesNotHaveDuplicates();
     }
 
+    @Test
+    void workerSkipsThePollWhenAnotherInstanceHoldsTheLockTooLong() throws Exception {
+        CountDownLatch locked = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        Thread holder = Thread.ofVirtual().start(() -> transactions.executeWithoutResult(status -> {
+            // Simulates an instance that took the claim lock and then stalled (GC pause, network hiccup).
+            jdbc.sql("select pg_advisory_xact_lock(:key)").param("key", InvestigationRepository.CLAIM_LOCK_KEY)
+                    .query(rs -> {
+                    });
+            locked.countDown();
+            try {
+                release.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }));
+        locked.await();
+        InvestigationWorker worker = new InvestigationWorker(queue, investigator, new InvestigationProperties(true, 3,
+                Duration.ofMinutes(5), 3, 1_000, Duration.ofMillis(300), new InvestigationProperties.Tools(90, 100),
+                new InvestigationProperties.Report(60, 40, 1, true)));
+
+        int claimed;
+        long waitedMs;
+        try {
+            long started = System.nanoTime();
+            claimed = worker.runOnce();
+            waitedMs = (System.nanoTime() - started) / 1_000_000;
+        } finally {
+            // Always let go: a leaked lock would time out every later test that shares this database.
+            release.countDown();
+            holder.join();
+        }
+        assertThat(claimed).isZero();
+        assertThat(waitedMs).as("gave up near the timeout instead of waiting for the holder").isBetween(250L, 2_000L);
+        assertThat(worker.runOnce()).as("next poll works once the lock is free").isEqualTo(3);
+    }
+
     /** All workers start together and keep claiming batches of 3 until nothing is left for them. */
     private List<String> claimConcurrently(int maxPerHour) throws Exception {
         List<String> claimed = Collections.synchronizedList(new ArrayList<>());
@@ -78,7 +121,7 @@ class ConcurrentClaimTest {
                     start.await();
                     while (true) {
                         InvestigationRepository.ClaimBatch batch =
-                                queue.claimWithinBudget(3, Duration.ofMinutes(5), 3, maxPerHour);
+                                queue.claimWithinBudget(3, Duration.ofMinutes(5), 3, maxPerHour, Duration.ofSeconds(5));
                         if (batch.claims().isEmpty()) {
                             return null;
                         }
