@@ -21,6 +21,19 @@ listener, a second Kafka topic, or a queue table.
 - **Spend circuit breaker:** at most `max-per-hour` investigations start per rolling hour. When it is
   reached, alerts stay queued and a warning is logged.
 
+## Running several instances
+
+`@Scheduled` is only a per-instance alarm clock; nothing that affects correctness is held in memory.
+
+- Claims use `FOR UPDATE SKIP LOCKED`, so concurrent instances get disjoint alerts without waiting on each other.
+- The budget check and the claim run in one transaction under `pg_advisory_xact_lock`. Without it, instances read
+  "N left" at the same moment and overshoot: `ConcurrentClaimTest` claimed 12-13 against a budget of 10 with the
+  lock removed, exactly 10 with it. The lock is held for milliseconds.
+- Redis is not needed for this. Postgres already provides the mutual exclusion, and a Redis lock would still need
+  the fencing token for correctness. Redis earns its place for cross-service rate limits and the semantic cache
+  (phase 5). A single queue table stops scaling at thousands of claims per second; LLM-bound investigations run at
+  a few per second.
+
 ## Consequences
 
 - Durable and restart-safe with no extra infrastructure; the state is queryable with SQL.

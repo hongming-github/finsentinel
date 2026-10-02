@@ -13,6 +13,10 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * Polls the queue and runs investigations. Each poll claims at most {@code batchSize} alerts and waits
  * for them to finish, so {@code batchSize} is a hard cap on concurrent LLM calls from this instance.
+ *
+ * <p>Safe to run on several instances: the schedule is only a local alarm clock. Coordination lives in Postgres
+ * ({@code SKIP LOCKED} claims, {@code claimed_at} fencing, an advisory lock around the budget check), so no
+ * alert is investigated twice and the hourly budget holds across instances.
  */
 @Component
 public class InvestigationWorker {
@@ -43,16 +47,13 @@ public class InvestigationWorker {
         if (abandoned > 0) {
             log.warn("Marked {} abandoned investigations as FAILED", abandoned);
         }
-        int capacity = props.batchSize();
-        if (props.maxPerHour() > 0) {
-            int remaining = props.maxPerHour() - queue.startedInLastHour();
-            if (remaining <= 0) {
-                warnBudgetExhausted();
-                return 0;
-            }
-            capacity = Math.min(capacity, remaining);
+        InvestigationRepository.ClaimBatch batch = queue.claimWithinBudget(props.batchSize(), props.claimTimeout(),
+                props.maxAttempts(), props.maxPerHour());
+        if (batch.budgetExhausted()) {
+            warnBudgetExhausted();
+            return 0;
         }
-        List<Claim> claims = queue.claim(capacity, props.claimTimeout(), props.maxAttempts());
+        List<Claim> claims = batch.claims();
         try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
             claims.forEach(claim -> executor.submit(() -> process(claim)));
         }

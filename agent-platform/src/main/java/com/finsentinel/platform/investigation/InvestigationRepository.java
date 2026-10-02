@@ -21,12 +21,44 @@ import java.util.UUID;
 @Repository
 public class InvestigationRepository {
 
+    /** Arbitrary but fixed key for the advisory lock that serialises budget-checked claims across instances. */
+    private static final long CLAIM_LOCK_KEY = 7_301_001L;
+
     private final JdbcClient jdbc;
     private final JsonMapper json;
 
     InvestigationRepository(JdbcClient jdbc, JsonMapper json) {
         this.jdbc = jdbc;
         this.json = json;
+    }
+
+    /**
+     * Claims within the hourly budget, exactly, across any number of platform instances.
+     *
+     * <p>Checking the budget and then claiming are two statements; without a lock, two instances could both read
+     * "one left" and both claim. A transaction-scoped advisory lock makes check-and-claim one critical section.
+     * Claims take milliseconds, so instances barely wait. Row locking ({@code SKIP LOCKED}) still does the
+     * de-duplication; the advisory lock only protects the budget arithmetic.
+     *
+     * @param maxPerHour 0 means unlimited, and then no lock is taken
+     */
+    @Transactional
+    public ClaimBatch claimWithinBudget(int batchSize, Duration claimTimeout, int maxAttempts, int maxPerHour) {
+        int limit = batchSize;
+        if (maxPerHour > 0) {
+            jdbc.sql("select pg_advisory_xact_lock(:key)").param("key", CLAIM_LOCK_KEY).query(rs -> {
+            });
+            int remaining = maxPerHour - startedInLastHour();
+            if (remaining <= 0) {
+                return new ClaimBatch(List.of(), true);
+            }
+            limit = Math.min(limit, remaining);
+        }
+        return new ClaimBatch(claim(limit, claimTimeout, maxAttempts), false);
+    }
+
+    /** @param budgetExhausted true when nothing was claimed because the hourly budget is used up */
+    public record ClaimBatch(List<Claim> claims, boolean budgetExhausted) {
     }
 
     /**

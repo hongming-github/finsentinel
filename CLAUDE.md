@@ -29,6 +29,9 @@ decisions in `docs/adr/`.
   parameter that selects tenant or account.
 - Normal tests must not call an LLM: `@PlatformTest` swaps in `StubCaseInvestigator`.
 - Never remove or bypass `max-per-hour`; any new LLM-calling path needs a budget.
+- The platform must be safe to run as several instances: coordinate through Postgres (row locks, fencing,
+  advisory locks), never through in-memory state. Prove concurrency fixes with a test that fails without them,
+  on a `clean` build.
 - Spring AI 2.0 OpenAI uses Chat Completions: gpt-5.x rejects tools + reasoning there, so `reasoning-effort: none`.
 - No tunable numbers in code: Spring settings go in `application.yaml` via `@ConfigurationProperties` records
   (validated in their compact constructors); Flink settings go in `stream-job.properties`.
