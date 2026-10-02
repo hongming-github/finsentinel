@@ -1,15 +1,42 @@
 package com.finsentinel.stream;
 
+import com.finsentinel.stream.rules.RuleConfig;
+import com.finsentinel.stream.rules.Settings;
+
+import java.time.Duration;
 import java.util.Map;
+import java.util.Properties;
 
-/** Job settings from environment variables, with defaults that match deploy/docker-compose.yml. */
-record JobConfig(String bootstrapServers, String groupId, long checkpointIntervalMs, int webUiPort) {
+/**
+ * Job settings. Precedence, lowest to highest: bundled stream-job.properties, environment, {@code --key=value}
+ * arguments. Unknown keys are rejected so a typo cannot silently fall back to a default threshold.
+ */
+record JobConfig(String bootstrapServers, String groupId, Duration checkpointInterval, int webUiPort,
+                 Duration stateTtl, RuleConfig rules) {
 
-    static JobConfig fromEnv(Map<String, String> env) {
+    static JobConfig load(String[] args, Map<String, String> env) {
+        Properties p = Settings.defaults();
+        String envBootstrap = env.get("KAFKA_BOOTSTRAP_SERVERS");
+        if (envBootstrap != null && !envBootstrap.isBlank()) {
+            p.setProperty("kafka.bootstrap-servers", envBootstrap);
+        }
+        for (String arg : args) {
+            int eq = arg.indexOf('=');
+            if (!arg.startsWith("--") || eq < 0) {
+                throw new IllegalArgumentException("Expected --key=value, got: " + arg);
+            }
+            String key = arg.substring(2, eq);
+            if (!p.containsKey(key)) {
+                throw new IllegalArgumentException("Unknown setting: " + key);
+            }
+            p.setProperty(key, arg.substring(eq + 1));
+        }
         return new JobConfig(
-                env.getOrDefault("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092"),
-                env.getOrDefault("STREAM_GROUP_ID", "finsentinel-stream"),
-                Long.parseLong(env.getOrDefault("CHECKPOINT_INTERVAL_MS", "10000")),
-                Integer.parseInt(env.getOrDefault("FLINK_LOCAL_UI_PORT", "8082")));
+                Settings.string(p, "kafka.bootstrap-servers"),
+                Settings.string(p, "kafka.group-id"),
+                Settings.duration(p, "checkpoint.interval"),
+                Settings.integer(p, "local.web-ui-port"),
+                Settings.duration(p, "state.ttl"),
+                RuleConfig.from(p));
     }
 }

@@ -4,12 +4,9 @@ import com.finsentinel.common.Alert;
 import com.finsentinel.common.AlertRule;
 import com.finsentinel.common.Severity;
 import com.finsentinel.common.Topics;
-import com.finsentinel.platform.TestcontainersConfig;
+import com.finsentinel.platform.PlatformTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
-import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.kafka.core.KafkaTemplate;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -22,8 +19,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
-@SpringBootTest
-@Import(TestcontainersConfig.class)
+@PlatformTest
 class AlertIntakeIntegrationTest {
 
     @Autowired
@@ -32,8 +28,6 @@ class AlertIntakeIntegrationTest {
     JsonMapper json;
     @Autowired
     AlertRepository repository;
-    @Autowired
-    JdbcClient jdbc;
 
     @Test
     void redeliveredAlertIsStoredOnce() {

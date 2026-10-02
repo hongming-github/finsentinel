@@ -1,0 +1,121 @@
+package com.finsentinel.platform.investigation;
+
+import com.finsentinel.common.Alert;
+import com.finsentinel.common.AlertRule;
+import com.finsentinel.common.Channel;
+import com.finsentinel.common.Severity;
+import com.finsentinel.common.Transaction;
+import com.finsentinel.platform.PlatformTest;
+import com.finsentinel.platform.alert.AlertRepository;
+import com.finsentinel.platform.alert.AlertStatus;
+import com.finsentinel.platform.alert.StoredAlert;
+import com.finsentinel.platform.transaction.TransactionRepository;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.Set;
+
+import static com.finsentinel.platform.TestData.alert;
+import static com.finsentinel.platform.TestData.txn;
+import static com.finsentinel.platform.TestData.uniqueTenant;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
+
+@PlatformTest
+class InvestigationToolsTest {
+
+    @Autowired
+    TransactionRepository transactions;
+    @Autowired
+    AlertRepository alerts;
+    @Autowired
+    InvestigationToolsFactory toolsFactory;
+
+    @Test
+    void toolsOnlySeeTheAlertsOwnTenantAndAccount() {
+        String tenant = uniqueTenant();
+        String otherTenant = uniqueTenant();
+        Instant now = Instant.now();
+        Transaction mine = txn(tenant, "acc-1", "10", Channel.CARD_PRESENT, "SG", now.minusSeconds(60));
+        Transaction myHistory = txn(tenant, "acc-1", "15", Channel.CARD_PRESENT, "SG", now.minusSeconds(86_400));
+        Transaction sameAccountIdOtherBank = txn(otherTenant, "acc-1", "20", Channel.CARD_PRESENT, "SG", now.minusSeconds(60));
+        Transaction otherAccount = txn(tenant, "acc-2", "30", Channel.CARD_PRESENT, "SG", now.minusSeconds(60));
+        transactions.insertAll(List.of(mine, myHistory, sameAccountIdOtherBank, otherAccount));
+
+        InvestigationTools tools = toolsFor(alert(tenant, "acc-1", AlertRule.VELOCITY, Severity.MEDIUM,
+                List.of(mine.txnId(), sameAccountIdOtherBank.txnId(), otherAccount.txnId()), now));
+
+        assertThat(tools.getAlertTransactions()).extracting(InvestigationTools.TxnView::id).containsExactly(mine.txnId());
+        assertThat(tools.getRecentTransactions(7, 100)).extracting(InvestigationTools.TxnView::id)
+                .containsExactly(mine.txnId(), myHistory.txnId());
+        // Baseline: own history only, without the alert's transaction.
+        assertThat(tools.getAccountProfile(7).amounts().transactionCount()).isEqualTo(1);
+    }
+
+    @Test
+    void transactionViewDropsFieldsThatRepeatOnEveryRow() {
+        Transaction t = txn("bank", "acc-1", "84.2", Channel.CARD_PRESENT, "SG", "m-7", Instant.parse("2026-09-30T13:11:38.114530Z"));
+
+        InvestigationTools.TxnView view = InvestigationTools.TxnView.of(t);
+
+        assertThat(view).isEqualTo(new InvestigationTools.TxnView(t.txnId(), Instant.parse("2026-09-30T13:11:38Z"),
+                "84.20 SGD", "CARD_PRESENT", "SG", "m-7", "5411"));
+    }
+
+    @Test
+    void outOfRangeArgumentsAreClamped() {
+        String tenant = uniqueTenant();
+        InvestigationTools tools = toolsFor(alert(tenant, "acc-1", AlertRule.VELOCITY, Severity.LOW, List.of(), Instant.now()));
+
+        tools.getRecentTransactions(10_000, 10_000);
+
+        assertThat(tools.calls()).singleElement()
+                .extracting(ToolCall::arguments).isEqualTo("days=90, limit=100");
+    }
+
+    @Test
+    void priorAlertsExcludeTheCurrentOne() {
+        String tenant = uniqueTenant();
+        Instant now = Instant.now();
+        Alert earlier = alert(tenant, "acc-1", AlertRule.LARGE_AMOUNT, Severity.MEDIUM, List.of("x"), now.minusSeconds(86_400));
+        Alert current = alert(tenant, "acc-1", AlertRule.GEO_JUMP, Severity.HIGH, List.of("y"), now);
+        alerts.insertIfAbsent(earlier);
+        alerts.insertIfAbsent(current);
+
+        List<InvestigationTools.PriorAlert> prior = toolsFor(current).getPriorAlerts(30);
+
+        assertThat(prior).singleElement().extracting(InvestigationTools.PriorAlert::rule).isEqualTo("LARGE_AMOUNT");
+    }
+
+    @Test
+    void counterpartyHistoryDistinguishesNewFromEstablishedPayees() {
+        String tenant = uniqueTenant();
+        Instant now = Instant.now();
+        Transaction earlierRent = txn(tenant, "acc-1", "1800", Channel.TRANSFER, "SG", "payee-landlord", now.minusSeconds(30 * 86_400L));
+        Transaction rent = txn(tenant, "acc-1", "1800", Channel.TRANSFER, "SG", "payee-landlord", now.minusSeconds(60));
+        Transaction scam = txn(tenant, "acc-1", "9000", Channel.TRANSFER, "SG", "payee-unknown", now);
+        transactions.insertAll(List.of(earlierRent, rent, scam));
+
+        List<InvestigationTools.CounterpartyCheck> checks = toolsFor(alert(tenant, "acc-1", AlertRule.LARGE_AMOUNT,
+                Severity.MEDIUM, List.of(rent.txnId(), scam.txnId()), now)).getCounterpartyHistory();
+
+        assertThat(checks).extracting(InvestigationTools.CounterpartyCheck::counterparty,
+                        InvestigationTools.CounterpartyCheck::priorCount)
+                .containsExactly(tuple("payee-landlord", 1L), tuple("payee-unknown", 0L));
+    }
+
+    @Test
+    void citedIdsTheToolsNeverReturnedAreFlagged() {
+        CaseReport report = new CaseReport(Disposition.LIKELY_FRAUD, 90, "s", List.of(
+                new CaseReport.Finding("seen", List.of("a", "b")),
+                new CaseReport.Finding("invented", List.of("b", "zzz"))), List.of());
+
+        assertThat(CaseReportValidator.ungrounded(report, Set.of("a", "b"))).containsExactly("zzz");
+    }
+
+    private InvestigationTools toolsFor(Alert alert) {
+        return toolsFactory.forCase(new StoredAlert(alert, AlertStatus.NEW, Instant.now()));
+    }
+}

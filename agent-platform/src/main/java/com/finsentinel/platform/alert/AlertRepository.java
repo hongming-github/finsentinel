@@ -10,7 +10,9 @@ import java.sql.Array;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Repository
@@ -62,7 +64,32 @@ public class AlertRepository {
                 .list();
     }
 
-    private static StoredAlert map(ResultSet rs) throws SQLException {
+    public Optional<StoredAlert> findById(String tenantId, String alertId) {
+        return jdbc.sql("select * from alert where tenant_id = :tenantId and alert_id = :alertId")
+                .param("tenantId", tenantId)
+                .param("alertId", UUID.fromString(alertId))
+                .query((rs, n) -> map(rs))
+                .optional();
+    }
+
+    /** Other alerts on the same account since {@code since}, newest first. */
+    public List<StoredAlert> findForAccount(String tenantId, String accountId, Instant since, String excludeAlertId) {
+        return jdbc.sql("""
+                        select * from alert
+                        where tenant_id = :tenantId and account_id = :accountId
+                          and event_time >= :since and alert_id <> :exclude
+                        order by event_time desc
+                        limit 50
+                        """)
+                .param("tenantId", tenantId)
+                .param("accountId", accountId)
+                .param("since", Timestamp.from(since))
+                .param("exclude", UUID.fromString(excludeAlertId))
+                .query((rs, n) -> map(rs))
+                .list();
+    }
+
+    public static StoredAlert map(ResultSet rs) throws SQLException {
         Array txnIds = rs.getArray("txn_ids");
         Alert alert = new Alert(
                 rs.getString("alert_id"),

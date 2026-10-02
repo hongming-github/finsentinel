@@ -3,6 +3,7 @@ package com.finsentinel.stream.rules;
 import java.io.Serializable;
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.util.Properties;
 
 /** Thresholds for the built-in rules. Serializable because Flink ships it to every task. */
 public record RuleConfig(
@@ -14,10 +15,28 @@ public record RuleConfig(
         BigDecimal hardLimit,
         Duration geoJumpWindow) implements Serializable {
 
-    public static RuleConfig defaults() {
+    public RuleConfig {
+        if (velocityThreshold < 2) {
+            throw new IllegalArgumentException("rules.velocity.threshold must be at least 2");
+        }
+        if (velocityWindow.isNegative() || velocityWindow.isZero() || geoJumpWindow.isNegative() || geoJumpWindow.isZero()) {
+            throw new IllegalArgumentException("rule windows must be positive");
+        }
+    }
+
+    public static RuleConfig from(Properties p) {
         return new RuleConfig(
-                Duration.ofSeconds(60), 8,
-                10, 6.0, 5.0, new BigDecimal("50000"),
-                Duration.ofHours(2));
+                Settings.duration(p, "rules.velocity.window"),
+                Settings.integer(p, "rules.velocity.threshold"),
+                Settings.integer(p, "rules.large-amount.min-history"),
+                Settings.decimal(p, "rules.large-amount.std-devs"),
+                Settings.decimal(p, "rules.large-amount.mean-multiple"),
+                new BigDecimal(Settings.string(p, "rules.large-amount.hard-limit")),
+                Settings.duration(p, "rules.geo-jump.window"));
+    }
+
+    /** The values in the bundled stream-job.properties. */
+    public static RuleConfig defaults() {
+        return from(Settings.defaults());
     }
 }

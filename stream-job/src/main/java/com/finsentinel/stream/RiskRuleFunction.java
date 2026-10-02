@@ -18,21 +18,21 @@ import java.time.Instant;
 /** Keyed by tenant|account. Holds one {@link AccountRiskState} per account and delegates to {@link RuleEngine}. */
 class RiskRuleFunction extends KeyedProcessFunction<String, Transaction, Alert> {
 
-    /** Accounts idle longer than this lose their baseline; bounds state size. */
-    private static final Duration STATE_TTL = Duration.ofDays(30);
-
     private final RuleEngine engine;
+    /** Accounts idle longer than this lose their baseline; bounds state size. */
+    private final Duration stateTtl;
     private transient ValueState<AccountRiskState> state;
 
-    RiskRuleFunction(RuleConfig config) {
+    RiskRuleFunction(RuleConfig config, Duration stateTtl) {
         this.engine = new RuleEngine(config);
+        this.stateTtl = stateTtl;
     }
 
     @Override
     public void open(OpenContext openContext) {
         ValueStateDescriptor<AccountRiskState> descriptor =
                 new ValueStateDescriptor<>("account-risk", AccountRiskState.class);
-        descriptor.enableTimeToLive(StateTtlConfig.newBuilder(STATE_TTL).build());
+        descriptor.enableTimeToLive(StateTtlConfig.newBuilder(stateTtl).build());
         state = getRuntimeContext().getState(descriptor);
     }
 

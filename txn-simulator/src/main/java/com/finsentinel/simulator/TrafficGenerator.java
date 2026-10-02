@@ -13,25 +13,40 @@ import java.util.List;
 import java.util.Random;
 import java.util.UUID;
 
-/** Produces normal and fraudulent transactions. Deterministic for a given seed. */
+/** Produces normal and fraudulent transactions. Traffic is deterministic for a given seed. */
 class TrafficGenerator {
 
     static final List<String> TENANTS = List.of("harbour", "straits");
+    /** Shared pool of everyday merchants; fraud uses ids outside it so they are new to every account. */
+    private static final int MERCHANT_POOL = 2000;
     private static final String[] MCC = {"5411", "5812", "5999", "4121", "5732", "4814"};
     private static final String[] ONLINE_COUNTRIES = {"SG", "SG", "SG", "US", "GB", "HK"};
     private static final String[] TRAVEL_COUNTRIES = {"GB", "US", "JP", "TH", "AU"};
 
+    /**
+     * Fixed on purpose: an account id must always describe the same customer (home country, spending level,
+     * regular merchants) across runs, or history from one run contradicts the next. Only traffic varies by seed.
+     */
+    private static final long POPULATION_SEED = 20260930L;
+
     private final Random random;
     private final List<Account> accounts = new ArrayList<>();
 
-    TrafficGenerator(int accountsPerTenant, long seed) {
-        this.random = new Random(seed);
+    TrafficGenerator(int accountsPerTenant, long trafficSeed) {
+        Random population = new Random(POPULATION_SEED);
+        this.random = new Random(trafficSeed);
         for (String tenant : TENANTS) {
             for (int i = 0; i < accountsPerTenant; i++) {
-                String home = random.nextDouble() < 0.9 ? "SG" : "MY";
-                BigDecimal typical = BigDecimal.valueOf(20 + random.nextInt(280));
-                accounts.add(new Account(tenant, "%s-acc-%04d".formatted(tenant, i),
-                        "%s-cus-%04d".formatted(tenant, i), home, typical));
+                String home = population.nextDouble() < 0.9 ? "SG" : "MY";
+                BigDecimal typical = BigDecimal.valueOf(20 + population.nextInt(280));
+                List<String> merchants = new ArrayList<>();
+                for (int m = 0; m < 8; m++) {
+                    merchants.add("m-" + population.nextInt(MERCHANT_POOL));
+                }
+                String accountId = "%s-acc-%04d".formatted(tenant, i);
+                List<String> payees = List.of("payee-" + accountId + "-1", "payee-" + accountId + "-2");
+                accounts.add(new Account(tenant, accountId, "%s-cus-%04d".formatted(tenant, i), home, typical,
+                        List.copyOf(merchants), payees));
             }
         }
     }
@@ -63,17 +78,19 @@ class TrafficGenerator {
                 List<Transaction> burst = new ArrayList<>();
                 for (int i = 0; i < 10; i++) {
                     burst.add(txn(account, BigDecimal.valueOf(1 + random.nextInt(5)), Channel.CARD_NOT_PRESENT,
-                            "US", now.minusSeconds(20 - 2L * i)));
+                            "US", newMerchant(), now.minusSeconds(20 - 2L * i)));
                 }
                 yield burst;
             }
             case GEO_JUMP -> List.of(
-                    txn(account, amount(account), Channel.CARD_PRESENT, account.homeCountry(), now.minus(Duration.ofMinutes(40))),
+                    txn(account, amount(account), Channel.CARD_PRESENT, account.homeCountry(),
+                            regularMerchant(account), now.minus(Duration.ofMinutes(40))),
                     txn(account, amount(account), Channel.CARD_PRESENT,
-                            TRAVEL_COUNTRIES[random.nextInt(TRAVEL_COUNTRIES.length)], now));
+                            TRAVEL_COUNTRIES[random.nextInt(TRAVEL_COUNTRIES.length)], newMerchant(), now));
+            // Authorised-push-payment scam shape: a huge transfer to a payee the customer has never paid.
             case LARGE_AMOUNT -> List.of(txn(account,
                     account.typicalAmount().multiply(BigDecimal.valueOf(40 + random.nextInt(41))),
-                    Channel.TRANSFER, account.homeCountry(), now));
+                    Channel.TRANSFER, account.homeCountry(), "payee-new-" + random.nextInt(1_000_000), now));
             case MALFORMED -> List.of();
         };
     }
@@ -93,7 +110,19 @@ class TrafficGenerator {
         String country = channel == Channel.CARD_NOT_PRESENT
                 ? ONLINE_COUNTRIES[random.nextInt(ONLINE_COUNTRIES.length)]
                 : account.homeCountry();
-        return txn(account, amount(account), channel, country, at);
+        String counterparty = channel == Channel.TRANSFER
+                ? account.regularPayees().get(random.nextInt(account.regularPayees().size()))
+                // Mostly regulars, occasionally somewhere new, as real customers do.
+                : random.nextDouble() < 0.85 ? regularMerchant(account) : "m-" + random.nextInt(MERCHANT_POOL);
+        return txn(account, amount(account), channel, country, counterparty, at);
+    }
+
+    private String regularMerchant(Account account) {
+        return account.regularMerchants().get(random.nextInt(account.regularMerchants().size()));
+    }
+
+    private String newMerchant() {
+        return "m-" + (MERCHANT_POOL + random.nextInt(1_000_000));
     }
 
     /** Log-normal around the account's typical amount; sigma 0.4 keeps honest outliers rare. */
@@ -102,12 +131,13 @@ class TrafficGenerator {
         return account.typicalAmount().multiply(BigDecimal.valueOf(factor)).setScale(2, RoundingMode.HALF_UP);
     }
 
-    private Transaction txn(Account account, BigDecimal amount, Channel channel, String country, Instant at) {
+    private Transaction txn(Account account, BigDecimal amount, Channel channel, String country, String counterparty,
+                            Instant at) {
         return new Transaction(
                 new UUID(random.nextLong(), random.nextLong()).toString(),
                 account.tenantId(), account.accountId(), account.customerId(),
                 amount.setScale(2, RoundingMode.HALF_UP), "SGD",
-                "m-" + random.nextInt(2000), MCC[random.nextInt(MCC.length)],
+                counterparty, MCC[Math.floorMod(counterparty.hashCode(), MCC.length)],
                 channel, country, at);
     }
 }
