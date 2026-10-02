@@ -7,3 +7,4 @@ target/
 .env
 knowledge/docs/
 knowledge/.cache/
+HANDOFF.md

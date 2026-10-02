@@ -4,6 +4,6 @@ import com.finsentinel.common.Alert;
 
 import java.time.Instant;
 
-/** An alert as the platform tracks it: the stream job's payload plus our own lifecycle fields. */
-public record StoredAlert(Alert alert, AlertStatus status, Instant receivedAt) {
+/** An alert as the platform keeps it: the stream job's payload plus the case it was filed under. */
+public record StoredAlert(Alert alert, String caseId, Instant receivedAt) {
 }

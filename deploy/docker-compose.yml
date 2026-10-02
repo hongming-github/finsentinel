@@ -58,6 +58,7 @@ services:
         create txn.transactions.dlq.v1 1
         create risk.alerts.v1 3
         create risk.alerts.v1.DLT 1
+        create case.events.v1 3
         echo "topics ready"
     restart: "no"
 

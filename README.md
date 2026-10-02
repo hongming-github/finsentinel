@@ -14,15 +14,19 @@ flowchart LR
     F --> AL[[risk.alerts.v1]]
     subgraph P [agent-platform · Spring Boot 4.1]
         TS[TransactionStore]
-        AI[Alert intake]
-        Q[Investigation queue]
+        AI[Alert intake<br/>groups alerts into cases]
+        Q[Case queue<br/>ANALYSIS stage]
         AG[Investigator agent]
+        API[Case API<br/>analyst decision]
+        OB[Outbox relay]
     end
     TX -->|group agent-platform-txn-store| TS
     AL -->|group agent-platform-alert-intake| AI
     TS --> PG[(Postgres<br/>txn, alert, case_report)]
     AI --> PG
     PG --> Q --> AG
+    API -->|If-Match version| PG
+    PG --> OB -->|case.events.v1| K2[[case.events.v1]]
     AG <-->|case-scoped tools| PG
     AG <-->|JSON-schema report| LLM[OpenAI]
     AG -->|searchRegulations| KB[(MAS regulations<br/>pgvector + full text)]
@@ -32,7 +36,7 @@ The transaction topic has two independent consumers. Flink does not write transa
 down database would back-pressure the detection job, and fraud detection must keep running when the platform's
 database does not. Each consumer group can also be replayed on its own.
 
-**Status:** phases 1–3 of 9 done (data path, investigation agent, regulatory RAG). See [docs/roadmap.md](docs/roadmap.md).
+**Status:** phases 1–3 of 9 done (data path, investigation agent, regulatory RAG); phase 4 step A (case lifecycle) done. See [docs/roadmap.md](docs/roadmap.md).
 
 ## Stack
 
@@ -75,6 +79,18 @@ java -jar agent-platform/target/agent-platform-0.1.0-SNAPSHOT.jar
 curl -s localhost:8090/api/tenants/straits/alerts | jq
 curl -s localhost:8090/api/tenants/straits/alerts/<alertId>/report | jq
 ```
+
+### Case API
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/tenants/{t}/cases?stage=AWAITING_DECISION` | Analyst queue, highest priority first |
+| GET | `/api/tenants/{t}/cases/{id}` | Case, alerts, every analysis run, audit trail; `ETag` = case version |
+| POST | `/api/tenants/{t}/cases/{id}/decision` | `{"decision": "CONFIRMED_FRAUD" \| "FALSE_POSITIVE" \| "REQUEST_REANALYSIS", "note": "..."}` with `If-Match` (428 if missing, 409 if the case changed) and `X-Analyst-Id` |
+
+Lifecycle: `ANALYSIS → AWAITING_DECISION → CLOSED` (or `FAILED` after the maximum attempts). A new alert on the account
+re-opens the case; `REQUEST_REANALYSIS` sends it back to the agents with the analyst's note. Decisions and readiness are
+published to `case.events.v1` through a transactional outbox.
 
 Investigations are capped at `finsentinel.investigation.max-per-hour` (default 60) so a burst of alerts cannot
 run up an unbounded LLM bill. Set `finsentinel.investigation.enabled=false` to store alerts without investigating.

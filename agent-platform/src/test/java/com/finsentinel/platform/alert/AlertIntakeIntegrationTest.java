@@ -5,6 +5,7 @@ import com.finsentinel.common.AlertRule;
 import com.finsentinel.common.Severity;
 import com.finsentinel.common.Topics;
 import com.finsentinel.platform.PlatformTest;
+import com.finsentinel.platform.cases.CaseIntake;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -28,6 +29,8 @@ class AlertIntakeIntegrationTest {
     JsonMapper json;
     @Autowired
     AlertRepository repository;
+    @Autowired
+    CaseIntake intake;
 
     @Test
     void redeliveredAlertIsStoredOnce() {
@@ -63,7 +66,7 @@ class AlertIntakeIntegrationTest {
     @Test
     void readsAreScopedToTenant() {
         Alert other = alert("straits", "acc-other-tenant");
-        repository.insertIfAbsent(other);
+        intake.accept(other);
 
         assertThat(repository.findRecent("harbour", 200))
                 .noneMatch(s -> s.alert().alertId().equals(other.alertId()));

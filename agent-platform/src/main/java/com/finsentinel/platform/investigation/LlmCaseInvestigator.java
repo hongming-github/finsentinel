@@ -1,7 +1,6 @@
 package com.finsentinel.platform.investigation;
 
 import com.finsentinel.common.AlertRule;
-import com.finsentinel.platform.alert.StoredAlert;
 import org.springframework.ai.chat.client.AdvisorParams;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.ResponseEntity;
@@ -61,12 +60,10 @@ class LlmCaseInvestigator implements CaseInvestigator {
     }
 
     @Override
-    public InvestigationResult investigate(StoredAlert alert) {
+    public InvestigationResult investigate(CaseContext caseContext) {
         long start = System.nanoTime();
-        InvestigationTools tools = toolsFactory.forCase(alert);
-        String alertJson = json.writerWithDefaultPrettyPrinter().writeValueAsString(alert.alert());
-        String brief = "Investigate this alert:\n" + alertJson + "\n\nPlaybook for " + alert.alert().rule() + ":\n"
-                + playbooks.get(alert.alert().rule());
+        InvestigationTools tools = toolsFactory.forCase(caseContext);
+        String brief = brief(caseContext);
 
         Draft draft = ask(tools, brief);
         boolean involvesTransfer = tools.involvesTransfer();
@@ -85,6 +82,23 @@ class LlmCaseInvestigator implements CaseInvestigator {
         return new InvestigationResult(draft.report(), tools.calls(), List.copyOf(repaired), draft.model(),
                 draft.inputTokens(), draft.outputTokens(), draft.cachedInputTokens(), draft.calls(),
                 (System.nanoTime() - start) / 1_000_000);
+    }
+
+    /**
+     * The case's alerts, the playbook of each rule that fired (and only those), and the analyst's note when the case
+     * was sent back for another look.
+     */
+    private String brief(CaseContext caseContext) {
+        StringBuilder brief = new StringBuilder("Investigate this case. Its alerts:\n")
+                .append(json.writerWithDefaultPrettyPrinter().writeValueAsString(caseContext.alerts()));
+        for (AlertRule rule : caseContext.rules()) {
+            brief.append("\n\nPlaybook for ").append(rule).append(":\n").append(playbooks.get(rule));
+        }
+        if (caseContext.analystNote() != null) {
+            brief.append("\n\nAn analyst reviewed an earlier report and sent the case back with this note. Address it "
+                    + "explicitly in your findings:\n").append(caseContext.analystNote());
+        }
+        return brief.toString();
     }
 
     private Draft ask(InvestigationTools tools, String userMessage) {

@@ -1,6 +1,5 @@
-package com.finsentinel.platform.investigation;
+package com.finsentinel.platform.cases;
 
-import com.finsentinel.common.AlertRule;
 import com.finsentinel.common.Severity;
 import com.finsentinel.platform.PlatformTest;
 import com.finsentinel.platform.StubCaseInvestigator;
@@ -12,7 +11,6 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -22,55 +20,53 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-import static com.finsentinel.platform.TestData.alert;
 import static com.finsentinel.platform.TestData.uniqueTenant;
+import static com.finsentinel.platform.cases.CaseTestSupport.alertOn;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Stands in for several platform instances polling at once: many threads, each with its own connection and
- * transaction, claiming from the same table at the same moment.
+ * transaction, claiming from the same table at the same moment. (Removing the advisory lock makes the budget test
+ * claim 12-13 against a budget of 10; see ADR 0004.)
  */
 @PlatformTest
-class ConcurrentClaimTest {
+class ConcurrentCaseClaimTest {
 
-    private static final int ALERTS = 60;
+    private static final int CASES = 60;
     private static final int WORKERS = 8;
 
     @Autowired
-    InvestigationRepository queue;
+    CaseRepository cases;
+    @Autowired
+    CaseIntake intake;
     @Autowired
     AlertRepository alerts;
     @Autowired
-    JdbcClient jdbc;
+    StubCaseInvestigator investigator;
     @Autowired
     TransactionTemplate transactions;
     @Autowired
-    StubCaseInvestigator investigator;
+    JdbcClient jdbc;
 
     @BeforeEach
     void freshQueue() {
-        jdbc.sql("update alert set status = 'FAILED' where status in ('NEW', 'INVESTIGATING')").update();
+        CaseTestSupport.parkOtherCases(jdbc);
         String tenant = uniqueTenant();
-        for (int i = 0; i < ALERTS; i++) {
-            alerts.insertIfAbsent(alert(tenant, "acc-" + UUID.randomUUID(), AlertRule.VELOCITY, Severity.MEDIUM,
-                    List.of("t"), Instant.now()));
+        for (int i = 0; i < CASES; i++) {
+            intake.accept(alertOn(tenant, "acc-" + UUID.randomUUID(), Severity.MEDIUM));
         }
     }
 
     @Test
-    void concurrentWorkersNeverClaimTheSameAlert() throws Exception {
-        List<String> claimed = claimConcurrently(0);
-
-        assertThat(claimed).hasSize(ALERTS).doesNotHaveDuplicates();
+    void concurrentWorkersNeverClaimTheSameCase() throws Exception {
+        assertThat(claimConcurrently(0)).hasSize(CASES).doesNotHaveDuplicates();
     }
 
     @Test
     void hourlyBudgetHoldsExactlyUnderConcurrency() throws Exception {
-        int budget = queue.startedInLastHour() + 10;
+        int budget = cases.startedInLastHour() + 10;
 
-        List<String> claimed = claimConcurrently(budget);
-
-        assertThat(claimed).hasSize(10).doesNotHaveDuplicates();
+        assertThat(claimConcurrently(budget)).hasSize(10).doesNotHaveDuplicates();
     }
 
     @Test
@@ -79,9 +75,8 @@ class ConcurrentClaimTest {
         CountDownLatch release = new CountDownLatch(1);
         Thread holder = Thread.ofVirtual().start(() -> transactions.executeWithoutResult(status -> {
             // Simulates an instance that took the claim lock and then stalled (GC pause, network hiccup).
-            jdbc.sql("select pg_advisory_xact_lock(:key)").param("key", InvestigationRepository.CLAIM_LOCK_KEY)
-                    .query(rs -> {
-                    });
+            jdbc.sql("select pg_advisory_xact_lock(:key)").param("key", CaseRepository.CLAIM_LOCK_KEY).query(rs -> {
+            });
             locked.countDown();
             try {
                 release.await();
@@ -90,9 +85,8 @@ class ConcurrentClaimTest {
             }
         }));
         locked.await();
-        InvestigationWorker worker = new InvestigationWorker(queue, investigator, new InvestigationProperties(true, 3,
-                Duration.ofMinutes(5), 3, 1_000, Duration.ofMillis(300), new InvestigationProperties.Tools(90, 100),
-                new InvestigationProperties.Report(60, 40, 1, true)));
+        CaseWorker worker = new CaseWorker(cases, alerts, investigator,
+                CaseWorkerTest.props(1_000, Duration.ofMillis(300)));
 
         int claimed;
         long waitedMs;
@@ -107,7 +101,7 @@ class ConcurrentClaimTest {
         }
         assertThat(claimed).isZero();
         assertThat(waitedMs).as("gave up near the timeout instead of waiting for the holder").isBetween(250L, 2_000L);
-        assertThat(worker.runOnce()).as("next poll works once the lock is free").isEqualTo(3);
+        assertThat(worker.runOnce()).as("next poll works once the lock is free").isEqualTo(5);
     }
 
     /** All workers start together and keep claiming batches of 3 until nothing is left for them. */
@@ -120,12 +114,12 @@ class ConcurrentClaimTest {
                 futures.add(pool.submit(() -> {
                     start.await();
                     while (true) {
-                        InvestigationRepository.ClaimBatch batch =
-                                queue.claimWithinBudget(3, Duration.ofMinutes(5), 3, maxPerHour, Duration.ofSeconds(5));
+                        CaseRepository.ClaimBatch batch =
+                                cases.claimWithinBudget(3, Duration.ofMinutes(5), 3, maxPerHour, Duration.ofSeconds(5));
                         if (batch.claims().isEmpty()) {
                             return null;
                         }
-                        batch.claims().forEach(c -> claimed.add(c.alert().alert().alertId()));
+                        batch.claims().forEach(c -> claimed.add(c.fraudCase().caseId()));
                     }
                 }));
             }
