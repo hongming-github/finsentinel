@@ -2,8 +2,8 @@ package com.finsentinel.platform.cases;
 
 import com.finsentinel.common.Severity;
 import com.finsentinel.platform.PlatformTest;
-import com.finsentinel.platform.StubCaseInvestigator;
 import com.finsentinel.platform.alert.AlertRepository;
+import com.finsentinel.platform.analysis.CaseAnalysisGraph;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -42,7 +42,7 @@ class ConcurrentCaseClaimTest {
     @Autowired
     AlertRepository alerts;
     @Autowired
-    StubCaseInvestigator investigator;
+    CaseAnalysisGraph analysis;
     @Autowired
     TransactionTemplate transactions;
     @Autowired
@@ -85,7 +85,7 @@ class ConcurrentCaseClaimTest {
             }
         }));
         locked.await();
-        CaseWorker worker = new CaseWorker(cases, alerts, investigator,
+        CaseWorker worker = new CaseWorker(cases, alerts, analysis,
                 CaseWorkerTest.props(1_000, Duration.ofMillis(300)));
 
         int claimed;

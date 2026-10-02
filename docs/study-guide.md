@@ -415,3 +415,69 @@ interrupt 只是让图暂停，而生产环境里的审批还需要：分析师�
 - V5 迁移在开发库的真实数据上执行：27 条告警、24 个账户，迁移成 24 个案件、24 份分析，没有遗漏的告警。
 - 完整链路：5 个注入的欺诈场景，产生 5 个案件，全部分析完成。用 curl 走了一遍审批：过期版本返回 409，带正确 ETag 后案件关闭，Kafka 上能收到 `case.ready_for_decision` 和 `case.decided` 两条事件。
 - 真实 LLM 测试连跑 3 轮，9 次判断方向全部正确。
+
+## 阶段 4（B）：可恢复的分析图
+
+数据流不变，变的是 ANALYSIS 阶段内部：worker 领取案件后不再直接调 Agent，而是运行一个 LangGraph4j 图（`investigate → review`），每个节点跑完都把状态写进 `graph_checkpoint`。进程被杀后，下一个领取到这个案件的 worker 从最后一个完成的节点之后继续。
+
+### 必读
+
+#### 1. [FencedPostgresCheckpointSaver.java](../agent-platform/src/main/java/com/finsentinel/platform/analysis/FencedPostgresCheckpointSaver.java)：带防过期令牌的 checkpoint 存储（面试必讲）
+
+- 继承 LangGraph4j 的 `AbstractCheckpointSaver`，替换官方的 Postgres saver（连接泄漏、Java 序列化、不知道领取机制，见 ADR 0008）。
+- **防过期（fencing）**：每次写 checkpoint，都在同一条 SQL 里先 `select ... from fraud_case where stage = 'ANALYSIS' and claimed_at = :claimedAt for share`。一个 worker 的领取超时、被别人接手之后，它的下一次写入会因为 `claimed_at` 对不上而写不进去，抛 `LostClaimException`，worker 直接放弃这次分析。
+- **为什么要 `for share`，不能先查再写**：先查再写之间有空隙，查的时候还是自己的，写的时候已经被别人领走了。`for share` 和领取时的 `update` 锁的是同一行，两者互斥；在 READ COMMITTED 下，等锁之后 Postgres 会用最新版本的行重新判断 `where` 条件，所以判断和写入是原子的。
+- 证据：把 fencing 条件去掉再跑测试，`workerWhoseClaimTimedOutCannotWriteCheckpointsAfterAnotherWorkerTookOver` 失败，过期的 worker 在接手者完成之后又写进了 `investigate` 和 `review` 两个 checkpoint（还白跑了一次 reviewer）。
+
+#### 2. [CaseAnalysisGraph.java](../agent-platform/src/main/java/com/finsentinel/platform/analysis/CaseAnalysisGraph.java)：图的定义和续跑
+
+- thread id 是 `<caseId>:<run>`：同一轮分析的多次尝试共享 checkpoint；新告警或分析师退回会让 `run` 加 1，新一轮从头开始，因为证据变了，上一轮的中间结果不能用。
+- 有 checkpoint 就 `GraphInput.resume()`，没有就把案件上下文作为输入从头开始。这个判断必须自己做：读源码可以看到，如果对一个已有 checkpoint 的 thread 用"从头开始"的方式调用，LangGraph4j 会把输入合并进最后一个 checkpoint 的状态，再从 START 重新跑一遍。
+- 图编译时**不开** `releaseThread`：图跑完时 checkpoint 还在，直到 `CaseRepository.complete` 在同一个事务里改状态并删掉它们。所以"图已经跑完、但还没来得及改案件状态就崩了"这种情况，续跑会直接走到 END，一次 Agent 都不用调。
+
+#### 3. [CaseGraphStateSerializer.java](../agent-platform/src/main/java/com/finsentinel/platform/analysis/CaseGraphStateSerializer.java) 和 [CaseGraphState.java](../agent-platform/src/main/java/com/finsentinel/platform/analysis/CaseGraphState.java)
+
+- 状态存成普通 JSON（每个 key 一个属性），可以直接用 SQL 查，例如 `state -> 'investigation' -> 'report' ->> 'disposition'`。
+- JSON 读回来默认是 Map，所以每个 key 都在 `CaseGraphState.TYPES` 里声明了类型，读的时候按类型还原成 record；没声明的 key 直接报错。
+- LangGraph4j 每个节点执行前都会克隆一次状态，我们让克隆也走同一套 JSON。好处：如果某个状态存不进 checkpoint（比如以后加了一个不能序列化的字段），**正常运行时就会失败**，而不是等到哪天真崩溃了、恢复时才发现。
+
+#### 4. [CaseRepository.java](../agent-platform/src/main/java/com/finsentinel/platform/cases/CaseRepository.java) 里的 `deleteCheckpoints`
+
+- checkpoint 归案件生命周期管：一轮结束（完成、过期）时和状态变化在同一个事务里删除；案件 FAILED 时全部删除；一次尝试失败（回到队列）时保留，下一次尝试从断点继续。
+
+### 设计取舍问答
+
+**问：为什么不用 LangGraph4j 官方的 Postgres saver？**
+三个原因：每次加载都泄漏一个连接（已向上游提交修复）；状态用 Java 序列化后 base64 存在 jsonb 里，既不能查，类改了还可能读不回来；它不知道我们的领取机制，过期的 worker 可以覆盖接手者的进度。
+
+**问：checkpoint 为什么不让图自己释放（`releaseThread`），而要由生命周期删除？**
+一致性。图释放和案件状态变化是两个事务，中间崩溃就会出现"checkpoint 删了，案件还在 ANALYSIS"，下次只能从头再跑一遍 LLM。放进 `complete` 的同一个事务里，就不存在这个中间状态。
+
+**问：节点里的 LLM 调用跑在哪个线程上？**
+LangGraph4j 1.9.3 用 `CompletableFuture.runAsync` 把整个图的驱动循环放在公共 ForkJoin 池上，而且不提供传入 executor 的入口。LLM 和数据库调用是阻塞 I/O，直接在公共池里跑会占住池里的线程，影响整个 JVM 里用公共池的其他代码。所以节点自己把工作交给虚拟线程，驱动线程只是等待 `CompletableFuture`（ForkJoin 池会为这种等待补充线程）。
+
+**问：过期的 worker 什么时候才知道自己失去了领取权？**
+在它下一次写 checkpoint 的时候（或者最后 `complete` 的时候）。在此之前它可能还在调 LLM，这部分钱白花了，但结果不会被存下来。这是 fencing 的经典取舍：不需要跨进程通知，正确性只依赖数据库。
+
+### 踩过的坑
+
+1. **`StateGraph` 默认用 Java 序列化克隆状态**（读源码时发现，没等它出错）：不传 serializer 时用的是 `ObjectStreamStateSerializer`，要求状态里的所有对象都实现 `Serializable`，而 record 默认不实现。我们传入了自己的 JSON serializer。
+2. **异常被包了四层**：节点里抛的 `IllegalStateException: LLM down`，到 worker 手里变成 `CompletionException: GraphRunnerException: ExecutionException: IllegalStateException: LLM down`，写进审计事件很难读。`CaseAnalysisGraph.unwrap` 把这些包装层剥掉，测试里断言了审计事件记录的是节点自己的错误。
+3. **库自己会把每个节点失败按 ERROR 级别打一遍完整堆栈**，然后再把异常交给我们，于是同一个失败打两次日志。把 `org.bsc.langgraph4j` 的日志关掉，由 worker 统一记录。
+
+### 可以主动讲的不足和改进方向
+
+| 不足 | 改进方案 |
+|---|---|
+| 崩溃后要等 `claim-timeout`（默认 5 分钟）才会被接手 | 加心跳：worker 定期更新一个 `heartbeat_at` 列（不能更新 `claimed_at`，它是 fencing 令牌），超时就可以缩短到几十秒 |
+| 被杀掉的那次尝试没有留下审计事件 | 领取时如果发现上一次领取是超时过期的，记一条 `CLAIM_TAKEN_OVER` 事件 |
+| 节点是最小的恢复单位，调查节点中途崩溃要整个重跑 | 第 C 步把分析拆成更小的节点（分诊、并行的专项 Agent、调查、审核） |
+| 过期 worker 要到下一次写 checkpoint 才停下 | 心跳失败时主动中断正在进行的 LLM 调用 |
+| 图的驱动循环跑在公共 ForkJoin 池 | 向上游提议给 `CompiledGraph.stream` 增加 executor 参数 |
+| reviewer 目前只是占位，所有报告都通过 | 第 C 步换成 LLM reviewer，可以把报告退回给调查节点（有次数上限） |
+
+### 实测数据
+
+- 平台测试 81 个（其中 4 个需要真实 LLM，默认跳过），新增 7 个：状态 JSON 往返、失败后从断点续跑、崩溃后被接手续跑、图跑完但未提交时续跑、过期 worker 无法写入、新一轮从头开始。
+- 去掉 fencing 条件后，过期 worker 测试失败：`Expecting empty but was: ["investigate", "review"]`。
+- 开发库上的真实演练（真实 LLM）：V6 迁移正常；对一个 GEO_JUMP 案件发起退回重查，在 START checkpoint 写入约 3 秒后 `kill -9`；重启（`claim-timeout=30s`）后新进程重新领取，日志显示 `resuming after node '__START__'`，5.7 秒完成（4 次工具调用，输入 4033 tokens，其中 3328 命中缓存），案件进入 AWAITING_DECISION，checkpoint 清空。

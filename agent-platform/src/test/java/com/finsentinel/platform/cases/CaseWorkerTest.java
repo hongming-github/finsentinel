@@ -4,6 +4,7 @@ import com.finsentinel.common.Severity;
 import com.finsentinel.platform.PlatformTest;
 import com.finsentinel.platform.StubCaseInvestigator;
 import com.finsentinel.platform.alert.AlertRepository;
+import com.finsentinel.platform.analysis.CaseAnalysisGraph;
 import com.finsentinel.platform.investigation.InvestigationProperties;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,6 +35,8 @@ class CaseWorkerTest {
     AlertRepository alerts;
     @Autowired
     StubCaseInvestigator investigator;
+    @Autowired
+    CaseAnalysisGraph analysis;
     @Autowired
     JdbcClient jdbc;
 
@@ -148,7 +151,7 @@ class CaseWorkerTest {
         newCase(Severity.HIGH);
         newCase(Severity.HIGH);
         int alreadyUsed = cases.startedInLastHour();
-        CaseWorker capped = new CaseWorker(cases, alerts, investigator, props(alreadyUsed + 1, Duration.ofSeconds(2)));
+        CaseWorker capped = new CaseWorker(cases, alerts, analysis, props(alreadyUsed + 1, Duration.ofSeconds(2)));
 
         assertThat(capped.runOnce()).isEqualTo(1);
         assertThat(capped.runOnce()).isZero();

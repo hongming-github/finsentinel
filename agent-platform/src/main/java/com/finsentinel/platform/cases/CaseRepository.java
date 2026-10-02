@@ -185,6 +185,8 @@ public class CaseRepository {
             return Completion.LOST_CLAIM;
         }
         insertAnalysis(claimed.caseId(), claimed.analysisRun(), result);
+        // This run is over either way; earlier runs' leftovers (a failed attempt never resumed) go with it.
+        deleteCheckpoints(claimed.caseId(), claimed.analysisRun());
         if (currentRun.get() != claimed.analysisRun()) {
             jdbc.sql("""
                             update fraud_case set claimed_at = null, attempts = 0, updated_at = now()
@@ -253,6 +255,8 @@ public class CaseRepository {
         event(c.caseId(), to == CaseStage.FAILED ? "FAILED" : "ANALYSIS_ATTEMPT_FAILED", CaseStage.ANALYSIS, to,
                 "system", Map.of("error", error));
         if (to == CaseStage.FAILED) {
+            // A re-analysis of a FAILED case starts a new run, so these could never be resumed.
+            deleteCheckpoints(c.caseId(), Integer.MAX_VALUE);
             outbox.append(c.caseId(), "case.failed", payload(c, Map.of("error", error)));
         }
     }
@@ -405,6 +409,17 @@ public class CaseRepository {
                 .param("cachedInputTokens", result.cachedInputTokens())
                 .param("llmCalls", result.llmCalls())
                 .param("latencyMs", result.latencyMs())
+                .update();
+    }
+
+    /**
+     * Analysis graph checkpoints (ADR 0008) belong to a run in progress; the lifecycle deletes them when the run ends,
+     * in the same transaction. A failed attempt keeps them so the next attempt resumes.
+     */
+    private void deleteCheckpoints(String caseId, int upToRun) {
+        jdbc.sql("delete from graph_checkpoint where case_id = :caseId and run <= :run")
+                .param("caseId", UUID.fromString(caseId))
+                .param("run", upToRun)
                 .update();
     }
 

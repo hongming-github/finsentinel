@@ -44,6 +44,10 @@ committed, and how the user likes to work. Keep it updated at the end of each se
   (validated in their compact constructors); Flink settings go in `stream-job.properties`.
 - SQL is hand-written with `JdbcClient` (ADR 0005); bind every value as a parameter, constants included.
 - Tool results returned to the model are compact views; do not return full domain records.
+- The analysis graph checkpoints only through `FencedPostgresCheckpointSaver` (ADR 0008): no other saver, no
+  `releaseThread`. The case lifecycle deletes a run's checkpoints in the transaction that ends the run.
+- Graph state keys are declared with their type in `CaseGraphState.TYPES`; values are immutable records that
+  round-trip through JSON.
 - Only validated reports are stored (ADR 0006). Repairs are bounded by `report.max-repairs`.
 - After changing the prompt, tools, or model, run the live tests at least 3 times: one pass proves little.
 - Avoid nested ternaries mixing `Integer` and `int` (silent unboxing NPE).

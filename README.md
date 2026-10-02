@@ -16,13 +16,13 @@ flowchart LR
         TS[TransactionStore]
         AI[Alert intake<br/>groups alerts into cases]
         Q[Case queue<br/>ANALYSIS stage]
-        AG[Investigator agent]
+        AG[Analysis graph · LangGraph4j<br/>investigate → review<br/>fenced checkpoints]
         API[Case API<br/>analyst decision]
         OB[Outbox relay]
     end
     TX -->|group agent-platform-txn-store| TS
     AL -->|group agent-platform-alert-intake| AI
-    TS --> PG[(Postgres<br/>txn, alert, case_report)]
+    TS --> PG[(Postgres<br/>txn, alert, case,<br/>graph checkpoints)]
     AI --> PG
     PG --> Q --> AG
     API -->|If-Match version| PG
@@ -36,7 +36,7 @@ The transaction topic has two independent consumers. Flink does not write transa
 down database would back-pressure the detection job, and fraud detection must keep running when the platform's
 database does not. Each consumer group can also be replayed on its own.
 
-**Status:** phases 1–3 of 9 done (data path, investigation agent, regulatory RAG); phase 4 step A (case lifecycle) done. See [docs/roadmap.md](docs/roadmap.md).
+**Status:** phases 1–3 of 9 done (data path, investigation agent, regulatory RAG); phase 4 steps A (case lifecycle) and B (checkpointed analysis graph) done. See [docs/roadmap.md](docs/roadmap.md).
 
 ## Stack
 
@@ -50,7 +50,7 @@ Redis · Keycloak · OpenTelemetry / Grafana LGTM · Testcontainers
 | `common` | Event records (`Transaction`, `Alert`). No dependencies. |
 | `txn-simulator` | Traffic for two fictional banks (`harbour`, `straits`), with a week of backfill and injected fraud. |
 | `stream-job` | Flink job. Velocity, large-amount (per-account baseline), and geo-jump rules. Pure-Java `RuleEngine`. |
-| `agent-platform` | Spring Boot modular monolith. Idempotent alert intake, transaction store, Postgres work queue, an investigator agent with case-scoped tools and per-rule playbooks, validated case reports, and a regulatory knowledge base (MAS documents, hybrid retrieval with rerank). |
+| `agent-platform` | Spring Boot modular monolith. Idempotent alert intake, transaction store, Postgres work queue, a case lifecycle around a LangGraph4j analysis graph with fenced Postgres checkpoints, an investigator agent with case-scoped tools and per-rule playbooks, validated case reports, and a regulatory knowledge base (MAS documents, hybrid retrieval with rerank). |
 | `knowledge/` | `sources.json` lists the MAS documents; `scripts/fetch-knowledge.sh` downloads them (not committed). |
 
 ## Quick start
@@ -75,9 +75,9 @@ java -jar agent-platform/target/agent-platform-0.1.0-SNAPSHOT.jar
 # 5. Traffic: 10 tps, one fraud scenario every 10 s
 ./mvnw -pl txn-simulator exec:java -Dexec.args="--fraud-every=10"
 
-# 6. See alerts, then the agent's report for one of them
-curl -s localhost:8090/api/tenants/straits/alerts | jq
-curl -s localhost:8090/api/tenants/straits/alerts/<alertId>/report | jq
+# 6. See the analyst queue, then one case with its alerts, analyses and audit trail
+curl -s 'localhost:8090/api/tenants/straits/cases?stage=AWAITING_DECISION' | jq
+curl -s localhost:8090/api/tenants/straits/cases/<caseId> | jq
 ```
 
 ### Case API
@@ -91,6 +91,10 @@ curl -s localhost:8090/api/tenants/straits/alerts/<alertId>/report | jq
 Lifecycle: `ANALYSIS → AWAITING_DECISION → CLOSED` (or `FAILED` after the maximum attempts). A new alert on the account
 re-opens the case; `REQUEST_REANALYSIS` sends it back to the agents with the analyst's note. Decisions and readiness are
 published to `case.events.v1` through a transactional outbox.
+
+Inside ANALYSIS a LangGraph4j graph runs the agents and checkpoints after every node to `graph_checkpoint` (plain
+JSON). If the platform dies mid-analysis, the next worker to claim the case (after `claim-timeout`) resumes after the
+last finished node; a worker whose claim has timed out can no longer write checkpoints.
 
 Investigations are capped at `finsentinel.investigation.max-per-hour` (default 60) so a burst of alerts cannot
 run up an unbounded LLM bill. Set `finsentinel.investigation.enabled=false` to store alerts without investigating.
