@@ -123,7 +123,7 @@ class InvestigationWorkerTest {
         Alert second = newAlert(Severity.HIGH);
         int alreadyUsed = queue.startedInLastHour();
         InvestigationWorker capped = new InvestigationWorker(queue, investigator,
-                new InvestigationProperties(true, 5, Duration.ofMinutes(5), 3, alreadyUsed + 1,
+                new InvestigationProperties(true, 5, Duration.ofMinutes(5), 3, alreadyUsed + 1, Duration.ofSeconds(2),
                         new InvestigationProperties.Tools(90, 100), new InvestigationProperties.Report(60, 40, 1, true)));
 
         assertThat(capped.runOnce()).isEqualTo(1);

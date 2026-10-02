@@ -29,6 +29,15 @@ listener, a second Kafka topic, or a queue table.
 - The budget check and the claim run in one transaction under `pg_advisory_xact_lock`. Without it, instances read
   "N left" at the same moment and overshoot: `ConcurrentClaimTest` claimed 12-13 against a budget of 10 with the
   lock removed, exactly 10 with it. The lock is held for milliseconds.
+- Waiting for the lock is bounded by a transaction-local `lock_timeout` (`claim-lock-timeout`, 2 s). An instance
+  that stalls while holding it cannot stall the others: they skip the poll and retry. Postgres reports the timeout
+  as SQLSTATE 55P03, which Spring 7 does not translate to `CannotAcquireLockException`, so the worker checks the
+  state directly.
+- This is a distributed lock, held in Postgres. It suits this case better than a Redis lock because it lives in the
+  same transaction as the data it protects: it is released the moment the holder's connection dies, it cannot
+  expire under a holder that is merely slow, and the protected write commits together with the release.
+- ShedLock-style "one instance runs the job" was rejected: every instance should investigate in parallel; only the
+  millisecond-long budget check needs to be serial.
 - Redis is not needed for this. Postgres already provides the mutual exclusion, and a Redis lock would still need
   the fencing token for correctness. Redis earns its place for cross-service rate limits and the semantic cache
   (phase 5). A single queue table stops scaling at thousands of claims per second; LLM-bound investigations run at

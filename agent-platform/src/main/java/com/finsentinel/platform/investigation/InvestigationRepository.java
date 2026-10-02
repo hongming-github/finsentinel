@@ -7,6 +7,7 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
@@ -21,8 +22,11 @@ import java.util.UUID;
 @Repository
 public class InvestigationRepository {
 
-    /** Arbitrary but fixed key for the advisory lock that serialises budget-checked claims across instances. */
-    private static final long CLAIM_LOCK_KEY = 7_301_001L;
+    /**
+     * Arbitrary but fixed key for the advisory lock that serialises budget-checked claims across instances.
+     * Advisory lock keys share one namespace per database: register new ones here to avoid collisions.
+     */
+    static final long CLAIM_LOCK_KEY = 7_301_001L;
 
     private final JdbcClient jdbc;
     private final JsonMapper json;
@@ -40,12 +44,23 @@ public class InvestigationRepository {
      * Claims take milliseconds, so instances barely wait. Row locking ({@code SKIP LOCKED}) still does the
      * de-duplication; the advisory lock only protects the budget arithmetic.
      *
-     * @param maxPerHour 0 means unlimited, and then no lock is taken
+     * @param maxPerHour      0 means unlimited, and then no lock is taken
+     * @param lockWaitTimeout how long to wait for the lock before giving up this poll; a holder that hangs must not
+     *                        stall every other instance indefinitely
+     * @throws org.springframework.dao.DataAccessException when the lock is not obtained in time; recognise it
+     *                                                    with {@link #isLockTimeout}
      */
     @Transactional
-    public ClaimBatch claimWithinBudget(int batchSize, Duration claimTimeout, int maxAttempts, int maxPerHour) {
+    public ClaimBatch claimWithinBudget(int batchSize, Duration claimTimeout, int maxAttempts, int maxPerHour,
+                                        Duration lockWaitTimeout) {
         int limit = batchSize;
         if (maxPerHour > 0) {
+            // set_config(..., true) is SET LOCAL: this transaction only, so the pooled connection is not affected.
+            // Unlike SET, it takes a bound parameter.
+            jdbc.sql("select set_config('lock_timeout', :timeout, true)")
+                    .param("timeout", lockWaitTimeout.toMillis() + "ms")
+                    .query(rs -> {
+                    });
             jdbc.sql("select pg_advisory_xact_lock(:key)").param("key", CLAIM_LOCK_KEY).query(rs -> {
             });
             int remaining = maxPerHour - startedInLastHour();
@@ -55,6 +70,19 @@ public class InvestigationRepository {
             limit = Math.min(limit, remaining);
         }
         return new ClaimBatch(claim(limit, claimTimeout, maxAttempts), false);
+    }
+
+    /**
+     * Postgres reports lock_timeout as SQLSTATE 55P03. Spring 7 surfaces it as an uncategorised SQL exception rather
+     * than {@code CannotAcquireLockException}, so check the state itself instead of relying on the translation.
+     */
+    static boolean isLockTimeout(Throwable e) {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            if (t instanceof SQLException sql && "55P03".equals(sql.getSQLState())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** @param budgetExhausted true when nothing was claimed because the hourly budget is used up */

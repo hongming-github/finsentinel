@@ -36,6 +36,8 @@ finsentinel:
     claim-timeout: 5m
     max-attempts: 3
     max-per-hour: 60
+    # Claims hold the lock for milliseconds; waiting longer than this means something is stuck.
+    claim-lock-timeout: 2s
     tools:
       max-days: 90
       max-transactions: 100
