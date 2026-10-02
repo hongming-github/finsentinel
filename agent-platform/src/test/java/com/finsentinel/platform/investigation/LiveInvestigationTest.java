@@ -10,9 +10,12 @@ import com.finsentinel.platform.alert.AlertRepository;
 import com.finsentinel.platform.alert.AlertStatus;
 import com.finsentinel.platform.alert.StoredAlert;
 import com.finsentinel.platform.transaction.TransactionRepository;
+import com.finsentinel.platform.knowledge.KnowledgeSync;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.TestPropertySource;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Duration;
@@ -33,6 +36,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>A seed of the phase 7 evaluation suite: two cases with a clear expected direction.
  */
 @PlatformTest
+@TestPropertySource(properties = "finsentinel.test.fake-ai=false")
 @EnabledIfSystemProperty(named = "live", matches = "true")
 class LiveInvestigationTest {
 
@@ -44,8 +48,15 @@ class LiveInvestigationTest {
     AlertRepository alerts;
     @Autowired
     JsonMapper json;
+    @Autowired
+    KnowledgeSync knowledge;
 
     private final Random random = new Random(7);
+
+    @BeforeEach
+    void indexRegulations() {
+        knowledge.sync(); // idempotent; embeddings come from the on-disk cache after the first run
+    }
 
     @Test
     void impossibleTravelIsNotCalledLegitimate() {
@@ -103,6 +114,9 @@ class LiveInvestigationTest {
 
         assertThat(result.report().disposition()).isNotEqualTo(Disposition.LIKELY_LEGITIMATE);
         assertThat(result.toolCalls()).extracting(ToolCall::tool).contains("getCounterpartyHistory");
+        // A new-payee scam is exactly where cooling-off and scam-loss rules matter; validation already checked
+        // that every cited chunk came from a search.
+        assertThat(result.report().regulatoryNotes()).as("regulatory notes").isNotEmpty();
         assertGrounded(result);
     }
 

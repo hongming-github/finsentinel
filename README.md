@@ -8,18 +8,31 @@ agent orchestration, RAG, MCP integration with enterprise systems, evaluation, s
 
 ```mermaid
 flowchart LR
-    SIM[txn-simulator] -->|txn.transactions.v1| K[(Kafka)]
-    K --> F[stream-job<br/>Flink rules]
-    F -->|risk.alerts.v1| K
-    F -.->|bad records| DLQ[(DLQ)]
-    K --> P[agent-platform<br/>Spring Boot 4.1]
-    P --> PG[(Postgres + pgvector)]
-    P <-->|tools + JSON schema| LLM[OpenAI]
-    P -. phase 4 .-> MCP1[mcp-banking]
-    P -. phase 4 .-> MCP2[mcp-compliance]
+    SIM[txn-simulator] --> TX[[txn.transactions.v1]]
+    TX -->|group finsentinel-stream| F[stream-job<br/>Flink rules]
+    F -.->|unparseable| DLQ[[txn.transactions.dlq.v1]]
+    F --> AL[[risk.alerts.v1]]
+    subgraph P [agent-platform · Spring Boot 4.1]
+        TS[TransactionStore]
+        AI[Alert intake]
+        Q[Investigation queue]
+        AG[Investigator agent]
+    end
+    TX -->|group agent-platform-txn-store| TS
+    AL -->|group agent-platform-alert-intake| AI
+    TS --> PG[(Postgres<br/>txn, alert, case_report)]
+    AI --> PG
+    PG --> Q --> AG
+    AG <-->|case-scoped tools| PG
+    AG <-->|JSON-schema report| LLM[OpenAI]
+    AG -->|searchRegulations| KB[(MAS regulations<br/>pgvector + full text)]
 ```
 
-**Status:** phases 1–2 of 9 done (data path, first investigation agent). See [docs/roadmap.md](docs/roadmap.md).
+The transaction topic has two independent consumers. Flink does not write transactions to Postgres: a slow or
+down database would back-pressure the detection job, and fraud detection must keep running when the platform's
+database does not. Each consumer group can also be replayed on its own.
+
+**Status:** phases 1–3 of 9 done (data path, investigation agent, regulatory RAG). See [docs/roadmap.md](docs/roadmap.md).
 
 ## Stack
 
@@ -33,7 +46,8 @@ Redis · Keycloak · OpenTelemetry / Grafana LGTM · Testcontainers
 | `common` | Event records (`Transaction`, `Alert`). No dependencies. |
 | `txn-simulator` | Traffic for two fictional banks (`harbour`, `straits`), with a week of backfill and injected fraud. |
 | `stream-job` | Flink job. Velocity, large-amount (per-account baseline), and geo-jump rules. Pure-Java `RuleEngine`. |
-| `agent-platform` | Spring Boot modular monolith. Idempotent alert intake, transaction store, Postgres work queue, and an investigator agent that uses tenant-scoped tools and returns a schema-constrained case report. |
+| `agent-platform` | Spring Boot modular monolith. Idempotent alert intake, transaction store, Postgres work queue, an investigator agent with case-scoped tools and per-rule playbooks, validated case reports, and a regulatory knowledge base (MAS documents, hybrid retrieval with rerank). |
+| `knowledge/` | `sources.json` lists the MAS documents; `scripts/fetch-knowledge.sh` downloads them (not committed). |
 
 ## Quick start
 
@@ -44,8 +58,9 @@ investigations fail). Maven comes from the wrapper.
 # 1. Kafka, Postgres, Redis (~1.2 GB)
 docker compose -f deploy/docker-compose.yml --profile core up -d
 
-# 2. Build
+# 2. Build, and fetch the MAS documents for the knowledge base (indexed on platform start)
 ./mvnw install -DskipTests
+./scripts/fetch-knowledge.sh
 
 # 3. Platform on :8090
 java -jar agent-platform/target/agent-platform-0.1.0-SNAPSHOT.jar
@@ -79,7 +94,8 @@ configuration and add the `--add-opens` flags from `stream-job/pom.xml` (`flink.
 | Investigation queue, budget, tool limits, report rules | `agent-platform/src/main/resources/application.yaml` (`finsentinel.investigation.*`) | Spring Boot property sources (env, `--` args); invalid values fail at startup |
 | Alert API and Kafka retry | same file (`finsentinel.alerts.*`) | same |
 | Model and API key | same file (`spring.ai.openai.*`) | `OPENAI_API_KEY` |
-| Agent instructions | `agent-platform/src/main/resources/prompts/investigator-system.md` | |
+| Agent instructions | `agent-platform/src/main/resources/prompts/investigator-system.md`, plus one playbook per rule in `prompts/playbooks/` | |
+| Knowledge base: documents, chunking, retrieval, rerank | `knowledge/sources.json`; `finsentinel.knowledge.*` in `application.yaml` | same as above |
 | Simulator | command-line arguments | |
 
 ## Ports
@@ -99,8 +115,11 @@ configuration and add the `--add-opens` flags from `stream-job/pom.xml` (`flink.
 ```bash
 ./mvnw test   # Docker must be running: platform tests use Testcontainers. No LLM calls.
 
-# Real-model checks (costs a few cents, not deterministic)
+# Real-model checks (cost money, not deterministic; run several times)
 ./mvnw -pl agent-platform test -Dtest=LiveInvestigationTest -Dlive=true -Dsurefire.failIfNoSpecifiedTests=false
+
+# Retrieval evaluation: hit@5 and MRR for vector, keyword, hybrid, hybrid+rerank (needs fetched documents)
+./mvnw -pl agent-platform test -Dtest=RetrievalEvalTest -Dlive=true -Dsurefire.failIfNoSpecifiedTests=false
 ```
 
 ## Design decisions
@@ -114,3 +133,4 @@ Study notes (Chinese): [docs/study-guide.md](docs/study-guide.md)
 - [0004 Investigation queue, fencing, spend circuit breaker](docs/adr/0004-investigation-queue.md)
 - [0005 SQL-first persistence with JdbcClient](docs/adr/0005-sql-first-persistence.md)
 - [0006 Agent tools scoped by construction; validated, repaired output](docs/adr/0006-agent-tools-and-output.md)
+- [0007 Regulatory RAG: chunking, hybrid retrieval, rerank, playbooks](docs/adr/0007-regulatory-rag.md)

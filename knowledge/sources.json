@@ -1,0 +1,33 @@
+{
+  "note": "Public MAS documents used as the regulatory knowledge base. PDFs are not committed (MAS copyright); fetch them with scripts/fetch-knowledge.sh.",
+  "documents": [
+    {
+      "id": "eupg-2024",
+      "shortName": "EUPG",
+      "title": "E-Payments User Protection Guidelines (effective 16 December 2024)",
+      "url": "https://www.mas.gov.sg/-/media/mas-media-library/regulation/guidelines/pso/e-payments-user-protection-guidelines-with-effect-from-16-dec-2024/e-payments-user-protection-guidelines-with-effect-from-16-december-2024.pdf",
+      "file": "eupg-2024.pdf"
+    },
+    {
+      "id": "srf-2024",
+      "shortName": "SRF",
+      "title": "Guidelines on Shared Responsibility Framework",
+      "url": "https://www.mas.gov.sg/-/media/mas-media-library/regulation/guidelines/pso/guidelines-on-shared-responsibility-framework/guidelines-on-shared-responsibility-framework.pdf",
+      "file": "srf-2024.pdf"
+    },
+    {
+      "id": "notice-626-2025",
+      "shortName": "MAS Notice 626",
+      "title": "MAS Notice 626: Prevention of Money Laundering and Countering the Financing of Terrorism - Banks",
+      "url": "https://www.mas.gov.sg/-/media/amld-amendments---30-june-2025/mas-notice-626.pdf",
+      "file": "notice-626-2025.pdf"
+    },
+    {
+      "id": "trm-2021",
+      "shortName": "TRM Guidelines",
+      "title": "Technology Risk Management Guidelines (January 2021)",
+      "url": "https://www.mas.gov.sg/-/media/mas/regulations-and-financial-stability/regulatory-and-supervisory-framework/risk-management/trm-guidelines-18-january-2021.pdf",
+      "file": "trm-2021.pdf"
+    }
+  ]
+}

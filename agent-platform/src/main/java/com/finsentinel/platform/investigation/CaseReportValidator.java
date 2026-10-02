@@ -13,7 +13,11 @@ final class CaseReportValidator {
     private CaseReportValidator() {
     }
 
-    static List<String> problems(CaseReport report, Set<String> seenTxnIds, InvestigationProperties.Report rules) {
+    /**
+     * @param involvesTransfer whether any of the alert's transactions is a transfer
+     */
+    static List<String> problems(CaseReport report, Set<String> seenTxnIds, Set<String> seenChunkIds,
+                                 boolean involvesTransfer, InvestigationProperties.Report rules) {
         List<String> problems = new ArrayList<>();
         if (report.disposition() == null) {
             problems.add("disposition is missing");
@@ -43,7 +47,35 @@ final class CaseReportValidator {
             problems.add("evidenceTxnIds %s were never returned by a tool; cite only transaction ids from tool results"
                     .formatted(ungrounded));
         }
+        boolean noNotes = report.regulatoryNotes() == null || report.regulatoryNotes().isEmpty();
+        if (rules.requireRegulationsForTransfers() && involvesTransfer
+                && report.disposition() != Disposition.LIKELY_LEGITIMATE && noNotes) {
+            problems.add("a suspicious transfer needs regulatoryNotes: call searchRegulations for who bears the loss "
+                    + "and whether a suspicious transaction report is required, then cite what applies");
+        }
+        if (report.regulatoryNotes() != null) {
+            for (CaseReport.RegulatoryNote note : report.regulatoryNotes()) {
+                if (note.sourceChunkIds() == null || note.sourceChunkIds().isEmpty()) {
+                    problems.add("regulatory note \"%s\" cites no passage; every regulatory statement needs the "
+                            .formatted(abbreviate(note.statement())) + "chunkIds it relies on");
+                }
+            }
+            List<String> unseen = report.regulatoryNotes().stream()
+                    .filter(n -> n.sourceChunkIds() != null)
+                    .flatMap(n -> n.sourceChunkIds().stream())
+                    .filter(id -> !seenChunkIds.contains(id))
+                    .distinct()
+                    .toList();
+            if (!unseen.isEmpty()) {
+                problems.add("sourceChunkIds %s were never returned by searchRegulations; cite only chunkIds from its results"
+                        .formatted(unseen));
+            }
+        }
         return problems;
+    }
+
+    private static String abbreviate(String text) {
+        return text == null ? "" : text.length() <= 60 ? text : text.substring(0, 57) + "...";
     }
 
     /** Ids the report cites that never appeared in a tool result. */

@@ -65,6 +65,16 @@ class LlmCaseInvestigatorRepairTest {
     }
 
     @Test
+    void briefCarriesOnlyThePlaybookForTheAlertsRule() {
+        ScriptedModel model = new ScriptedModel(CaseReportValidatorTest.report(Disposition.NEEDS_REVIEW, 50, List.of()));
+
+        investigator(model).investigate(anyAlert()); // a VELOCITY alert
+
+        assertThat(model.prompts.getFirst()).contains("Playbook for VELOCITY").contains("card testing")
+                .doesNotContain("impossible travel").doesNotContain("authorised push payment");
+    }
+
+    @Test
     void validFirstDraftCostsOneCall() {
         ScriptedModel model = new ScriptedModel(CaseReportValidatorTest.report(Disposition.NEEDS_REVIEW, 50, List.of()));
 

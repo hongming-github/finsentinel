@@ -18,7 +18,17 @@ public record CaseReport(
         @JsonPropertyDescription("Facts that support the disposition, each backed by transaction ids")
         List<Finding> findings,
         @JsonPropertyDescription("Concrete next steps for the analyst, most important first")
-        List<String> recommendedActions) {
+        List<String> recommendedActions,
+        @JsonPropertyDescription("Regulatory obligations or expectations that bear on this case, each citing the "
+                + "passages it relies on. Empty if no regulation was consulted")
+        List<RegulatoryNote> regulatoryNotes) {
+
+    public record RegulatoryNote(
+            @JsonPropertyDescription("What the regulation requires or expects, as it applies to this case")
+            String statement,
+            @JsonPropertyDescription("chunkIds of the passages, exactly as returned by searchRegulations")
+            List<String> sourceChunkIds) {
+    }
 
     public record Finding(
             @JsonPropertyDescription("One factual statement")

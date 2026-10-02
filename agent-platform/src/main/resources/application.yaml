@@ -21,6 +21,8 @@ spring:
         # gpt-5.4-mini; that combination needs the Responses API. The agent's work is tool-driven lookups,
         # so non-reasoning mode is the better latency/cost trade anyway.
         reasoning-effort: none
+      embedding:
+        model: text-embedding-3-small
   kafka:
     bootstrap-servers: localhost:9092
     consumer:
@@ -41,6 +43,27 @@ finsentinel:
       fraud-min-score: 60
       legitimate-max-score: 40
       max-repairs: 1
+      require-regulations-for-transfers: true
+  knowledge:
+    # Relative to the working directory; README runs the platform from the repository root.
+    dir: knowledge
+    sync-on-startup: true
+    max-chunks: 5000
+    chunk-chars: 2400
+    min-font-pt: 10
+    batch-size: 100
+    search:
+      candidates: 20
+      # Passages handed to the agent per search. Five full passages diluted the case evidence enough to flip
+      # an impossible-travel case to "legitimate"; three trimmed ones did not.
+      top-k: 3
+      rrf-k: 60
+      max-searches-per-case: 3
+      agent-passage-chars: 900
+      rerank:
+        enabled: true
+        model: gpt-5.4-nano
+        max-passage-chars: 700
   alerts:
     max-page-size: 200
     retry-interval: 1s

@@ -9,7 +9,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class CaseReportValidatorTest {
 
-    private static final InvestigationProperties.Report RULES = new InvestigationProperties.Report(60, 40, 1);
+    private static final InvestigationProperties.Report RULES = new InvestigationProperties.Report(60, 40, 1, true);
     private static final Set<String> SEEN = Set.of("t1", "t2");
 
     @Test
@@ -34,7 +34,7 @@ class CaseReportValidatorTest {
 
     @Test
     void emptySectionsAreRejected() {
-        CaseReport empty = new CaseReport(Disposition.NEEDS_REVIEW, 50, " ", List.of(), List.of());
+        CaseReport empty = new CaseReport(Disposition.NEEDS_REVIEW, 50, " ", List.of(), List.of(), List.of());
 
         assertThat(problems(empty)).containsExactlyInAnyOrder("summary is empty", "at least one finding is required",
                 "at least one recommended action is required");
@@ -46,12 +46,40 @@ class CaseReportValidatorTest {
                 .singleElement().asString().contains("[m-1045]").contains("cite only transaction ids");
     }
 
+    @Test
+    void regulatoryNotesMustCiteRetrievedPassages() {
+        CaseReport cited = withNotes(new CaseReport.RegulatoryNote("12h cooling off for new payees", List.of("eupg-2024:4.7")));
+        CaseReport uncited = withNotes(new CaseReport.RegulatoryNote("banks must refund scam losses", List.of()));
+        CaseReport invented = withNotes(new CaseReport.RegulatoryNote("STR within 15 days", List.of("notice-626:99.9")));
+
+        assertThat(problems(cited)).isEmpty();
+        assertThat(problems(uncited)).singleElement().asString().contains("cites no passage");
+        assertThat(problems(invented)).singleElement().asString().contains("[notice-626:99.9]");
+    }
+
+    @Test
+    void suspiciousTransferNeedsRegulatoryNotesButCardCasesDoNot() {
+        CaseReport review = report(Disposition.NEEDS_REVIEW, 70, List.of());
+        CaseReport legitimate = report(Disposition.LIKELY_LEGITIMATE, 10, List.of());
+
+        assertThat(CaseReportValidator.problems(review, SEEN, Set.of(), true, RULES))
+                .singleElement().asString().contains("suspicious transfer needs regulatoryNotes");
+        assertThat(CaseReportValidator.problems(review, SEEN, Set.of(), false, RULES)).isEmpty();
+        assertThat(CaseReportValidator.problems(legitimate, SEEN, Set.of(), true, RULES)).isEmpty();
+    }
+
     private static List<String> problems(CaseReport report) {
-        return CaseReportValidator.problems(report, SEEN, RULES);
+        return CaseReportValidator.problems(report, SEEN, Set.of("eupg-2024:4.7"), false, RULES);
+    }
+
+    private static CaseReport withNotes(CaseReport.RegulatoryNote... notes) {
+        CaseReport base = report(Disposition.NEEDS_REVIEW, 50, List.of());
+        return new CaseReport(base.disposition(), base.riskScore(), base.summary(), base.findings(),
+                base.recommendedActions(), List.of(notes));
     }
 
     static CaseReport report(Disposition disposition, int score, List<String> evidence) {
         return new CaseReport(disposition, score, "summary", List.of(new CaseReport.Finding("finding", evidence)),
-                List.of("action"));
+                List.of("action"), List.of());
     }
 }

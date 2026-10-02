@@ -33,7 +33,7 @@ public class StubCaseInvestigator implements CaseInvestigator {
 
     public static InvestigationResult defaultResult(StoredAlert alert) {
         CaseReport report = new CaseReport(Disposition.NEEDS_REVIEW, 50, "stub report",
-                List.of(new CaseReport.Finding("stub finding", alert.alert().txnIds())), List.of("stub action"));
+                List.of(new CaseReport.Finding("stub finding", alert.alert().txnIds())), List.of("stub action"), List.of());
         return new InvestigationResult(report, List.of(), List.of(), "stub-model", 10, 5, null, 1, 1);
     }
 }

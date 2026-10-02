@@ -3,6 +3,8 @@ package com.finsentinel.platform.investigation;
 import com.finsentinel.common.Transaction;
 import com.finsentinel.platform.alert.AlertRepository;
 import com.finsentinel.platform.alert.StoredAlert;
+import com.finsentinel.platform.knowledge.KnowledgeSearch;
+import com.finsentinel.platform.knowledge.RegulationHit;
 import com.finsentinel.platform.transaction.AccountProfile;
 import com.finsentinel.platform.transaction.TransactionRepository;
 import org.springframework.ai.tool.annotation.Tool;
@@ -18,6 +20,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * The agent's tools for one case, created by {@link InvestigationToolsFactory}. Tenant and account are fixed
@@ -32,16 +35,36 @@ class InvestigationTools {
     private final StoredAlert alert;
     private final TransactionRepository transactions;
     private final AlertRepository alerts;
+    private final KnowledgeSearch knowledge;
     private final InvestigationProperties.Tools limits;
     private final List<ToolCall> calls = new CopyOnWriteArrayList<>();
     private final Set<String> seenTxnIds = ConcurrentHashMap.newKeySet();
+    private final Set<String> seenChunkIds = ConcurrentHashMap.newKeySet();
+    private final AtomicInteger searches = new AtomicInteger();
 
     InvestigationTools(StoredAlert alert, TransactionRepository transactions, AlertRepository alerts,
-                       InvestigationProperties.Tools limits) {
+                       KnowledgeSearch knowledge, InvestigationProperties.Tools limits) {
         this.alert = alert;
         this.transactions = transactions;
         this.alerts = alerts;
+        this.knowledge = knowledge;
         this.limits = limits;
+    }
+
+    @Tool(description = "Search MAS regulations and guidelines (E-Payments User Protection Guidelines, Shared "
+            + "Responsibility Framework, MAS Notice 626 on AML/CFT, Technology Risk Management Guidelines) for what "
+            + "the bank must do next. One short question about one topic per call; limited calls per case.")
+    RegulationSearchResult searchRegulations(
+            @ToolParam(description = "One short question, e.g. 'cooling off period before adding a new payee'") String query) {
+        long start = System.nanoTime();
+        if (searches.incrementAndGet() > knowledge.maxSearchesPerCase()) {
+            calls.add(new ToolCall("searchRegulations", "limit reached", 0, millisSince(start)));
+            return new RegulationSearchResult(List.of(), "Search limit for this case reached; use the passages already found.");
+        }
+        List<RegulationHit> hits = knowledge.search(query).stream().map(this::trimmed).toList();
+        hits.forEach(h -> seenChunkIds.add(h.chunkId()));
+        calls.add(new ToolCall("searchRegulations", query, hits.size(), millisSince(start)));
+        return new RegulationSearchResult(hits, hits.isEmpty() ? "No matching passages." : null);
     }
 
     @Tool(description = "Get the transactions that triggered this alert, oldest first.")
@@ -112,12 +135,29 @@ class InvestigationTools {
         return result;
     }
 
+    /** Long passages crowd out the case evidence in the model's context; the citation still points to the full text. */
+    private RegulationHit trimmed(RegulationHit hit) {
+        int max = knowledge.maxPassageCharsForAgent();
+        return hit.text().length() <= max ? hit
+                : new RegulationHit(hit.chunkId(), hit.citation(), hit.section(), hit.page(), hit.text().substring(0, max) + " [...]");
+    }
+
     List<ToolCall> calls() {
         return List.copyOf(calls);
     }
 
     Set<String> seenTxnIds() {
         return Set.copyOf(seenTxnIds);
+    }
+
+    Set<String> seenChunkIds() {
+        return Set.copyOf(seenChunkIds);
+    }
+
+    /** Read from the data, not from what the model said, so the transfer rule cannot be argued away. */
+    boolean involvesTransfer() {
+        return transactions.findByIds(tenant(), account(), alert.alert().txnIds()).stream()
+                .anyMatch(t -> t.channel() == com.finsentinel.common.Channel.TRANSFER);
     }
 
     private List<TxnView> record(String tool, String args, List<Transaction> result, long start) {
@@ -143,8 +183,16 @@ class InvestigationTools {
     }
 
     /**
-     * What the model sees of a transaction. Tenant, account and customer are the same for every row of a
-     * case, so repeating them would only burn tokens; time is cut to the second for the same reason.
+     * What the model sees of a transaction. Tool results are serialised to JSON and every field costs tokens.
+     * <pre>
+     * Transaction: {"txnId":"68c3…","tenantId":"straits","accountId":"straits-acc-0484","customerId":"straits-cus-0484",
+     *               "amount":84.20,"currency":"SGD","merchantId":"m-601","merchantCategory":"5411",
+     *               "channel":"CARD_PRESENT","country":"SG","eventTime":"2026-09-30T12:31:38.114530Z"}
+     * TxnView:     {"id":"68c3…","time":"2026-09-30T12:31:38Z","amount":"84.20 SGD","channel":"CARD_PRESENT",
+     *               "country":"SG","counterparty":"m-601","mcc":"5411"}
+     * </pre>
+     * Tenant, account and customer are identical on every row of a case, sub-second time does not matter for
+     * fraud, and amount plus currency read naturally as one value. About 17% fewer input tokens per case.
      */
     record TxnView(String id, Instant time, String amount, String channel, String country, String counterparty,
                    String mcc) {
@@ -154,6 +202,9 @@ class InvestigationTools {
                     t.amount().toPlainString() + " " + t.currency(), t.channel().name(), t.country(),
                     t.merchantId(), t.merchantCategory());
         }
+    }
+
+    record RegulationSearchResult(List<RegulationHit> passages, String note) {
     }
 
     record PriorAlert(String rule, String severity, String reason, Instant eventTime, String status) {
