@@ -3,7 +3,6 @@ package com.finsentinel.stream;
 import com.finsentinel.common.Alert;
 import com.finsentinel.common.Topics;
 import com.finsentinel.common.Transaction;
-import com.finsentinel.stream.rules.RuleConfig;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.configuration.Configuration;
@@ -27,12 +26,12 @@ import org.apache.kafka.clients.consumer.OffsetResetStrategy;
 public class RiskDetectionJob {
 
     public static void main(String[] args) throws Exception {
-        JobConfig config = JobConfig.fromEnv(System.getenv());
+        JobConfig config = JobConfig.load(args, System.getenv());
 
         Configuration flinkConf = new Configuration();
         flinkConf.set(RestOptions.PORT, config.webUiPort());
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment(flinkConf);
-        env.enableCheckpointing(config.checkpointIntervalMs());
+        env.enableCheckpointing(config.checkpointInterval().toMillis());
 
         KafkaSource<String> source = KafkaSource.<String>builder()
                 .setBootstrapServers(config.bootstrapServers())
@@ -49,7 +48,7 @@ public class RiskDetectionJob {
 
         DataStream<Alert> alerts = transactions
                 .keyBy(Transaction::accountKey)
-                .process(new RiskRuleFunction(RuleConfig.defaults()))
+                .process(new RiskRuleFunction(config.rules(), config.stateTtl()))
                 .name("risk-rules");
 
         alerts.sinkTo(alertSink(config.bootstrapServers())).name("alerts");

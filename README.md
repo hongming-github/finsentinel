@@ -14,11 +14,12 @@ flowchart LR
     F -.->|bad records| DLQ[(DLQ)]
     K --> P[agent-platform<br/>Spring Boot 4.1]
     P --> PG[(Postgres + pgvector)]
+    P <-->|tools + JSON schema| LLM[OpenAI]
     P -. phase 4 .-> MCP1[mcp-banking]
     P -. phase 4 .-> MCP2[mcp-compliance]
 ```
 
-**Status:** phase 1 of 9 done (data path). See [docs/roadmap.md](docs/roadmap.md).
+**Status:** phases 1–2 of 9 done (data path, first investigation agent). See [docs/roadmap.md](docs/roadmap.md).
 
 ## Stack
 
@@ -32,11 +33,12 @@ Redis · Keycloak · OpenTelemetry / Grafana LGTM · Testcontainers
 | `common` | Event records (`Transaction`, `Alert`). No dependencies. |
 | `txn-simulator` | Traffic for two fictional banks (`harbour`, `straits`), with a week of backfill and injected fraud. |
 | `stream-job` | Flink job. Velocity, large-amount (per-account baseline), and geo-jump rules. Pure-Java `RuleEngine`. |
-| `agent-platform` | Spring Boot modular monolith. Today: idempotent alert intake and a tenant-scoped alerts API. |
+| `agent-platform` | Spring Boot modular monolith. Idempotent alert intake, transaction store, Postgres work queue, and an investigator agent that uses tenant-scoped tools and returns a schema-constrained case report. |
 
 ## Quick start
 
-Needs Docker and JDK 21. Maven comes from the wrapper.
+Needs Docker, JDK 21, and `OPENAI_API_KEY` in the environment (the platform starts without it, but
+investigations fail). Maven comes from the wrapper.
 
 ```bash
 # 1. Kafka, Postgres, Redis (~1.2 GB)
@@ -48,21 +50,37 @@ docker compose -f deploy/docker-compose.yml --profile core up -d
 # 3. Platform on :8090
 java -jar agent-platform/target/agent-platform-0.1.0-SNAPSHOT.jar
 
-# 4. Flink job in an embedded MiniCluster (web UI on :8082)
+# 4. Flink job in an embedded MiniCluster (web UI on :8082); override rules with -Djob.args
 ./mvnw -pl stream-job exec:exec
 
 # 5. Traffic: 10 tps, one fraud scenario every 10 s
 ./mvnw -pl txn-simulator exec:java -Dexec.args="--fraud-every=10"
 
-# 6. See alerts
+# 6. See alerts, then the agent's report for one of them
 curl -s localhost:8090/api/tenants/straits/alerts | jq
+curl -s localhost:8090/api/tenants/straits/alerts/<alertId>/report | jq
 ```
 
+Investigations are capped at `finsentinel.investigation.max-per-hour` (default 60) so a burst of alerts cannot
+run up an unbounded LLM bill. Set `finsentinel.investigation.enabled=false` to store alerts without investigating.
+
 Simulator options: `--tps`, `--accounts` (per tenant), `--backfill` (history per account), `--fraud-every`
-(seconds, 0 = off), `--duration` (seconds, 0 = forever), `--seed`.
+(seconds, 0 = off), `--duration` (seconds, 0 = forever), `--seed` (traffic only; random by default and printed at
+start). The account population is fixed, so the same account id is always the same customer.
 
 To run the Flink job from IntelliJ, enable "Add dependencies with provided scope to classpath" in the run
 configuration and add the `--add-opens` flags from `stream-job/pom.xml` (`flink.jvm.opens`).
+
+## Configuration
+
+| What | Where | Override |
+|---|---|---|
+| Flink rules, state TTL, Kafka, checkpoints | `stream-job/src/main/resources/stream-job.properties` | `--key=value` job arguments (`-Djob.args="..."` for local runs); unknown keys are rejected |
+| Investigation queue, budget, tool limits, report rules | `agent-platform/src/main/resources/application.yaml` (`finsentinel.investigation.*`) | Spring Boot property sources (env, `--` args); invalid values fail at startup |
+| Alert API and Kafka retry | same file (`finsentinel.alerts.*`) | same |
+| Model and API key | same file (`spring.ai.openai.*`) | `OPENAI_API_KEY` |
+| Agent instructions | `agent-platform/src/main/resources/prompts/investigator-system.md` | |
+| Simulator | command-line arguments | |
 
 ## Ports
 
@@ -79,7 +97,10 @@ configuration and add the `--add-opens` flags from `stream-job/pom.xml` (`flink.
 ## Tests
 
 ```bash
-./mvnw test   # Docker must be running: platform tests use Testcontainers
+./mvnw test   # Docker must be running: platform tests use Testcontainers. No LLM calls.
+
+# Real-model checks (costs a few cents, not deterministic)
+./mvnw -pl agent-platform test -Dtest=LiveInvestigationTest -Dlive=true -Dsurefire.failIfNoSpecifiedTests=false
 ```
 
 ## Design decisions
@@ -90,3 +111,6 @@ Study notes (Chinese): [docs/study-guide.md](docs/study-guide.md)
 - [0001 Modular monolith, Spring-free jobs](docs/adr/0001-modular-monolith.md)
 - [0002 MCP vs in-process tools](docs/adr/0002-mcp-vs-in-process-tools.md)
 - [0003 At-least-once alerts, idempotent consumer](docs/adr/0003-at-least-once-alerts.md)
+- [0004 Investigation queue, fencing, spend circuit breaker](docs/adr/0004-investigation-queue.md)
+- [0005 SQL-first persistence with JdbcClient](docs/adr/0005-sql-first-persistence.md)
+- [0006 Agent tools scoped by construction; validated, repaired output](docs/adr/0006-agent-tools-and-output.md)

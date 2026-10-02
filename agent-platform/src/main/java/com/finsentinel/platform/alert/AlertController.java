@@ -16,16 +16,16 @@ import java.util.List;
 @RequestMapping("/api/tenants/{tenantId}/alerts")
 class AlertController {
 
-    private static final int MAX_LIMIT = 200;
-
     private final AlertRepository alerts;
+    private final AlertProperties props;
 
-    AlertController(AlertRepository alerts) {
+    AlertController(AlertRepository alerts, AlertProperties props) {
         this.alerts = alerts;
+        this.props = props;
     }
 
     @GetMapping
     List<StoredAlert> recent(@PathVariable String tenantId, @RequestParam(defaultValue = "50") int limit) {
-        return alerts.findRecent(tenantId, Math.clamp(limit, 1, MAX_LIMIT));
+        return alerts.findRecent(tenantId, Math.clamp(limit, 1, props.maxPageSize()));
     }
 }

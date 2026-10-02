@@ -7,6 +7,7 @@ import java.time.Instant;
  * A payment event as published by a tenant's core banking system.
  *
  * @param tenantId   the bank this event belongs to; every downstream read is scoped by it
+ * @param merchantId the counterparty: the merchant for card payments, the payee for transfers
  * @param country    ISO 3166-1 alpha-2 country of the terminal or counterparty
  * @param eventTime  when the payment happened (event time, not ingestion time)
  */

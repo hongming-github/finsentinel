@@ -34,6 +34,7 @@ record SimulatorConfig(
                 Integer.parseInt(kv.getOrDefault("backfill", "20")),
                 Integer.parseInt(kv.getOrDefault("fraud-every", "15")),
                 Integer.parseInt(kv.getOrDefault("duration", "0")),
-                Long.parseLong(kv.getOrDefault("seed", "42")));
+                // Random by default so repeated runs produce new transaction ids; pass --seed to reproduce a run.
+                kv.containsKey("seed") ? Long.parseLong(kv.get("seed")) : System.nanoTime());
     }
 }

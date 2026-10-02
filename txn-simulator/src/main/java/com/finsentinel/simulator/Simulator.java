@@ -45,8 +45,9 @@ public class Simulator {
     }
 
     void run() throws InterruptedException {
-        log.info("Simulating {} accounts across {} at {} tps -> {}",
-                generator.accounts().size(), TrafficGenerator.TENANTS, config.tps(), config.bootstrapServers());
+        log.info("Simulating {} accounts across {} at {} tps -> {} (seed {})",
+                generator.accounts().size(), TrafficGenerator.TENANTS, config.tps(), config.bootstrapServers(),
+                config.seed());
 
         if (config.backfillPerAccount() > 0) {
             List<Transaction> history = generator.backfill(config.backfillPerAccount(), Instant.now());

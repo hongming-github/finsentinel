@@ -15,10 +15,10 @@ import tools.jackson.core.JacksonException;
 class KafkaErrorHandling {
 
     @Bean
-    DefaultErrorHandler kafkaErrorHandler(KafkaTemplate<Object, Object> template) {
+    DefaultErrorHandler kafkaErrorHandler(KafkaTemplate<Object, Object> template, AlertProperties props) {
         DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(template,
                 (record, ex) -> new TopicPartition(Topics.ALERTS_DLT, -1));
-        DefaultErrorHandler handler = new DefaultErrorHandler(recoverer, new FixedBackOff(1_000, 2));
+        DefaultErrorHandler handler = new DefaultErrorHandler(recoverer, new FixedBackOff(props.retryInterval().toMillis(), props.retryAttempts()));
         // A payload that cannot be parsed will not parse on retry either.
         handler.addNotRetryableExceptions(JacksonException.class);
         return handler;
