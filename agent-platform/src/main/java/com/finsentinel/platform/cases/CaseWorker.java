@@ -3,8 +3,9 @@ package com.finsentinel.platform.cases;
 import com.finsentinel.common.Alert;
 import com.finsentinel.platform.alert.AlertRepository;
 import com.finsentinel.platform.alert.StoredAlert;
+import com.finsentinel.platform.analysis.CaseAnalysisGraph;
+import com.finsentinel.platform.analysis.LostClaimException;
 import com.finsentinel.platform.investigation.CaseContext;
-import com.finsentinel.platform.investigation.CaseInvestigator;
 import com.finsentinel.platform.investigation.InvestigationProperties;
 import com.finsentinel.platform.investigation.InvestigationResult;
 import org.slf4j.Logger;
@@ -19,7 +20,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Claims cases in ANALYSIS and runs the analysis. Each poll claims at most {@code batchSize} cases and waits for them,
+ * Claims cases in ANALYSIS and runs the analysis graph on them. Each poll claims at most {@code batchSize} cases and waits for them,
  * so {@code batchSize} caps concurrent analyses on this instance.
  *
  * <p>Safe on several instances: the schedule is only a local alarm clock. Coordination lives in Postgres
@@ -32,15 +33,15 @@ public class CaseWorker {
 
     private final CaseRepository cases;
     private final AlertRepository alerts;
-    private final CaseInvestigator investigator;
+    private final CaseAnalysisGraph analysis;
     private final InvestigationProperties props;
     private final AtomicLong lastBudgetWarning = new AtomicLong();
 
-    CaseWorker(CaseRepository cases, AlertRepository alerts, CaseInvestigator investigator,
+    CaseWorker(CaseRepository cases, AlertRepository alerts, CaseAnalysisGraph analysis,
                InvestigationProperties props) {
         this.cases = cases;
         this.alerts = alerts;
-        this.investigator = investigator;
+        this.analysis = analysis;
         this.props = props;
     }
 
@@ -86,13 +87,19 @@ public class CaseWorker {
             List<Alert> caseAlerts = alerts.findByCase(c.tenantId(), c.caseId()).stream().map(StoredAlert::alert).toList();
             CaseContext context = new CaseContext(c.caseId(), c.tenantId(), c.accountId(), c.customerId(), caseAlerts,
                     c.analysisRun(), c.analystNote());
-            InvestigationResult result = investigator.investigate(context);
+            CaseAnalysisGraph.Outcome outcome = analysis.analyse(context, claim.claimedAt());
+            InvestigationResult result = outcome.investigation();
             CaseRepository.Completion completion = cases.complete(claim, result);
-            log.info("Case {} run {} ({} alerts, {}): {} {} risk={} tools={} calls={} tokens={}/{} cached={} {}ms",
+            log.info("Case {} run {} ({} alerts, {}): {} {} risk={} review={} tools={} calls={} tokens={}/{} cached={} "
+                            + "{}ms{}",
                     c.caseId(), c.analysisRun(), caseAlerts.size(), context.rules(), completion,
-                    result.report().disposition(), result.report().riskScore(), result.toolCalls().size(),
+                    result.report().disposition(), result.report().riskScore(),
+                    outcome.review().approved() ? "approved" : "rejected", result.toolCalls().size(),
                     result.llmCalls(), result.inputTokens(), result.outputTokens(), result.cachedInputTokens(),
-                    result.latencyMs());
+                    result.latencyMs(), outcome.resumedAfter() == null ? "" : " resumed after " + outcome.resumedAfter());
+        } catch (LostClaimException e) {
+            // Our claim timed out and another worker owns the case now: its result counts, ours must not.
+            log.warn("Abandoning analysis of case {}: {}", c.caseId(), e.getMessage());
         } catch (RuntimeException e) {
             log.warn("Analysis of case {} failed: {}", c.caseId(), e.toString());
             cases.fail(claim, props.maxAttempts(), e.toString());

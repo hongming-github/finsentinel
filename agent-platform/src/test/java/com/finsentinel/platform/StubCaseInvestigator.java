@@ -9,11 +9,12 @@ import org.springframework.boot.test.context.TestComponent;
 import org.springframework.context.annotation.Primary;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 
 /**
  * Replaces the LLM investigator in tests. Behaviour is swappable per test; reset() restores the default.
- * Remembers the last context it was given, so tests can check what reached the agent.
+ * Remembers the last context it was given and counts calls, so tests can check what reached the agent and how often.
  */
 @TestComponent
 @Primary
@@ -21,9 +22,11 @@ public class StubCaseInvestigator implements CaseInvestigator {
 
     private volatile Function<CaseContext, InvestigationResult> behaviour = StubCaseInvestigator::defaultResult;
     private volatile CaseContext lastContext;
+    private final AtomicInteger calls = new AtomicInteger();
 
     @Override
     public InvestigationResult investigate(CaseContext caseContext) {
+        calls.incrementAndGet();
         lastContext = caseContext;
         return behaviour.apply(caseContext);
     }
@@ -36,9 +39,14 @@ public class StubCaseInvestigator implements CaseInvestigator {
         return lastContext;
     }
 
+    public int calls() {
+        return calls.get();
+    }
+
     public void reset() {
         this.behaviour = StubCaseInvestigator::defaultResult;
         this.lastContext = null;
+        calls.set(0);
     }
 
     public static InvestigationResult defaultResult(CaseContext caseContext) {

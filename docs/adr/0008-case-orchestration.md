@@ -55,6 +55,28 @@ worker's successor resumes the graph from the last finished node; a stale worker
 - Outbox → `case.events.v1`, at-least-once with `eventId` for de-duplication.
 - V5 migrated the per-alert queue: 27 alerts on 24 accounts became 24 cases, the newest report per case became run 1.
 
+## Step B as built
+
+- `CaseAnalysisGraph`: `START → investigate → review → END` (the reviewer approves every validated report until step
+  C), compiled with `FencedPostgresCheckpointSaver` and without `releaseThread`. Thread id `<caseId>:<run>`; the run
+  and the worker's `claimed_at` travel in the `RunnableConfig` metadata. If the thread has checkpoints the worker
+  resumes (`GraphInput.resume()`), else it starts with the case context as input.
+- Fencing: every write starts with `select ... from fraud_case where stage = 'ANALYSIS' and claimed_at = :claimedAt
+  for share` in the same statement. A claim updates that row, so check and write are atomic against it; the loser
+  gets `LostClaimException` at its next checkpoint and the worker abandons the run. Without the fence, the
+  stale-worker test fails: the old worker writes `investigate` and `review` checkpoints after its successor finished.
+- State is JSON (`graph_checkpoint.state`, one property per key) with a declared type per key
+  (`CaseGraphState.TYPES`). The same codec clones the state between nodes, so a state that would not survive a
+  restart fails in every normal run, not only after a crash.
+- The case lifecycle owns the rows: `complete` deletes the run's checkpoints (and older runs') in its transaction,
+  a FAILED case loses all of them, a failed attempt keeps them so the next attempt resumes. A crash between the
+  graph's last checkpoint and `complete` resumes straight to `END` without calling any agent.
+- LangGraph4j 1.9.3 drives the graph on the common fork-join pool and offers no executor for it; nodes do their
+  blocking work on virtual threads. Node exceptions arrive wrapped four times and are unwrapped for the audit trail.
+- Measured on the dev database with the real model: `kill -9` during the investigation, restart with a 30 s claim
+  timeout; the next process re-claimed the case, logged `resuming after node '__START__'`, finished in 5.7 s and
+  deleted the checkpoints.
+
 ## Consequences
 
 - Real multi-agent orchestration on a mainstream framework, without its persistence weaknesses.
