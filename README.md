@@ -38,7 +38,7 @@ The transaction topic has two independent consumers. Flink does not write transa
 down database would back-pressure the detection job, and fraud detection must keep running when the platform's
 database does not. Each consumer group can also be replayed on its own.
 
-**Status:** phases 1–3 of 9 done (data path, investigation agent, regulatory RAG); phases 1–4 done, phase 5 started (model per role, cost per case). Phase 4: case lifecycle, checkpointed and resumable analysis graph, bank systems over MCP, multi-agent analysis with a reviewer, and the platform as an MCP server. See [docs/roadmap.md](docs/roadmap.md).
+**Status:** phases 1–3 of 9 done (data path, investigation agent, regulatory RAG); phases 1–4 done, phase 5 in progress (model per role, cost per case, provider fallback). Phase 4: case lifecycle, checkpointed and resumable analysis graph, bank systems over MCP, multi-agent analysis with a reviewer, and the platform as an MCP server. See [docs/roadmap.md](docs/roadmap.md).
 
 ## Stack
 
@@ -112,7 +112,9 @@ last finished node; a worker whose claim has timed out can no longer write check
 Every analysis records its cost at list prices (all model calls, reranking included), in total and by model.
 `GET /api/tenants/{t}/llm-usage?days=7` reports analyses, total, average, p95 and max cost per case, cost by model,
 and cost and latency by analysis mode. Each agent role has its own model (`finsentinel.llm.models`); transfer and HIGH
-cases can be escalated to a stronger model (`finsentinel.llm.escalation`, off by default: ADR 0011).
+cases can be escalated to a stronger model (`finsentinel.llm.escalation`, off by default: ADR 0011). Every model call
+goes through one gateway: when a provider fails (error, rate limit, out of credit) the call falls back to
+`groq:openai/gpt-oss-120b` (needs `GROQ_API_KEY`), with a circuit breaker per provider (ADR 0012).
 
 ### MCP server
 

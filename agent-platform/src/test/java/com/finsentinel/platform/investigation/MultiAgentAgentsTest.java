@@ -3,15 +3,15 @@ package com.finsentinel.platform.investigation;
 import com.finsentinel.common.AlertRule;
 import com.finsentinel.common.Severity;
 import com.finsentinel.platform.PlatformTest;
-import com.finsentinel.platform.llm.LlmPricing;
+import com.finsentinel.platform.llm.TestLlm;
 import com.finsentinel.platform.llm.LlmUsage;
 import org.junit.jupiter.api.Test;
-import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ByteArrayResource;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
@@ -33,8 +33,6 @@ class MultiAgentAgentsTest {
     JsonMapper json;
     @Autowired
     ModelRouter router;
-    @Autowired
-    LlmPricing pricing;
 
     private final CaseContext someCase = context(alert(uniqueTenant(), "acc-1", AlertRule.GEO_JUMP, Severity.HIGH,
             List.of("t1", "t2"), Instant.now()));
@@ -151,6 +149,6 @@ class MultiAgentAgentsTest {
     }
 
     private AgentModels models(ChatModel model) {
-        return new AgentModels(ChatClient.builder(model), router, pricing);
+        return new AgentModels(TestLlm.gateway(model, model, TestLlm.properties(Set.of()), Clock.systemUTC()), router);
     }
 }

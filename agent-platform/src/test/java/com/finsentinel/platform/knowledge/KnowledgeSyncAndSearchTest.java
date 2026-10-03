@@ -117,6 +117,18 @@ class KnowledgeSyncAndSearchTest {
     }
 
     @Test
+    void searchFallsBackToKeywordsWhenTheEmbeddingProviderIsDown() {
+        sync(5000).sync();
+        Embedder down = texts -> {
+            throw new IllegalStateException("embedding provider down");
+        };
+        KnowledgeSearch search = new KnowledgeSearch(repository, down, (q, candidates) -> List.of(), props);
+
+        assertThat(search.search("suspicious transaction report", KnowledgeSearch.Mode.HYBRID, 1))
+                .extracting(RegulationHit::chunkId).containsExactly("pay:3.1");
+    }
+
+    @Test
     void reciprocalRankFusionRewardsAgreementBetweenLists() {
         List<String> fused = KnowledgeSearch.fuse(List.of(List.of("a", "b", "c"), List.of("c", "b", "d")), 60);
 

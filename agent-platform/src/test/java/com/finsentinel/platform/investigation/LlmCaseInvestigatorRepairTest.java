@@ -3,16 +3,17 @@ package com.finsentinel.platform.investigation;
 import com.finsentinel.common.AlertRule;
 import com.finsentinel.common.Severity;
 import com.finsentinel.platform.PlatformTest;
-import com.finsentinel.platform.llm.LlmPricing;
+import com.finsentinel.platform.llm.TestLlm;
 import org.junit.jupiter.api.Test;
-import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ByteArrayResource;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import static com.finsentinel.platform.TestData.alert;
@@ -33,8 +34,6 @@ class LlmCaseInvestigatorRepairTest {
     JsonMapper json;
     @Autowired
     ModelRouter router;
-    @Autowired
-    LlmPricing pricing;
 
     @Test
     void inconsistentDraftIsRepairedWithTheProblemsSpelledOut() {
@@ -108,6 +107,6 @@ class LlmCaseInvestigatorRepairTest {
     }
 
     private AgentModels models(ChatModel model) {
-        return new AgentModels(ChatClient.builder(model), router, pricing);
+        return new AgentModels(TestLlm.gateway(model, model, TestLlm.properties(Set.of()), Clock.systemUTC()), router);
     }
 }

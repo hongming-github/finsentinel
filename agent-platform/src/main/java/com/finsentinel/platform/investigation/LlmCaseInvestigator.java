@@ -2,6 +2,7 @@ package com.finsentinel.platform.investigation;
 
 import com.finsentinel.common.AlertRule;
 import com.finsentinel.platform.llm.AgentRole;
+import com.finsentinel.platform.llm.LlmGateway;
 import com.finsentinel.platform.llm.LlmUsage;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.beans.factory.annotation.Value;
@@ -46,7 +47,7 @@ class LlmCaseInvestigator implements CaseInvestigator {
         List<ToolCallback> callbacks = tools.callbacks();
         String brief = brief(caseContext) + ReportWriting.revisionNote(revision, json);
 
-        StructuredOutput.Answer<CaseReport> draft = ask(caseContext, callbacks, brief);
+        LlmGateway.Answer<CaseReport> draft = ask(caseContext, callbacks, brief);
         LlmUsage usage = draft.usage();
         boolean involvesTransfer = tools.involvesTransfer();
         List<String> problems = CaseReportValidator.problems(draft.value(), tools.seenTxnIds(), tools.seenChunkIds(),
@@ -76,7 +77,7 @@ class LlmCaseInvestigator implements CaseInvestigator {
         return "Investigate this case. " + ReportWriting.caseBrief(caseContext, playbooks, json);
     }
 
-    private StructuredOutput.Answer<CaseReport> ask(CaseContext caseContext, List<ToolCallback> tools, String userMessage) {
+    private LlmGateway.Answer<CaseReport> ask(CaseContext caseContext, List<ToolCallback> tools, String userMessage) {
         return models.ask(AgentRole.INVESTIGATOR, caseContext, systemPrompt, userMessage, tools, CaseReport.class);
     }
 }

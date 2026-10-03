@@ -4,6 +4,7 @@ import com.finsentinel.common.Alert;
 import com.finsentinel.common.Channel;
 import com.finsentinel.platform.llm.AgentRole;
 import com.finsentinel.platform.llm.LlmProperties;
+import com.finsentinel.platform.llm.ModelRef;
 import com.finsentinel.platform.transaction.TransactionRepository;
 import org.springframework.stereotype.Component;
 
@@ -26,17 +27,12 @@ public class ModelRouter {
         this.transactions = transactions;
     }
 
-    public String modelFor(AgentRole role, CaseContext caseContext) {
+    public ModelRef modelFor(AgentRole role, CaseContext caseContext) {
         LlmProperties.Escalation escalation = props.escalation();
         if (escalation.roles().contains(role) && route(caseContext).escalated()) {
-            return escalation.model();
+            return ModelRef.parse(escalation.model());
         }
-        return switch (role) {
-            case INVESTIGATOR -> props.models().investigator();
-            case SPECIALIST -> props.models().specialist();
-            case WRITER -> props.models().writer();
-            case REVIEWER -> props.models().reviewer();
-        };
+        return props.model(role);
     }
 
     /** Why a case is, or is not, escalated. */

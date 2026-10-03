@@ -1,29 +1,26 @@
 package com.finsentinel.platform.investigation;
 
 import com.finsentinel.platform.llm.AgentRole;
-import com.finsentinel.platform.llm.LlmPricing;
-import org.springframework.ai.chat.client.ChatClient;
+import com.finsentinel.platform.llm.LlmGateway;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
 
-/** How every agent calls a model: the router picks the model for its role and case, the pricing turns usage into cost. */
+/** How every agent calls a model: the router picks the model for its role and case, the gateway calls and prices it. */
 @Component
 class AgentModels {
 
-    private final ChatClient chatClient;
+    private final LlmGateway gateway;
     private final ModelRouter router;
-    private final LlmPricing pricing;
 
-    AgentModels(ChatClient.Builder chatClientBuilder, ModelRouter router, LlmPricing pricing) {
-        this.chatClient = chatClientBuilder.build();
+    AgentModels(LlmGateway gateway, ModelRouter router) {
+        this.gateway = gateway;
         this.router = router;
-        this.pricing = pricing;
     }
 
-    <T> StructuredOutput.Answer<T> ask(AgentRole role, CaseContext caseContext, String system, String user,
-                                       List<ToolCallback> tools, Class<T> type) {
-        return StructuredOutput.ask(chatClient, router.modelFor(role, caseContext), system, user, tools, type, pricing);
+    <T> LlmGateway.Answer<T> ask(AgentRole role, CaseContext caseContext, String system, String user,
+                                 List<ToolCallback> tools, Class<T> type) {
+        return gateway.ask(router.modelFor(role, caseContext), system, user, tools, type);
     }
 }

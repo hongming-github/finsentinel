@@ -69,9 +69,17 @@ public class KnowledgeSearch {
     }
 
     private List<String> hybrid(String query) {
-        return fuse(List.of(
-                repository.vectorSearch(embedder.embed(query), props.candidates()),
-                repository.keywordSearch(query, props.candidates())), props.rrfK());
+        List<String> keyword = repository.keywordSearch(query, props.candidates());
+        List<String> vector;
+        try {
+            vector = repository.vectorSearch(embedder.embed(query), props.candidates());
+        } catch (RuntimeException e) {
+            // The embedding provider is down and the question is not in the embedding cache: keyword search alone is
+            // a worse ranking, not a failed search. Same rule as for reranking.
+            log.warn("Embedding failed, searching by keyword only: {}", e.toString());
+            return keyword;
+        }
+        return fuse(List.of(vector, keyword), props.rrfK());
     }
 
     /**

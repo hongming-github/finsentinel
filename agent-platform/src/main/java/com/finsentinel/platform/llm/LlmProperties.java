@@ -4,28 +4,61 @@ import com.finsentinel.common.Severity;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.math.BigDecimal;
+import java.time.Duration;
+import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 /**
- * Bound from {@code finsentinel.llm.*}: which model does which job, when a case is escalated to a stronger one, and
- * list prices. Invalid values fail at startup, including a configured model without a price.
+ * Bound from {@code finsentinel.llm.*}: providers, which model does which job, when a case is escalated to a stronger
+ * one, where calls go when a provider fails, and list prices. Models are written {@code provider:model} (a bare name is
+ * OpenAI). Invalid values fail at startup, including a model without a price or at an unknown provider.
  *
+ * @param providers  OpenAI-compatible endpoints by name; {@code openai} is the auto-configured client
  * @param models     the model of each role on an ordinary case
  * @param escalation the stronger model and the roles that use it on escalated cases
- * @param prices     USD per million tokens, keyed by model name; a dated snapshot ("gpt-5.4-mini-2026-03-17") is
- *                   priced by the longest configured name it starts with
+ * @param fallback   where a call goes when its provider fails or its circuit is open
+ * @param prices     USD per million tokens, keyed like model references; a dated snapshot is priced by the longest
+ *                   configured name it starts with, at the same provider
  */
 @ConfigurationProperties("finsentinel.llm")
-public record LlmProperties(Models models, Escalation escalation, Map<String, Price> prices) {
+public record LlmProperties(Map<String, Provider> providers, Models models, Escalation escalation, Fallback fallback,
+                            Map<String, Price> prices) {
 
     public LlmProperties {
-        require(models != null && escalation != null && prices != null, "models, escalation and prices are required");
-        for (String model : models.byRole().values()) {
-            require(prices.containsKey(model), "no price for model " + model);
+        require(providers != null && models != null && escalation != null && fallback != null && prices != null,
+                "providers, models, escalation, fallback and prices are required");
+        require(providers.containsKey(ModelRef.DEFAULT_PROVIDER), "providers.openai is required");
+        List<String> refs = new ArrayList<>(models.byRole().values());
+        refs.add(escalation.model());
+        refs.add(fallback.model());
+        for (String ref : refs) {
+            require(prices.containsKey(ModelRef.parse(ref).toString()), "no price for model " + ref);
+            require(providers.containsKey(ModelRef.parse(ref).provider()), "unknown provider in " + ref);
         }
-        require(prices.containsKey(escalation.model()), "no price for escalation model " + escalation.model());
+    }
+
+    /** The configured model reference of a role on an ordinary case. */
+    public ModelRef model(AgentRole role) {
+        return ModelRef.parse(models.byRole().get(role));
+    }
+
+    /**
+     * @param baseUrl                    OpenAI-compatible endpoint; null for {@code openai} (spring.ai.openai.*)
+     * @param apiKey                     null for {@code openai}; a blank key marks the provider unavailable
+     * @param structuredOutputWithTools  whether the provider can enforce a JSON Schema in a request that also offers
+     *                                   tools (Groq cannot); without it the format is described in the prompt and the
+     *                                   report validator checks the result
+     * @param extraBody                  provider-specific request fields sent with every call
+     */
+    public record Provider(String baseUrl, String apiKey, boolean structuredOutputWithTools,
+                           Map<String, Object> extraBody) {
+
+        public Provider {
+            extraBody = extraBody == null ? Map.of() : Map.copyOf(extraBody);
+        }
     }
 
     public record Models(String investigator, String specialist, String writer, String reviewer) {
@@ -56,6 +89,20 @@ public record LlmProperties(Models models, Escalation escalation, Map<String, Pr
             require(model != null, "escalation.model is required");
             roles = roles == null ? Set.of() : Set.copyOf(roles);
             onSeverity = onSeverity == null ? Set.of() : Set.copyOf(onSeverity);
+        }
+    }
+
+    /**
+     * @param model            the model every role falls back to; at another provider than the primary models
+     * @param failureThreshold consecutive provider failures that open a provider's circuit
+     * @param openFor          how long an open circuit sends calls straight to the fallback before one trial call
+     */
+    public record Fallback(String model, int failureThreshold, Duration openFor) {
+
+        public Fallback {
+            require(model != null, "fallback.model is required");
+            require(failureThreshold > 0, "fallback.failure-threshold must be positive");
+            require(openFor != null && !openFor.isNegative() && !openFor.isZero(), "fallback.open-for must be positive");
         }
     }
 
