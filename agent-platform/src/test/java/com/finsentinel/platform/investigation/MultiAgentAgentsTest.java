@@ -3,8 +3,11 @@ package com.finsentinel.platform.investigation;
 import com.finsentinel.common.AlertRule;
 import com.finsentinel.common.Severity;
 import com.finsentinel.platform.PlatformTest;
+import com.finsentinel.platform.llm.LlmPricing;
+import com.finsentinel.platform.llm.LlmUsage;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ByteArrayResource;
 import tools.jackson.databind.json.JsonMapper;
@@ -28,6 +31,10 @@ class MultiAgentAgentsTest {
     InvestigationProperties props;
     @Autowired
     JsonMapper json;
+    @Autowired
+    ModelRouter router;
+    @Autowired
+    LlmPricing pricing;
 
     private final CaseContext someCase = context(alert(uniqueTenant(), "acc-1", AlertRule.GEO_JUMP, Severity.HIGH,
             List.of("t1", "t2"), Instant.now()));
@@ -37,7 +44,7 @@ class MultiAgentAgentsTest {
         for (Specialist specialist : Specialist.values()) {
             ScriptedChatModel model = new ScriptedChatModel(json, new SpecialistFindings("s", List.of(), List.of()));
 
-            new LlmSpecialistAgents(ChatClient.builder(model), toolsFactory, json).run(specialist, someCase);
+            new LlmSpecialistAgents(models(model), toolsFactory, json).run(specialist, someCase);
 
             assertThat(model.toolsOffered.getFirst()).as(specialist.name()).isEqualTo(specialist.tools());
             assertThat(model.systemPrompts.getFirst()).as(specialist.name()).contains("specialist");
@@ -49,7 +56,7 @@ class MultiAgentAgentsTest {
         CaseReport.RegulatoryNote note = new CaseReport.RegulatoryNote("report it", List.of("c-1"));
         ScriptedChatModel model = new ScriptedChatModel(json, new SpecialistFindings("s", List.of(), List.of(note)));
 
-        SpecialistReport report = new LlmSpecialistAgents(ChatClient.builder(model), toolsFactory, json)
+        SpecialistReport report = new LlmSpecialistAgents(models(model), toolsFactory, json)
                 .run(Specialist.TRANSACTIONS, someCase);
 
         assertThat(report.regulatoryNotes()).isEmpty();
@@ -70,7 +77,8 @@ class MultiAgentAgentsTest {
 
         assertThat(model.toolsOffered).allSatisfy(tools -> assertThat(tools).as("the writer has no tools").isEmpty());
         assertThat(result.repairedIssues()).singleElement().asString().contains("invented");
-        assertThat(model.prompts.get(1)).contains(ReportWriting.FIX_WITHOUT_TOOLS);
+        assertThat(model.prompts.get(1)).contains(ReportWriting.FIX_WITHOUT_TOOLS)
+                .contains("The only transaction ids you may cite are: [t-seen-by-customer, t-seen-by-transactions]");
         assertThat(result.llmCalls()).isEqualTo(2);
         assertThat(result.toolCalls()).extracting(ToolCall::tool)
                 .containsExactly("getAlertTransactions", "getCustomerProfile");
@@ -117,19 +125,19 @@ class MultiAgentAgentsTest {
                 List.of(new ToolEvidence("getAccountSecurityEvents", "{}", "{\"eventsLast30Days\":[\"NEW_DEVICE_LOGIN\"]}")));
         ScriptedChatModel model = new ScriptedChatModel(json, new LlmCaseReviewer.Verdict(true, List.of()));
 
-        new LlmCaseReviewer(ChatClient.builder(model), json, new ByteArrayResource("r".getBytes()))
+        new LlmCaseReviewer(models(model), json, new ByteArrayResource("r".getBytes()))
                 .review(someCase, withEvidence, List.of());
 
         assertThat(model.prompts.getFirst()).contains("getAccountSecurityEvents").contains("NEW_DEVICE_LOGIN");
     }
 
     private LlmReportWriter writer(ScriptedChatModel model) {
-        return new LlmReportWriter(ChatClient.builder(model), json, props,
+        return new LlmReportWriter(models(model), json, props,
                 new ByteArrayResource("You are a test writer.".getBytes()));
     }
 
     private LlmCaseReviewer reviewer(LlmCaseReviewer.Verdict verdict) {
-        return new LlmCaseReviewer(ChatClient.builder(new ScriptedChatModel(json, verdict)), json,
+        return new LlmCaseReviewer(models(new ScriptedChatModel(json, verdict)), json,
                 new ByteArrayResource("You are a test reviewer.".getBytes()));
     }
 
@@ -140,5 +148,9 @@ class MultiAgentAgentsTest {
     private static SpecialistReport report(Specialist specialist, Set<String> seen, ToolCall... calls) {
         return new SpecialistReport(specialist, false, specialist + " stub summary", List.of(), List.of(),
                 List.of(calls), seen, Set.of(), LlmUsage.NONE);
+    }
+
+    private AgentModels models(ChatModel model) {
+        return new AgentModels(ChatClient.builder(model), router, pricing);
     }
 }

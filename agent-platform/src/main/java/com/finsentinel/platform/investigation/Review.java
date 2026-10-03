@@ -1,5 +1,7 @@
 package com.finsentinel.platform.investigation;
 
+import com.finsentinel.platform.llm.LlmUsage;
+
 import java.util.List;
 
 /**

@@ -1,7 +1,7 @@
 package com.finsentinel.platform.investigation;
 
 import com.finsentinel.common.AlertRule;
-import org.springframework.ai.chat.client.ChatClient;
+import com.finsentinel.platform.llm.AgentRole;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.json.JsonMapper;
@@ -17,14 +17,14 @@ import java.util.Map;
 @Component
 class LlmSpecialistAgents implements SpecialistAgents {
 
-    private final ChatClient chatClient;
+    private final AgentModels models;
     private final InvestigationToolsFactory toolsFactory;
     private final JsonMapper json;
     private final Map<Specialist, String> prompts = new EnumMap<>(Specialist.class);
     private final Map<AlertRule, String> playbooks;
 
-    LlmSpecialistAgents(ChatClient.Builder chatClientBuilder, InvestigationToolsFactory toolsFactory, JsonMapper json) {
-        this.chatClient = chatClientBuilder.build();
+    LlmSpecialistAgents(AgentModels models, InvestigationToolsFactory toolsFactory, JsonMapper json) {
+        this.models = models;
         this.toolsFactory = toolsFactory;
         this.json = json;
         for (Specialist specialist : Specialist.values()) {
@@ -36,12 +36,13 @@ class LlmSpecialistAgents implements SpecialistAgents {
     @Override
     public SpecialistReport run(Specialist specialist, CaseContext caseContext) {
         InvestigationTools tools = toolsFactory.forCase(caseContext);
-        StructuredOutput.Answer<SpecialistFindings> answer = StructuredOutput.ask(chatClient, prompts.get(specialist),
+        StructuredOutput.Answer<SpecialistFindings> answer = models.ask(AgentRole.SPECIALIST, caseContext,
+                prompts.get(specialist),
                 "Examine this case. " + ReportWriting.caseBrief(caseContext, playbooks, json),
                 tools.callbacks(specialist.tools()), SpecialistFindings.class);
         SpecialistFindings found = answer.value();
         List<CaseReport.RegulatoryNote> notes = specialist == Specialist.REGULATIONS ? found.regulatoryNotes() : List.of();
         return new SpecialistReport(specialist, false, found.summary(), found.findings(), notes, tools.calls(),
-                tools.seenTxnIds(), tools.seenChunkIds(), answer.usage());
+                tools.seenTxnIds(), tools.seenChunkIds(), answer.usage().plus(tools.toolUsage()));
     }
 }

@@ -3,9 +3,9 @@ package com.finsentinel.platform;
 import com.finsentinel.platform.investigation.CaseContext;
 import com.finsentinel.platform.investigation.CaseReviewer;
 import com.finsentinel.platform.investigation.InvestigationResult;
-import com.finsentinel.platform.investigation.LlmUsage;
 import com.finsentinel.platform.investigation.Review;
 import com.finsentinel.platform.investigation.SpecialistReport;
+import com.finsentinel.platform.llm.LlmUsage;
 import org.springframework.boot.test.context.TestComponent;
 import org.springframework.context.annotation.Primary;
 

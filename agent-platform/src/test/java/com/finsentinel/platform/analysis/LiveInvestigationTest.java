@@ -256,10 +256,11 @@ class LiveInvestigationTest {
                 alert.customerId(), List.of(alert), 1, null), claim.claimedAt(), mode);
         InvestigationResult result = outcome.investigation();
         System.out.println(json.writerWithDefaultPrettyPrinter().writeValueAsString(outcome));
-        results.add("%-6s %-60s %-18s %3d review=%-8s calls=%2d tokens=%6d/%5d %6dms".formatted(mode,
+        results.add("%-6s %-60s %-18s %3d review=%-8s calls=%2d tokens=%6d/%5d %6dms $%.4f %s".formatted(mode,
                 Thread.currentThread().getStackTrace()[2].getMethodName(), result.report().disposition(),
                 result.report().riskScore(), outcome.review().approved() ? "approved" : "rejected", result.llmCalls(),
-                result.inputTokens(), result.outputTokens(), result.latencyMs()));
+                result.inputTokens(), result.outputTokens(), result.latencyMs(), result.costUsd(),
+                result.costByModel().keySet()));
         return result;
     }
 

@@ -38,7 +38,7 @@ The transaction topic has two independent consumers. Flink does not write transa
 down database would back-pressure the detection job, and fraud detection must keep running when the platform's
 database does not. Each consumer group can also be replayed on its own.
 
-**Status:** phases 1–3 of 9 done (data path, investigation agent, regulatory RAG); phase 4 done: case lifecycle, checkpointed and resumable analysis graph, bank systems over MCP, multi-agent analysis with a reviewer, and the platform as an MCP server. See [docs/roadmap.md](docs/roadmap.md).
+**Status:** phases 1–3 of 9 done (data path, investigation agent, regulatory RAG); phases 1–4 done, phase 5 started (model per role, cost per case). Phase 4: case lifecycle, checkpointed and resumable analysis graph, bank systems over MCP, multi-agent analysis with a reviewer, and the platform as an MCP server. See [docs/roadmap.md](docs/roadmap.md).
 
 ## Stack
 
@@ -106,6 +106,13 @@ reviewer checks the report against the author's evidence and can send it back on
 analysis. The graph checkpoints after every node to `graph_checkpoint` (plain
 JSON). If the platform dies mid-analysis, the next worker to claim the case (after `claim-timeout`) resumes after the
 last finished node; a worker whose claim has timed out can no longer write checkpoints.
+
+### LLM cost
+
+Every analysis records its cost at list prices (all model calls, reranking included), in total and by model.
+`GET /api/tenants/{t}/llm-usage?days=7` reports analyses, total, average, p95 and max cost per case, cost by model,
+and cost and latency by analysis mode. Each agent role has its own model (`finsentinel.llm.models`); transfer and HIGH
+cases can be escalated to a stronger model (`finsentinel.llm.escalation`, off by default: ADR 0011).
 
 ### MCP server
 

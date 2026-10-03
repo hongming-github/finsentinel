@@ -1,8 +1,12 @@
 package com.finsentinel.platform.knowledge;
 
 import com.fasterxml.jackson.annotation.JsonPropertyDescription;
+import com.finsentinel.platform.llm.LlmPricing;
+import com.finsentinel.platform.llm.LlmUsage;
 import org.springframework.ai.chat.client.AdvisorParams;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.client.ResponseEntity;
+import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.stereotype.Component;
 
@@ -26,37 +30,47 @@ class LlmReranker implements Reranker {
 
     private final ChatClient chatClient;
     private final KnowledgeProperties.Rerank props;
+    private final LlmPricing pricing;
 
-    LlmReranker(ChatClient.Builder builder, KnowledgeProperties props) {
+    LlmReranker(ChatClient.Builder builder, KnowledgeProperties props, LlmPricing pricing) {
         this.chatClient = builder.build();
         this.props = props.search().rerank();
+        this.pricing = pricing;
     }
 
     @Override
     public List<String> rerank(String query, List<Candidate> candidates) {
+        return rankWithUsage(query, candidates).ids();
+    }
+
+    @Override
+    public Ranking rankWithUsage(String query, List<Candidate> candidates) {
+        long start = System.nanoTime();
         StringBuilder passages = new StringBuilder();
         for (Candidate c : candidates) {
             String text = c.text().length() > props.maxPassageChars()
                     ? c.text().substring(0, props.maxPassageChars()) + "..." : c.text();
             passages.append("[").append(c.id()).append("]\n").append(text).append("\n\n");
         }
-        Grades grades = chatClient.prompt()
+        ResponseEntity<ChatResponse, Grades> response = chatClient.prompt()
                 .system(INSTRUCTIONS)
                 .user("Question: " + query + "\n\nPassages:\n" + passages)
                 .options(OpenAiChatOptions.builder().model(props.model()))
                 .advisors(AdvisorParams.ENABLE_NATIVE_STRUCTURED_OUTPUT)
                 .call()
-                .entity(Grades.class);
+                .responseEntity(Grades.class);
+        Grades grades = response.entity();
+        LlmUsage usage = LlmUsage.of(response.response(), (System.nanoTime() - start) / 1_000_000, pricing);
         Map<String, Integer> score = new HashMap<>();
         if (grades != null && grades.grades() != null) {
             grades.grades().forEach(g -> score.putIfAbsent(g.id(), g.grade()));
         }
         // Stable sort: equal grades keep the fused (RRF) order they arrived in.
-        return candidates.stream()
+        return new Ranking(candidates.stream()
                 .map(Candidate::id)
                 .filter(id -> score.getOrDefault(id, 1) > 0)
                 .sorted(Comparator.comparingInt((String id) -> -score.getOrDefault(id, 1)))
-                .toList();
+                .toList(), usage);
     }
 
     record Grades(List<Grade> grades) {

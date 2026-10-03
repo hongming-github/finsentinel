@@ -1,6 +1,10 @@
 package com.finsentinel.platform.investigation;
 
+import com.finsentinel.platform.llm.LlmUsage;
+
+import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 
 /**
  * A finished, validated investigation plus the metadata needed to audit and cost it.
@@ -11,6 +15,8 @@ import java.util.List;
  * @param llmCalls          model calls made, including repairs (tool round trips inside one call not counted)
  * @param evidence          what the tools returned to a single investigator, for the reviewer; empty for a report
  *                          written from specialists' findings. Not stored with the analysis
+ * @param costUsd           at list prices: every model call of the analysis, reranking included
+ * @param costByModel       the same cost split by model
  */
 public record InvestigationResult(
         CaseReport report,
@@ -22,27 +28,33 @@ public record InvestigationResult(
         Integer cachedInputTokens,
         int llmCalls,
         long latencyMs,
-        List<ToolEvidence> evidence) {
+        List<ToolEvidence> evidence,
+        BigDecimal costUsd,
+        Map<String, BigDecimal> costByModel) {
 
     public InvestigationResult {
         evidence = evidence == null ? List.of() : List.copyOf(evidence);
+        costUsd = costUsd == null ? BigDecimal.ZERO : costUsd;
+        costByModel = costByModel == null ? Map.of() : Map.copyOf(costByModel);
     }
 
     public InvestigationResult(CaseReport report, List<ToolCall> toolCalls, List<String> repairedIssues, String model,
                                Integer inputTokens, Integer outputTokens, Integer cachedInputTokens, int llmCalls,
                                long latencyMs) {
         this(report, toolCalls, repairedIssues, model, inputTokens, outputTokens, cachedInputTokens, llmCalls,
-                latencyMs, List.of());
+                latencyMs, List.of(), BigDecimal.ZERO, Map.of());
     }
 
     static InvestigationResult of(CaseReport report, List<ToolCall> toolCalls, List<String> repairedIssues,
                                   LlmUsage usage, List<ToolEvidence> evidence) {
         return new InvestigationResult(report, toolCalls, repairedIssues, usage.model(), usage.inputTokens(),
-                usage.outputTokens(), usage.cachedInputTokens(), usage.calls(), usage.latencyMs(), evidence);
+                usage.outputTokens(), usage.cachedInputTokens(), usage.calls(), usage.latencyMs(), evidence,
+                usage.costUsd(), usage.costByModel());
     }
 
     public LlmUsage usage() {
-        return new LlmUsage(model, inputTokens, outputTokens, cachedInputTokens, llmCalls, latencyMs);
+        return new LlmUsage(model, inputTokens, outputTokens, cachedInputTokens, llmCalls, latencyMs, costUsd,
+                costByModel);
     }
 
     /** The same report and evidence, with the cost of the whole analysis (other agents included). */

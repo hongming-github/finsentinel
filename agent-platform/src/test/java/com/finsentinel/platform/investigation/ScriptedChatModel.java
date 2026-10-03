@@ -1,6 +1,8 @@
 package com.finsentinel.platform.investigation;
 
 import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.metadata.ChatResponseMetadata;
+import org.springframework.ai.chat.metadata.DefaultUsage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
@@ -27,6 +29,7 @@ class ScriptedChatModel implements ChatModel {
     final List<String> prompts = new CopyOnWriteArrayList<>();
     final List<String> systemPrompts = new CopyOnWriteArrayList<>();
     final List<Set<String>> toolsOffered = new CopyOnWriteArrayList<>();
+    final List<String> modelsAsked = new CopyOnWriteArrayList<>();
 
     ScriptedChatModel(JsonMapper json, Object... replies) {
         this.json = json;
@@ -54,7 +57,11 @@ class ScriptedChatModel implements ChatModel {
         toolsOffered.add(prompt.getOptions() instanceof ToolCallingChatOptions options && options.getToolCallbacks() != null
                 ? options.getToolCallbacks().stream().map(c -> c.getToolDefinition().name()).collect(Collectors.toSet())
                 : Set.of());
+        String model = prompt.getOptions() == null ? null : prompt.getOptions().getModel();
+        modelsAsked.add(model);
         String reply = json.writeValueAsString(replies.removeFirst());
-        return new ChatResponse(List.of(new Generation(new AssistantMessage(reply))));
+        // Report usage like a provider does, so cost accounting has something to price.
+        return new ChatResponse(List.of(new Generation(new AssistantMessage(reply))),
+                ChatResponseMetadata.builder().model(model).usage(new DefaultUsage(5, 3)).build());
     }
 }

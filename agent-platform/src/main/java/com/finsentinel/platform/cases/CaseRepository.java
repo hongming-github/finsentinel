@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
@@ -408,17 +409,20 @@ public class CaseRepository {
                         (Integer) rs.getObject("output_tokens"), (Integer) rs.getObject("cached_input_tokens"),
                         rs.getInt("llm_calls"), rs.getLong("latency_ms"), rs.getTimestamp("created_at").toInstant(),
                         rs.getString("mode"),
-                        rs.getString("review") == null ? null : json.readValue(rs.getString("review"), Review.class)))
+                        rs.getString("review") == null ? null : json.readValue(rs.getString("review"), Review.class),
+                        rs.getBigDecimal("cost_usd")))
                 .list();
     }
 
     /**
      * @param mode   how the analysis was produced; null for analyses from before phase 4 step C2
      * @param review the reviewer's last verdict; null for analyses from before phase 4 step C2
+     * @param costUsd at list prices; null for analyses from before phase 5
      */
     public record CaseAnalysis(int run, CaseReport report, List<ToolCall> toolCalls, List<String> repairedIssues,
                                String model, Integer inputTokens, Integer outputTokens, Integer cachedInputTokens,
-                               int llmCalls, long latencyMs, Instant createdAt, String mode, Review review) {
+                               int llmCalls, long latencyMs, Instant createdAt, String mode, Review review,
+                               BigDecimal costUsd) {
     }
 
     // ---------------------------------------------------------------- helpers
@@ -427,10 +431,12 @@ public class CaseRepository {
         jdbc.sql("""
                         insert into case_analysis (case_id, run, disposition, risk_score, report, tool_calls,
                                                    repaired_issues, model, input_tokens, output_tokens,
-                                                   cached_input_tokens, llm_calls, latency_ms, mode, review)
+                                                   cached_input_tokens, llm_calls, latency_ms, mode, review,
+                                                   cost_usd, cost_by_model)
                         values (:caseId, :run, :disposition, :riskScore, cast(:report as jsonb),
                                 cast(:toolCalls as jsonb), :repaired, :model, :inputTokens, :outputTokens,
-                                :cachedInputTokens, :llmCalls, :latencyMs, :mode, cast(:review as jsonb))
+                                :cachedInputTokens, :llmCalls, :latencyMs, :mode, cast(:review as jsonb),
+                                :costUsd, cast(:costByModel as jsonb))
                         on conflict (case_id, run) do nothing
                         """)
                 .param("caseId", UUID.fromString(caseId))
@@ -448,6 +454,8 @@ public class CaseRepository {
                 .param("latencyMs", result.latencyMs())
                 .param("mode", mode.name())
                 .param("review", json.writeValueAsString(review))
+                .param("costUsd", result.costUsd())
+                .param("costByModel", json.writeValueAsString(result.costByModel()))
                 .update();
     }
 

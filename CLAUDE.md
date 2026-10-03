@@ -61,6 +61,11 @@ committed, and how the user likes to work. Keep it updated at the end of each se
 - The reviewer always sees exactly the evidence the report's author saw (raw tool results for the single agent,
   specialist reports for the writer); without it, it flags supported claims and the writer deletes them (ADR 0010).
 - Playbook guidance that differs by channel goes in separate sections (card vs transfer); agents misapply mixed lists.
+- Every model the platform can call has a price in `finsentinel.llm.prices` (USD per million tokens, with the date it
+  was checked on developers.openai.com); startup fails otherwise. Cost is computed from the model the provider
+  reports, so do not fake it in tests that assert on cost.
+- Model choice is per agent role and deterministic (`ModelRouter`); escalation to gpt-5.5 is off by default on
+  measured data (ADR 0011). Change it only with a new comparison that includes cost.
 - `finsentinel.analysis.mode` defaults to SINGLE on measured data (ADR 0010); change it only with a new comparison
   from `LiveInvestigationTest`. Specialists write their own state keys; never let parallel nodes write the same key.
 - Only validated reports are stored (ADR 0006). Repairs are bounded by `report.max-repairs`.

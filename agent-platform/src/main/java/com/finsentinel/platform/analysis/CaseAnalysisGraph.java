@@ -16,13 +16,13 @@ import com.finsentinel.platform.investigation.CaseInvestigator;
 import com.finsentinel.platform.investigation.CasePlanner;
 import com.finsentinel.platform.investigation.CaseReviewer;
 import com.finsentinel.platform.investigation.InvestigationResult;
-import com.finsentinel.platform.investigation.LlmUsage;
 import com.finsentinel.platform.investigation.ReportWriter;
 import com.finsentinel.platform.investigation.Review;
 import com.finsentinel.platform.investigation.Revision;
 import com.finsentinel.platform.investigation.Specialist;
 import com.finsentinel.platform.investigation.SpecialistAgents;
 import com.finsentinel.platform.investigation.SpecialistReport;
+import com.finsentinel.platform.llm.LlmUsage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -229,8 +229,7 @@ public class CaseAnalysisGraph {
                     .orElse(LlmUsage.NONE));
         }
         // Latency is this attempt's wall clock, not the sum of node times: specialists run in parallel.
-        total = new LlmUsage(total.model(), total.inputTokens(), total.outputTokens(), total.cachedInputTokens(),
-                total.calls(), (System.nanoTime() - start) / 1_000_000);
+        total = total.withLatency((System.nanoTime() - start) / 1_000_000);
         return new Outcome(runMode, CaseGraphState.investigation(end).orElseThrow().withUsage(total),
                 CaseGraphState.review(end).orElseThrow(), last.map(Checkpoint::getNodeId).orElse(null));
     }
