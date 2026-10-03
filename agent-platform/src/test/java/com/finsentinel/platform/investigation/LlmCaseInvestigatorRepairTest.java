@@ -5,19 +5,12 @@ import com.finsentinel.common.Severity;
 import com.finsentinel.platform.PlatformTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.chat.model.ChatResponse;
-import org.springframework.ai.chat.model.Generation;
-import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ByteArrayResource;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Instant;
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Deque;
 import java.util.List;
 import java.util.UUID;
 
@@ -40,7 +33,7 @@ class LlmCaseInvestigatorRepairTest {
 
     @Test
     void inconsistentDraftIsRepairedWithTheProblemsSpelledOut() {
-        ScriptedModel model = new ScriptedModel(
+        ScriptedChatModel model = new ScriptedChatModel(json, 
                 CaseReportValidatorTest.report(Disposition.LIKELY_FRAUD, 15, List.of()),
                 CaseReportValidatorTest.report(Disposition.LIKELY_FRAUD, 88, List.of()));
 
@@ -54,7 +47,7 @@ class LlmCaseInvestigatorRepairTest {
 
     @Test
     void draftThatStaysInvalidFailsTheInvestigation() {
-        ScriptedModel model = new ScriptedModel(
+        ScriptedChatModel model = new ScriptedChatModel(json, 
                 CaseReportValidatorTest.report(Disposition.LIKELY_FRAUD, 90, List.of("invented-id")),
                 CaseReportValidatorTest.report(Disposition.LIKELY_FRAUD, 90, List.of("still-invented")));
 
@@ -66,7 +59,7 @@ class LlmCaseInvestigatorRepairTest {
 
     @Test
     void briefCarriesOnlyThePlaybookForTheAlertsRule() {
-        ScriptedModel model = new ScriptedModel(CaseReportValidatorTest.report(Disposition.NEEDS_REVIEW, 50, List.of()));
+        ScriptedChatModel model = new ScriptedChatModel(json, CaseReportValidatorTest.report(Disposition.NEEDS_REVIEW, 50, List.of()));
 
         investigator(model).investigate(anyCase()); // one VELOCITY alert
 
@@ -76,7 +69,7 @@ class LlmCaseInvestigatorRepairTest {
 
     @Test
     void caseWithTwoRulesGetsBothPlaybooksAndTheAnalystNote() {
-        ScriptedModel model = new ScriptedModel(CaseReportValidatorTest.report(Disposition.NEEDS_REVIEW, 50, List.of()));
+        ScriptedChatModel model = new ScriptedChatModel(json, CaseReportValidatorTest.report(Disposition.NEEDS_REVIEW, 50, List.of()));
         String tenant = uniqueTenant();
         CaseContext twoRules = new CaseContext(UUID.randomUUID().toString(), tenant, "acc-1", "cus-acc-1", List.of(
                 alert(tenant, "acc-1", AlertRule.GEO_JUMP, Severity.HIGH, List.of("t1"), Instant.now()),
@@ -92,7 +85,7 @@ class LlmCaseInvestigatorRepairTest {
 
     @Test
     void validFirstDraftCostsOneCall() {
-        ScriptedModel model = new ScriptedModel(CaseReportValidatorTest.report(Disposition.NEEDS_REVIEW, 50, List.of()));
+        ScriptedChatModel model = new ScriptedChatModel(json, CaseReportValidatorTest.report(Disposition.NEEDS_REVIEW, 50, List.of()));
 
         InvestigationResult result = investigator(model).investigate(anyCase());
 
@@ -107,23 +100,5 @@ class LlmCaseInvestigatorRepairTest {
 
     private static CaseContext anyCase() {
         return context(alert(uniqueTenant(), "acc-1", AlertRule.VELOCITY, Severity.MEDIUM, List.of("t1"), Instant.now()));
-    }
-
-    /** Returns the given reports in order, as JSON text, and records what it was asked. */
-    private class ScriptedModel implements ChatModel {
-
-        private final Deque<CaseReport> replies;
-        final List<String> prompts = new ArrayList<>();
-
-        ScriptedModel(CaseReport... replies) {
-            this.replies = new ArrayDeque<>(List.of(replies));
-        }
-
-        @Override
-        public ChatResponse call(Prompt prompt) {
-            prompts.add(prompt.getUserMessage().getText());
-            String reply = json.writeValueAsString(replies.removeFirst());
-            return new ChatResponse(List.of(new Generation(new AssistantMessage(reply))));
-        }
     }
 }

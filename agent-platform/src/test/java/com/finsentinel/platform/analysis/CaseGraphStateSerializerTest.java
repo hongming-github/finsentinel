@@ -8,6 +8,8 @@ import com.finsentinel.platform.investigation.CaseContext;
 import com.finsentinel.platform.investigation.CaseReport;
 import com.finsentinel.platform.investigation.Disposition;
 import com.finsentinel.platform.investigation.InvestigationResult;
+import com.finsentinel.platform.investigation.LlmUsage;
+import com.finsentinel.platform.investigation.Review;
 import com.finsentinel.platform.investigation.ToolCall;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -42,13 +44,17 @@ class CaseGraphStateSerializerTest {
         Map<String, Object> data = Map.of(
                 CaseGraphState.CASE, caseContext,
                 CaseGraphState.INVESTIGATION, investigation,
-                CaseGraphState.REVIEW, new Review(true, "ok"));
+                CaseGraphState.REVIEW, new Review(false, List.of("cite the transfer"), LlmUsage.NONE),
+                CaseGraphState.MODE, AnalysisMode.MULTI,
+                CaseGraphState.REVIEWS, 1);
 
         OverAllState copy = new OverAllState(serializer.fromJson(serializer.toJson(data)));
 
         assertThat(CaseGraphState.caseContext(copy)).isEqualTo(caseContext);
         assertThat(CaseGraphState.investigation(copy)).contains(investigation);
-        assertThat(CaseGraphState.review(copy)).contains(new Review(true, "ok"));
+        assertThat(CaseGraphState.review(copy)).contains(new Review(false, List.of("cite the transfer"), LlmUsage.NONE));
+        assertThat(copy.value(CaseGraphState.MODE)).contains(AnalysisMode.MULTI);
+        assertThat(CaseGraphState.reviews(copy)).isEqualTo(1);
     }
 
     @Test

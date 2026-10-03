@@ -5,6 +5,7 @@ import com.finsentinel.platform.investigation.CaseInvestigator;
 import com.finsentinel.platform.investigation.CaseReport;
 import com.finsentinel.platform.investigation.Disposition;
 import com.finsentinel.platform.investigation.InvestigationResult;
+import com.finsentinel.platform.investigation.Revision;
 import org.springframework.boot.test.context.TestComponent;
 import org.springframework.context.annotation.Primary;
 
@@ -22,12 +23,14 @@ public class StubCaseInvestigator implements CaseInvestigator {
 
     private volatile Function<CaseContext, InvestigationResult> behaviour = StubCaseInvestigator::defaultResult;
     private volatile CaseContext lastContext;
+    private volatile Revision lastRevision;
     private final AtomicInteger calls = new AtomicInteger();
 
     @Override
-    public InvestigationResult investigate(CaseContext caseContext) {
+    public InvestigationResult investigate(CaseContext caseContext, Revision revision) {
         calls.incrementAndGet();
         lastContext = caseContext;
+        lastRevision = revision;
         return behaviour.apply(caseContext);
     }
 
@@ -39,6 +42,10 @@ public class StubCaseInvestigator implements CaseInvestigator {
         return lastContext;
     }
 
+    public Revision lastRevision() {
+        return lastRevision;
+    }
+
     public int calls() {
         return calls.get();
     }
@@ -46,6 +53,7 @@ public class StubCaseInvestigator implements CaseInvestigator {
     public void reset() {
         this.behaviour = StubCaseInvestigator::defaultResult;
         this.lastContext = null;
+        this.lastRevision = null;
         calls.set(0);
     }
 

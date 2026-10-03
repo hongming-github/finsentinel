@@ -89,12 +89,13 @@ public class CaseWorker {
                     c.analysisRun(), c.analystNote());
             CaseAnalysisGraph.Outcome outcome = analysis.analyse(context, claim.claimedAt());
             InvestigationResult result = outcome.investigation();
-            CaseRepository.Completion completion = cases.complete(claim, result);
-            log.info("Case {} run {} ({} alerts, {}): {} {} risk={} review={} tools={} calls={} tokens={}/{} cached={} "
-                            + "{}ms{}",
-                    c.caseId(), c.analysisRun(), caseAlerts.size(), context.rules(), completion,
+            CaseRepository.Completion completion = cases.complete(claim, outcome.mode(), result, outcome.review());
+            log.info("Case {} run {} ({} alerts, {}): {} {} {} risk={} review={} tools={} calls={} tokens={}/{} "
+                            + "cached={} {}ms{}",
+                    c.caseId(), c.analysisRun(), caseAlerts.size(), context.rules(), outcome.mode(), completion,
                     result.report().disposition(), result.report().riskScore(),
-                    outcome.review().approved() ? "approved" : "rejected", result.toolCalls().size(),
+                    outcome.review().approved() ? "approved" : "rejected " + outcome.review().issues(),
+                    result.toolCalls().size(),
                     result.llmCalls(), result.inputTokens(), result.outputTokens(), result.cachedInputTokens(),
                     result.latencyMs(), outcome.resumedAfter() == null ? "" : " resumed after " + outcome.resumedAfter());
         } catch (LostClaimException e) {

@@ -11,14 +11,20 @@ import com.finsentinel.platform.systems.ScreeningResult;
 import com.finsentinel.platform.systems.SystemUnavailableException;
 import com.finsentinel.platform.transaction.AccountProfile;
 import com.finsentinel.platform.transaction.TransactionRepository;
+import org.springframework.ai.chat.model.ToolContext;
+import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
+import org.springframework.ai.tool.definition.ToolDefinition;
+import org.springframework.ai.tool.metadata.ToolMetadata;
+import org.springframework.ai.tool.method.MethodToolCallbackProvider;
 
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -50,6 +56,7 @@ class InvestigationTools {
     private final Set<String> seenTxnIds = ConcurrentHashMap.newKeySet();
     private final Set<String> seenChunkIds = ConcurrentHashMap.newKeySet();
     private final AtomicInteger searches = new AtomicInteger();
+    private final List<ToolEvidence> evidence = new CopyOnWriteArrayList<>();
 
     InvestigationTools(CaseContext caseContext, TransactionRepository transactions, AlertRepository alerts,
                        KnowledgeSearch knowledge, ExternalSystems systems, InvestigationProperties.Tools limits) {
@@ -206,6 +213,64 @@ class InvestigationTools {
         int max = knowledge.maxPassageCharsForAgent();
         return hit.text().length() <= max ? hit
                 : new RegulationHit(hit.chunkId(), hit.citation(), hit.section(), hit.page(), hit.text().substring(0, max) + " [...]");
+    }
+
+    /** Every tool, each recording what it returned to the model. */
+    List<ToolCallback> callbacks() {
+        return Arrays.stream(MethodToolCallbackProvider.builder().toolObjects(this).build().getToolCallbacks())
+                .map(c -> (ToolCallback) new RecordingCallback(c))
+                .toList();
+    }
+
+    /** The tools with these names, for an agent that may use only some of them. */
+    List<ToolCallback> callbacks(Set<String> names) {
+        List<ToolCallback> selected = callbacks().stream()
+                .filter(c -> names.contains(c.getToolDefinition().name()))
+                .toList();
+        if (selected.size() != names.size()) {
+            throw new IllegalArgumentException("unknown tool among " + names);
+        }
+        return selected;
+    }
+
+    /** What the model was given by its tool calls, in order. */
+    List<ToolEvidence> evidence() {
+        return List.copyOf(evidence);
+    }
+
+    /** Records the exact text a tool handed back to the model. */
+    private final class RecordingCallback implements ToolCallback {
+
+        private final ToolCallback delegate;
+
+        RecordingCallback(ToolCallback delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public ToolDefinition getToolDefinition() {
+            return delegate.getToolDefinition();
+        }
+
+        @Override
+        public ToolMetadata getToolMetadata() {
+            return delegate.getToolMetadata();
+        }
+
+        @Override
+        public String call(String toolInput) {
+            return record(toolInput, delegate.call(toolInput));
+        }
+
+        @Override
+        public String call(String toolInput, ToolContext toolContext) {
+            return record(toolInput, delegate.call(toolInput, toolContext));
+        }
+
+        private String record(String input, String output) {
+            evidence.add(new ToolEvidence(getToolDefinition().name(), input, output));
+            return output;
+        }
     }
 
     List<ToolCall> calls() {

@@ -112,6 +112,16 @@ class InvestigationToolsTest {
     }
 
     @Test
+    void evidenceIsTheExactTextTheModelGotBack() {
+        InvestigationTools tools = toolsFor(alert(uniqueTenant(), "acc-1", AlertRule.VELOCITY, Severity.LOW, List.of(), Instant.now()));
+        ToolCallback priorAlerts = tools.callbacks(Set.of("getPriorAlerts")).getFirst();
+
+        String output = priorAlerts.call("{\"days\": 7}");
+
+        assertThat(tools.evidence()).containsExactly(new ToolEvidence("getPriorAlerts", "{\"days\": 7}", output));
+    }
+
+    @Test
     void priorAlertsComeFromOtherCasesWithTheirOutcome() {
         String tenant = uniqueTenant();
         Instant now = Instant.now();

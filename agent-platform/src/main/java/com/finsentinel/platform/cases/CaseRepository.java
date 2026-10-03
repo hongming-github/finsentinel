@@ -2,8 +2,10 @@ package com.finsentinel.platform.cases;
 
 import com.finsentinel.common.Alert;
 import com.finsentinel.common.Severity;
+import com.finsentinel.platform.analysis.AnalysisMode;
 import com.finsentinel.platform.investigation.CaseReport;
 import com.finsentinel.platform.investigation.InvestigationResult;
+import com.finsentinel.platform.investigation.Review;
 import com.finsentinel.platform.investigation.ToolCall;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -170,7 +172,7 @@ public class CaseRepository {
      * case goes back to the queue instead of to the analyst.
      */
     @Transactional
-    public Completion complete(CaseClaim claim, InvestigationResult result) {
+    public Completion complete(CaseClaim claim, AnalysisMode mode, InvestigationResult result, Review review) {
         FraudCase claimed = claim.fraudCase();
         Optional<Integer> currentRun = jdbc.sql("""
                         select analysis_run from fraud_case
@@ -184,7 +186,7 @@ public class CaseRepository {
         if (currentRun.isEmpty()) {
             return Completion.LOST_CLAIM;
         }
-        insertAnalysis(claimed.caseId(), claimed.analysisRun(), result);
+        insertAnalysis(claimed.caseId(), claimed.analysisRun(), mode, result, review);
         // This run is over either way; earlier runs' leftovers (a failed attempt never resumed) go with it.
         deleteCheckpoints(claimed.caseId(), claimed.analysisRun());
         if (currentRun.get() != claimed.analysisRun()) {
@@ -207,7 +209,8 @@ public class CaseRepository {
                 .param("caseId", UUID.fromString(claimed.caseId()))
                 .update();
         Map<String, Object> detail = Map.of("run", claimed.analysisRun(),
-                "disposition", result.report().disposition().name(), "riskScore", result.report().riskScore());
+                "disposition", result.report().disposition().name(), "riskScore", result.report().riskScore(),
+                "reviewApproved", review.approved());
         event(claimed.caseId(), "ANALYSED", CaseStage.ANALYSIS, CaseStage.AWAITING_DECISION, "system", detail);
         outbox.append(claimed.caseId(), "case.ready_for_decision", payload(claimed, detail));
         return Completion.READY_FOR_DECISION;
@@ -375,25 +378,31 @@ public class CaseRepository {
                         List.of((String[]) rs.getArray("repaired_issues").getArray()),
                         rs.getString("model"), (Integer) rs.getObject("input_tokens"),
                         (Integer) rs.getObject("output_tokens"), (Integer) rs.getObject("cached_input_tokens"),
-                        rs.getInt("llm_calls"), rs.getLong("latency_ms"), rs.getTimestamp("created_at").toInstant()))
+                        rs.getInt("llm_calls"), rs.getLong("latency_ms"), rs.getTimestamp("created_at").toInstant(),
+                        rs.getString("mode"),
+                        rs.getString("review") == null ? null : json.readValue(rs.getString("review"), Review.class)))
                 .list();
     }
 
+    /**
+     * @param mode   how the analysis was produced; null for analyses from before phase 4 step C2
+     * @param review the reviewer's last verdict; null for analyses from before phase 4 step C2
+     */
     public record CaseAnalysis(int run, CaseReport report, List<ToolCall> toolCalls, List<String> repairedIssues,
                                String model, Integer inputTokens, Integer outputTokens, Integer cachedInputTokens,
-                               int llmCalls, long latencyMs, Instant createdAt) {
+                               int llmCalls, long latencyMs, Instant createdAt, String mode, Review review) {
     }
 
     // ---------------------------------------------------------------- helpers
 
-    private void insertAnalysis(String caseId, int run, InvestigationResult result) {
+    private void insertAnalysis(String caseId, int run, AnalysisMode mode, InvestigationResult result, Review review) {
         jdbc.sql("""
                         insert into case_analysis (case_id, run, disposition, risk_score, report, tool_calls,
                                                    repaired_issues, model, input_tokens, output_tokens,
-                                                   cached_input_tokens, llm_calls, latency_ms)
+                                                   cached_input_tokens, llm_calls, latency_ms, mode, review)
                         values (:caseId, :run, :disposition, :riskScore, cast(:report as jsonb),
                                 cast(:toolCalls as jsonb), :repaired, :model, :inputTokens, :outputTokens,
-                                :cachedInputTokens, :llmCalls, :latencyMs)
+                                :cachedInputTokens, :llmCalls, :latencyMs, :mode, cast(:review as jsonb))
                         on conflict (case_id, run) do nothing
                         """)
                 .param("caseId", UUID.fromString(caseId))
@@ -409,6 +418,8 @@ public class CaseRepository {
                 .param("cachedInputTokens", result.cachedInputTokens())
                 .param("llmCalls", result.llmCalls())
                 .param("latencyMs", result.latencyMs())
+                .param("mode", mode.name())
+                .param("review", json.writeValueAsString(review))
                 .update();
     }
 
