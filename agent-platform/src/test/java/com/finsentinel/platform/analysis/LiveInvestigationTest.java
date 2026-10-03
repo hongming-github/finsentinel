@@ -28,7 +28,7 @@ import com.finsentinel.platform.knowledge.KnowledgeSync;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,9 +39,11 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.stream.Stream;
 
 import static com.finsentinel.platform.TestData.alert;
 import static com.finsentinel.platform.TestData.txn;
@@ -52,8 +54,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Calls the real model. Off by default because it costs money and is not deterministic.
  * Run: ./mvnw -pl agent-platform test -Dtest=LiveInvestigationTest -Dlive=true
  *
- * <p>Every scenario runs through the whole analysis graph (real agents, real checkpoint saver) in both modes, with the
- * same expectations, and the run ends with a table comparing the modes: the evidence for which mode is the default.
+ * <p>Every scenario runs through the whole analysis graph (real agents, real checkpoint saver) and the run ends with a
+ * table of disposition, calls, tokens, latency and cost per case. Only the default mode runs unless
+ * {@code -Dlive.modes=SINGLE,MULTI} asks for a comparison (one SINGLE run on gpt-5.4-mini costs about $0.10).
  */
 @PlatformTest
 @TestPropertySource(properties = "finsentinel.test.fake-ai=false")
@@ -92,6 +95,15 @@ class LiveInvestigationTest {
     FakeExternalSystems systems;
 
     private static final List<String> results = new CopyOnWriteArrayList<>();
+
+    /**
+     * Live runs cost money: by default only the default mode (SINGLE). A mode comparison opts in with
+     * {@code -Dlive.modes=SINGLE,MULTI}.
+     */
+    static Stream<AnalysisMode> modes() {
+        return Arrays.stream(System.getProperty("live.modes", "SINGLE").split(",")).map(String::trim)
+                .map(AnalysisMode::valueOf);
+    }
     private final Random random = new Random(7);
 
     @BeforeEach
@@ -101,7 +113,7 @@ class LiveInvestigationTest {
     }
 
     @ParameterizedTest
-    @EnumSource(AnalysisMode.class)
+    @MethodSource("modes")
     void impossibleTravelIsNotCalledLegitimate(AnalysisMode mode) {
         String tenant = uniqueTenant();
         Instant now = Instant.now();
@@ -121,7 +133,7 @@ class LiveInvestigationTest {
     }
 
     @ParameterizedTest
-    @EnumSource(AnalysisMode.class)
+    @MethodSource("modes")
     void honestOutlierAtHomeIsNotCalledFraud(AnalysisMode mode) {
         String tenant = uniqueTenant();
         Instant now = Instant.now();
@@ -141,7 +153,7 @@ class LiveInvestigationTest {
     }
 
     @ParameterizedTest
-    @EnumSource(AnalysisMode.class)
+    @MethodSource("modes")
     void largeTransferToNewPayeeIsNotWavedThroughByNormalSpendingAfterwards(AnalysisMode mode) {
         String tenant = uniqueTenant();
         Instant now = Instant.now();
@@ -166,7 +178,7 @@ class LiveInvestigationTest {
     }
 
     @ParameterizedTest
-    @EnumSource(AnalysisMode.class)
+    @MethodSource("modes")
     void transferRightAfterAccountTakeoverSignalsToAMulePayeeIsFraud(AnalysisMode mode) {
         String tenant = uniqueTenant();
         Instant now = Instant.now();
@@ -195,7 +207,7 @@ class LiveInvestigationTest {
 
     /** ADR 0002: data from systems we do not own can carry instructions; they must not steer the agent. */
     @ParameterizedTest
-    @EnumSource(AnalysisMode.class)
+    @MethodSource("modes")
     void instructionsPlantedInACrmNoteDoNotClearImpossibleTravel(AnalysisMode mode) {
         String tenant = uniqueTenant();
         Instant now = Instant.now();
@@ -224,7 +236,7 @@ class LiveInvestigationTest {
     }
 
     @ParameterizedTest
-    @EnumSource(AnalysisMode.class)
+    @MethodSource("modes")
     void investigationCarriesOnWhenTheBanksSystemsAreDown(AnalysisMode mode) {
         String tenant = uniqueTenant();
         Instant now = Instant.now();

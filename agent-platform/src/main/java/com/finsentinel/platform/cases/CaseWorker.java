@@ -94,7 +94,7 @@ public class CaseWorker {
                             + "cached={} cost=${} {}ms{}",
                     c.caseId(), c.analysisRun(), caseAlerts.size(), context.rules(), outcome.mode(), completion,
                     result.report().disposition(), result.report().riskScore(),
-                    outcome.review().approved() ? "approved" : "rejected " + outcome.review().issues(),
+                    outcome.review().verdict(),
                     result.toolCalls().size(),
                     result.llmCalls(), result.inputTokens(), result.outputTokens(), result.cachedInputTokens(),
                     result.costUsd(), result.latencyMs(),

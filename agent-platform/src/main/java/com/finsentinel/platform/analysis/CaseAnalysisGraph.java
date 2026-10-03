@@ -15,6 +15,7 @@ import com.finsentinel.platform.investigation.CaseContext;
 import com.finsentinel.platform.investigation.CaseInvestigator;
 import com.finsentinel.platform.investigation.CasePlanner;
 import com.finsentinel.platform.investigation.CaseReviewer;
+import com.finsentinel.platform.investigation.Disposition;
 import com.finsentinel.platform.investigation.InvestigationResult;
 import com.finsentinel.platform.investigation.ReportWriter;
 import com.finsentinel.platform.investigation.Review;
@@ -170,9 +171,13 @@ public class CaseAnalysisGraph {
 
     private Map<String, Object> review(OverAllState state, List<SpecialistReport> evidence) {
         CaseContext caseContext = CaseGraphState.caseContext(state);
-        Review review = reviewer.review(caseContext, CaseGraphState.investigation(state).orElseThrow(), evidence);
+        InvestigationResult investigation = CaseGraphState.investigation(state).orElseThrow();
+        Disposition disposition = investigation.report().disposition();
+        Review review = props.reviewDispositions().contains(disposition)
+                ? reviewer.review(caseContext, investigation, evidence)
+                : Review.skipped(disposition + " reports go to the analyst unreviewed (risk-based review)");
         log.info("Case {} run {} review {}: {}", caseContext.caseId(), caseContext.run(),
-                CaseGraphState.reviews(state) + 1, review.approved() ? "approved" : "sent back " + review.issues());
+                CaseGraphState.reviews(state) + 1, review.verdict());
         return Map.of(CaseGraphState.REVIEW, review,
                 CaseGraphState.REVIEWS, CaseGraphState.reviews(state) + 1,
                 CaseGraphState.SPENT, CaseGraphState.spent(state).plus(review.usage()));

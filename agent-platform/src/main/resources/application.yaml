@@ -84,6 +84,10 @@ finsentinel:
     # SINGLE: (1 + max-repairs) * (1 + max-revisions) + (1 + max-revisions)
     # MULTI:  3 specialists + (1 + max-repairs) * (1 + max-revisions) + (1 + max-revisions)
     max-revisions: 1
+    # Risk-based review: reports that clear or defer a case are reviewed; LIKELY_FRAUD reports go to the analyst as
+    # they are. The reviewer's real catches were on clearing reports, its immaterial objections mostly on fraud
+    # reports, and every case is decided by an analyst anyway.
+    review-dispositions: [LIKELY_LEGITIMATE, NEEDS_REVIEW]
   knowledge:
     # Relative to the working directory; README runs the platform from the repository root.
     dir: knowledge

@@ -15,6 +15,9 @@ import com.finsentinel.platform.alert.StoredAlert;
 import com.finsentinel.platform.analysis.AnalysisMode;
 import com.finsentinel.platform.analysis.CaseAnalysisGraph;
 import com.finsentinel.platform.investigation.CaseContext;
+import com.finsentinel.platform.investigation.CaseReport;
+import com.finsentinel.platform.investigation.Disposition;
+import com.finsentinel.platform.investigation.InvestigationResult;
 import com.finsentinel.platform.investigation.Specialist;
 import com.finsentinel.platform.investigation.SpecialistReport;
 import com.finsentinel.platform.transaction.TransactionRepository;
@@ -153,6 +156,45 @@ class AnalysisGraphModesTest {
         assertThat(investigator.calls()).isEqualTo(2);
         assertThat(investigator.lastRevision().issues()).containsExactly("address the second alert");
         assertThat(investigator.lastRevision().previousReport().summary()).isEqualTo("stub report");
+    }
+
+    @Test
+    void fraudReportsGoToTheAnalystUnreviewedAndSaySo() {
+        CaseClaim claim = claimNewCase(Channel.CARD_PRESENT);
+        investigator.respondWith(c -> fraud(StubCaseInvestigator.defaultResult(c)));
+
+        CaseAnalysisGraph.Outcome outcome = analysis.analyse(contextOf(claim), claim.claimedAt(), AnalysisMode.SINGLE);
+
+        assertThat(reviewer.calls()).isZero();
+        assertThat(outcome.review().reviewed()).isFalse();
+        assertThat(outcome.review().skippedBecause()).contains("LIKELY_FRAUD");
+        cases.complete(claim, outcome.mode(), outcome.investigation(), outcome.review());
+        assertThat(cases.analyses(tenant, claim.fraudCase().caseId())).singleElement()
+                .satisfies(a -> assertThat(a.review().reviewed()).as("stored as unreviewed").isFalse());
+    }
+
+    @Test
+    void clearingReportIsStillReviewed() {
+        CaseClaim claim = claimNewCase(Channel.CARD_PRESENT);
+        investigator.respondWith(c -> {
+            InvestigationResult r = StubCaseInvestigator.defaultResult(c);
+            CaseReport legit = new CaseReport(Disposition.LIKELY_LEGITIMATE, 10, "clear", r.report().findings(),
+                    List.of("close"), List.of());
+            return new InvestigationResult(legit, r.toolCalls(), r.repairedIssues(), r.model(), r.inputTokens(),
+                    r.outputTokens(), r.cachedInputTokens(), r.llmCalls(), r.latencyMs());
+        });
+
+        CaseAnalysisGraph.Outcome outcome = analysis.analyse(contextOf(claim), claim.claimedAt(), AnalysisMode.SINGLE);
+
+        assertThat(reviewer.calls()).isEqualTo(1);
+        assertThat(outcome.review().reviewed()).isTrue();
+    }
+
+    private static InvestigationResult fraud(InvestigationResult r) {
+        CaseReport fraud = new CaseReport(Disposition.LIKELY_FRAUD, 90, "fraud", r.report().findings(),
+                List.of("block card"), List.of());
+        return new InvestigationResult(fraud, r.toolCalls(), r.repairedIssues(), r.model(), r.inputTokens(),
+                r.outputTokens(), r.cachedInputTokens(), r.llmCalls(), r.latencyMs());
     }
 
     @Test
