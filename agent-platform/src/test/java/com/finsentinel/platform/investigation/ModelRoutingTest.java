@@ -6,16 +6,16 @@ import com.finsentinel.common.Severity;
 import com.finsentinel.common.Transaction;
 import com.finsentinel.platform.PlatformTest;
 import com.finsentinel.platform.llm.AgentRole;
-import com.finsentinel.platform.llm.LlmPricing;
-import com.finsentinel.platform.llm.LlmProperties;
+import com.finsentinel.platform.llm.ModelRef;
+import com.finsentinel.platform.llm.TestLlm;
 import com.finsentinel.platform.transaction.TransactionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ByteArrayResource;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
@@ -33,10 +33,6 @@ class ModelRoutingTest {
     @Autowired
     ModelRouter configured;
     @Autowired
-    LlmProperties props;
-    @Autowired
-    LlmPricing pricing;
-    @Autowired
     TransactionRepository transactions;
     @Autowired
     InvestigationToolsFactory toolsFactory;
@@ -49,15 +45,13 @@ class ModelRoutingTest {
 
     @BeforeEach
     void escalateInvestigatorAndWriter() {
-        router = new ModelRouter(new LlmProperties(props.models(), new LlmProperties.Escalation("gpt-5.5",
-                Set.of(AgentRole.INVESTIGATOR, AgentRole.WRITER), true, Set.of(Severity.HIGH)), props.prices()),
-                transactions);
+        router = new ModelRouter(TestLlm.properties(Set.of(AgentRole.INVESTIGATOR, AgentRole.WRITER)), transactions);
     }
 
     @Test
     void escalationIsOffAsShipped() {
         assertThat(configured.modelFor(AgentRole.INVESTIGATOR, caseWith(Channel.TRANSFER, Severity.HIGH)))
-                .isEqualTo("gpt-5.4-mini");
+                .isEqualTo(ModelRef.parse("gpt-5.4-mini"));
     }
 
     @Test
@@ -65,7 +59,7 @@ class ModelRoutingTest {
         CaseContext card = caseWith(Channel.CARD_PRESENT, Severity.MEDIUM);
 
         assertThat(router.route(card).escalated()).isFalse();
-        assertThat(router.modelFor(AgentRole.INVESTIGATOR, card)).isEqualTo("gpt-5.4-mini");
+        assertThat(router.modelFor(AgentRole.INVESTIGATOR, card)).isEqualTo(ModelRef.parse("gpt-5.4-mini"));
     }
 
     @Test
@@ -75,9 +69,10 @@ class ModelRoutingTest {
 
         assertThat(router.route(transfer).reasons()).containsExactly("transfer");
         assertThat(router.route(high).reasons()).containsExactly("HIGH alert");
-        assertThat(router.modelFor(AgentRole.INVESTIGATOR, high)).isEqualTo("gpt-5.5");
-        assertThat(router.modelFor(AgentRole.WRITER, transfer)).isEqualTo("gpt-5.5");
-        assertThat(router.modelFor(AgentRole.REVIEWER, high)).as("not an escalating role").isEqualTo("gpt-5.4-mini");
+        assertThat(router.modelFor(AgentRole.INVESTIGATOR, high)).isEqualTo(ModelRef.parse("gpt-5.5"));
+        assertThat(router.modelFor(AgentRole.WRITER, transfer)).isEqualTo(ModelRef.parse("gpt-5.5"));
+        assertThat(router.modelFor(AgentRole.REVIEWER, high)).as("not an escalating role")
+                .isEqualTo(ModelRef.parse("gpt-5.4-mini"));
     }
 
     @Test
@@ -85,7 +80,8 @@ class ModelRoutingTest {
         ScriptedChatModel model = new ScriptedChatModel(json,
                 CaseReportValidatorTest.report(Disposition.NEEDS_REVIEW, 50, List.of()));
         LlmCaseInvestigator investigator = new LlmCaseInvestigator(
-                new AgentModels(ChatClient.builder(model), router, pricing), toolsFactory, json, investigationProps,
+                new AgentModels(TestLlm.gateway(model, model, TestLlm.properties(Set.of()), Clock.systemUTC()), router),
+                toolsFactory, json, investigationProps,
                 new ByteArrayResource("You are a test investigator.".getBytes()));
 
         InvestigationResult result = investigator.investigate(caseWith(Channel.CARD_PRESENT, Severity.HIGH));

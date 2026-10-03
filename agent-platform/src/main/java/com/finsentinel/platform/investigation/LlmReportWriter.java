@@ -2,6 +2,7 @@ package com.finsentinel.platform.investigation;
 
 import com.finsentinel.common.AlertRule;
 import com.finsentinel.platform.llm.AgentRole;
+import com.finsentinel.platform.llm.LlmGateway;
 import com.finsentinel.platform.llm.LlmUsage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -57,7 +58,7 @@ class LlmReportWriter implements ReportWriter {
                 reports.stream().map(SpecialistView::of).toList())
                 + ReportWriting.revisionNote(revision, json);
 
-        StructuredOutput.Answer<CaseReport> draft = ask(caseContext, brief);
+        LlmGateway.Answer<CaseReport> draft = ask(caseContext, brief);
         LlmUsage usage = draft.usage();
         List<String> problems = CaseReportValidator.problems(draft.value(), seenTxnIds, seenChunkIds,
                 plan.involvesTransfer(), rules);
@@ -81,7 +82,7 @@ class LlmReportWriter implements ReportWriter {
         return InvestigationResult.of(draft.value(), List.copyOf(toolCalls), List.copyOf(repaired), usage, List.of());
     }
 
-    private StructuredOutput.Answer<CaseReport> ask(CaseContext caseContext, String userMessage) {
+    private LlmGateway.Answer<CaseReport> ask(CaseContext caseContext, String userMessage) {
         return models.ask(AgentRole.WRITER, caseContext, systemPrompt, userMessage, List.of(), CaseReport.class);
     }
 

@@ -9,9 +9,9 @@ import java.math.RoundingMode;
 import java.util.Comparator;
 
 /**
- * Turns token counts into dollars at list price. The provider reports a dated snapshot ("gpt-5.4-mini-2026-03-17"),
- * priced by the longest configured name it starts with. Cached input is part of the prompt tokens and is billed at
- * the cached rate instead of the input rate.
+ * Turns token counts into dollars at list price. The provider reports the model that answered, often a dated snapshot
+ * ("gpt-5.4-mini-2026-03-17"), priced by the longest configured name at the same provider that it starts with. Cached
+ * input is part of the prompt tokens and is billed at the cached rate instead of the input rate.
  */
 @Component
 public class LlmPricing {
@@ -25,21 +25,28 @@ public class LlmPricing {
         this.props = props;
     }
 
-    /** The configured model name this response model is priced as; the response name itself if none matches. */
-    public String priceKey(String model) {
-        if (model == null) {
-            return "unknown";
+    /** The configured price key for a model a provider reported; the reported reference itself if none matches. */
+    public String priceKey(String provider, String reportedModel) {
+        if (reportedModel == null) {
+            return provider + ":unknown";
         }
+        String reported = new ModelRef(provider, reportedModel).toString();
         return props.prices().keySet().stream()
-                .filter(model::startsWith)
+                .filter(reported::startsWith)
                 .max(Comparator.comparingInt(String::length))
-                .orElse(model);
+                .orElse(reported);
     }
 
-    public BigDecimal cost(String model, Integer inputTokens, Integer cachedInputTokens, Integer outputTokens) {
-        LlmProperties.Price price = props.prices().get(priceKey(model));
+    /** Whether a configured model reference has a price of its own. */
+    public boolean hasPrice(ModelRef model) {
+        return props.prices().containsKey(model.toString());
+    }
+
+    public BigDecimal cost(String provider, String reportedModel, Integer inputTokens, Integer cachedInputTokens,
+                           Integer outputTokens) {
+        LlmProperties.Price price = props.prices().get(priceKey(provider, reportedModel));
         if (price == null) {
-            log.warn("No price for model {}; its calls are counted at zero cost", model);
+            log.warn("No price for {}:{}; its calls are counted at zero cost", provider, reportedModel);
             return BigDecimal.ZERO;
         }
         long input = inputTokens == null ? 0 : inputTokens;

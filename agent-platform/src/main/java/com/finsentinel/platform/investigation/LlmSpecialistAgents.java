@@ -2,6 +2,7 @@ package com.finsentinel.platform.investigation;
 
 import com.finsentinel.common.AlertRule;
 import com.finsentinel.platform.llm.AgentRole;
+import com.finsentinel.platform.llm.LlmGateway;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.json.JsonMapper;
@@ -36,7 +37,7 @@ class LlmSpecialistAgents implements SpecialistAgents {
     @Override
     public SpecialistReport run(Specialist specialist, CaseContext caseContext) {
         InvestigationTools tools = toolsFactory.forCase(caseContext);
-        StructuredOutput.Answer<SpecialistFindings> answer = models.ask(AgentRole.SPECIALIST, caseContext,
+        LlmGateway.Answer<SpecialistFindings> answer = models.ask(AgentRole.SPECIALIST, caseContext,
                 prompts.get(specialist),
                 "Examine this case. " + ReportWriting.caseBrief(caseContext, playbooks, json),
                 tools.callbacks(specialist.tools()), SpecialistFindings.class);

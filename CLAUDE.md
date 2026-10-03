@@ -65,6 +65,9 @@ committed, and how the user likes to work. Keep it updated at the end of each se
 - Every model the platform can call has a price in `finsentinel.llm.prices` (USD per million tokens, with the date it
   was checked on developers.openai.com); startup fails otherwise. Cost is computed from the model the provider
   reports, so do not fake it in tests that assert on cost.
+- Every model call goes through `LlmGateway` (never a ChatClient directly): it prices the call and falls back to
+  another provider on provider failure only (OpenAI SDK errors), with a per-instance circuit breaker (ADR 0012).
+  Models are `provider:model`; a new provider needs `structured-output-with-tools` set honestly.
 - Model choice is per agent role and deterministic (`ModelRouter`); escalation to gpt-5.5 is off by default on
   measured data (ADR 0011). Change it only with a new comparison that includes cost.
 - Review is risk-based (`review-dispositions`); a skipped review is recorded as skipped (`Review.skipped`), never as

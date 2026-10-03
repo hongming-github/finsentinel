@@ -3,6 +3,7 @@ package com.finsentinel.platform.investigation;
 import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 import com.finsentinel.common.AlertRule;
 import com.finsentinel.platform.llm.AgentRole;
+import com.finsentinel.platform.llm.LlmGateway;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Component;
@@ -43,7 +44,7 @@ class LlmCaseReviewer implements CaseReviewer {
         String user = "Review this case report. " + ReportWriting.caseBrief(caseContext, playbooks, json)
                 + "\n\n" + evidenceText
                 + "\n\nReport:\n" + json.writerWithDefaultPrettyPrinter().writeValueAsString(investigation.report());
-        StructuredOutput.Answer<Verdict> answer = models.ask(AgentRole.REVIEWER, caseContext, systemPrompt, user, List.of(),
+        LlmGateway.Answer<Verdict> answer = models.ask(AgentRole.REVIEWER, caseContext, systemPrompt, user, List.of(),
                 Verdict.class);
         Verdict verdict = answer.value();
         if (verdict.approved()) {

@@ -54,7 +54,21 @@ finsentinel:
       max-repairs: 1
       require-regulations-for-transfers: true
   llm:
-    # The model of each agent role on an ordinary case.
+    # OpenAI-compatible providers. openai is spring.ai.openai.*; a provider without an API key is unavailable.
+    providers:
+      openai:
+        structured-output-with-tools: true
+      groq:
+        base-url: https://api.groq.com/openai/v1
+        api-key: ${GROQ_API_KEY:}
+        # Groq enforces a JSON Schema only in requests without tools: tool-using agents get the format in the prompt
+        # and the report validator checks the result.
+        structured-output-with-tools: false
+        # gpt-oss returns its reasoning; Spring AI 2.0.1 echoes it back as reasoning_content in tool-call turns and
+        # Groq rejects that field (400). Without reasoning in the response there is nothing to echo.
+        extra-body:
+          include_reasoning: false
+    # The model of each agent role on an ordinary case. "provider:model"; a bare name is OpenAI.
     models:
       investigator: gpt-5.4-mini
       specialist: gpt-5.4-mini
@@ -68,12 +82,21 @@ finsentinel:
       roles: []
       on-transfer: true
       on-severity: [HIGH]
-    # USD per million tokens, standard tier, from developers.openai.com/api/docs/pricing (checked 2026-10-03).
-    # Keys with dots need brackets.
+    # When a model's provider fails (error status, rate limit, out of credit, network) or its circuit is open, the call
+    # goes here. The circuit opens after failure-threshold consecutive failures, for open-for, then one call tries.
+    fallback:
+      model: groq:openai/gpt-oss-120b
+      failure-threshold: 3
+      open-for: 60s
+    # USD per million tokens. OpenAI: standard tier, developers.openai.com/api/docs/pricing; Groq:
+    # console.groq.com/docs/models (both checked 2026-10-03; Groq lists no cached rate, so input is assumed).
+    # Keys with dots, colons or slashes need brackets.
     prices:
       "[gpt-5.5]": { input: 5.00, cached-input: 0.50, output: 30.00 }
       "[gpt-5.4-mini]": { input: 0.75, cached-input: 0.075, output: 4.50 }
       "[gpt-5.4-nano]": { input: 0.20, cached-input: 0.02, output: 1.25 }
+      "[groq:openai/gpt-oss-120b]": { input: 0.15, cached-input: 0.15, output: 0.60 }
+      "[groq:openai/gpt-oss-20b]": { input: 0.075, cached-input: 0.075, output: 0.30 }
   usage:
     max-days: 90
   analysis:

@@ -33,15 +33,16 @@ public record LlmUsage(String model, Integer inputTokens, Integer outputTokens, 
     }
 
     /** One call, priced by the model the provider says answered. */
-    public static LlmUsage of(ChatResponse chat, long latencyMs, LlmPricing pricing) {
+    public static LlmUsage of(ChatResponse chat, String provider, long latencyMs, LlmPricing pricing) {
         Usage usage = chat == null ? null : chat.getMetadata().getUsage();
-        String model = chat == null ? "unknown" : chat.getMetadata().getModel();
+        String model = chat == null ? null : chat.getMetadata().getModel();
         Integer input = usage == null ? null : usage.getPromptTokens();
         Integer output = usage == null ? null : usage.getCompletionTokens();
         Integer cached = usage == null || usage.getCacheReadInputTokens() == null ? null
                 : Math.toIntExact(usage.getCacheReadInputTokens());
-        BigDecimal cost = pricing.cost(model, input, cached, output);
-        return new LlmUsage(model, input, output, cached, 1, latencyMs, cost, Map.of(pricing.priceKey(model), cost));
+        BigDecimal cost = pricing.cost(provider, model, input, cached, output);
+        String key = pricing.priceKey(provider, model);
+        return new LlmUsage(key, input, output, cached, 1, latencyMs, cost, Map.of(key, cost));
     }
 
     public LlmUsage plus(LlmUsage other) {
