@@ -62,6 +62,15 @@
             <artifactId>pdfbox</artifactId>
             <version>3.0.8</version>
         </dependency>
+        <!-- MCP client for the systems we do not own (ADR 0002). The SDK directly rather than Spring AI's MCP client
+             starter: that one connects at startup and hands every server tool to the model, while ours connect on
+             first use and wrap each tool in a case-scoped one. 2.0.0 is the version Spring AI 2.0.1 is built on;
+             checked on Maven Central. -->
+        <dependency>
+            <groupId>io.modelcontextprotocol.sdk</groupId>
+            <artifactId>mcp</artifactId>
+            <version>2.0.0</version>
+        </dependency>
         <!-- Agent graph runtime for the ANALYSIS stage (ADR 0008). Core only: checkpoints use our own fenced saver,
              not the library's Postgres saver. Version checked on Maven Central. -->
         <dependency>

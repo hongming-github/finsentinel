@@ -1,0 +1,29 @@
+server:
+  port: 8092
+
+spring:
+  application:
+    name: mcp-compliance
+  threads:
+    virtual:
+      enabled: true
+  ai:
+    mcp:
+      server:
+        name: finsentinel-compliance
+        version: 0.1.0
+        # Read-only lookups with no conversation state: any instance can answer any request.
+        protocol: STATELESS
+        instructions: Watchlist screening of payment counterparties.
+
+finsentinel:
+  compliance:
+    screening-url: http://localhost:8093/screening
+    connect-timeout: 2s
+    read-timeout: 5s
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

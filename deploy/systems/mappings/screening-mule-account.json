@@ -1,0 +1,15 @@
+{
+  "priority": 5,
+  "request": { "method": "GET", "urlPathPattern": "/screening/[^/]+/counterparties/payee-new-[0-9]*[05]" },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "counterpartyId": "{{request.pathSegments.[3]}}",
+      "hits": [
+        { "list": "MULE_ACCOUNTS", "reason": "Reported as a money mule account by two other banks", "listedOn": "{{now offset='-20 days' format='yyyy-MM-dd'}}" }
+      ]
+    },
+    "transformers": ["response-template"]
+  }
+}

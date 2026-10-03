@@ -1,0 +1,10 @@
+{
+  "priority": 10,
+  "request": { "method": "GET", "urlPathPattern": "/screening/[^/]+/counterparties/[^/]+" },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": { "counterpartyId": "{{request.pathSegments.[3]}}", "hits": [] },
+    "transformers": ["response-template"]
+  }
+}

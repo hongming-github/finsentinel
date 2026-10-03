@@ -1,0 +1,19 @@
+{
+  "priority": 10,
+  "request": { "method": "GET", "urlPathPattern": "/crm/[^/]+/customers/[^/]+" },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "customerId": "{{request.pathSegments.[3]}}",
+      "segment": "MASS",
+      "onboardedOn": "2019-03-14",
+      "kycRiskRating": "LOW",
+      "occupation": "Salaried employee",
+      "residenceCountry": "SG",
+      "travelNotices": [],
+      "notes": []
+    },
+    "transformers": ["response-template"]
+  }
+}

@@ -30,13 +30,15 @@ flowchart LR
     AG <-->|case-scoped tools| PG
     AG <-->|JSON-schema report| LLM[OpenAI]
     AG -->|searchRegulations| KB[(MAS regulations<br/>pgvector + full text)]
+    AG -->|MCP, case-scoped| MB[mcp-banking] --> CRM[(CRM · core banking<br/>WireMock)]
+    AG -->|MCP, case-scoped| MC[mcp-compliance] --> SCR[(mule / watchlist<br/>screening · WireMock)]
 ```
 
 The transaction topic has two independent consumers. Flink does not write transactions to Postgres: a slow or
 down database would back-pressure the detection job, and fraud detection must keep running when the platform's
 database does not. Each consumer group can also be replayed on its own.
 
-**Status:** phases 1–3 of 9 done (data path, investigation agent, regulatory RAG); phase 4 steps A (case lifecycle) and B (checkpointed analysis graph) done. See [docs/roadmap.md](docs/roadmap.md).
+**Status:** phases 1–3 of 9 done (data path, investigation agent, regulatory RAG); phase 4 steps A (case lifecycle), B (checkpointed analysis graph) and C1 (bank systems over MCP) done. See [docs/roadmap.md](docs/roadmap.md).
 
 ## Stack
 
@@ -51,6 +53,9 @@ Redis · Keycloak · OpenTelemetry / Grafana LGTM · Testcontainers
 | `txn-simulator` | Traffic for two fictional banks (`harbour`, `straits`), with a week of backfill and injected fraud. |
 | `stream-job` | Flink job. Velocity, large-amount (per-account baseline), and geo-jump rules. Pure-Java `RuleEngine`. |
 | `agent-platform` | Spring Boot modular monolith. Idempotent alert intake, transaction store, Postgres work queue, a case lifecycle around a LangGraph4j analysis graph with fenced Postgres checkpoints, an investigator agent with case-scoped tools and per-rule playbooks, validated case reports, and a regulatory knowledge base (MAS documents, hybrid retrieval with rerank). |
+| `mcp-banking` | MCP server for the bank's own systems: CRM profile (KYC, travel notices, staff notes) and core-banking security events. Stateless. |
+| `mcp-compliance` | MCP server for the screening vendor: counterparty watchlists, including the inter-bank mule account list. Stateless. |
+| `deploy/systems/` | WireMock stand-ins for those systems, with id-pattern stories (travel notice, account takeover, mule payee, a prompt-injected CRM note). |
 | `knowledge/` | `sources.json` lists the MAS documents; `scripts/fetch-knowledge.sh` downloads them (not committed). |
 
 ## Quick start
@@ -59,14 +64,16 @@ Needs Docker, JDK 21, and `OPENAI_API_KEY` in the environment (the platform star
 investigations fail). Maven comes from the wrapper.
 
 ```bash
-# 1. Kafka, Postgres, Redis (~1.2 GB)
-docker compose -f deploy/docker-compose.yml --profile core up -d
+# 1. Kafka, Postgres, Redis (~1.2 GB), and the fake bank systems
+docker compose -f deploy/docker-compose.yml --profile core --profile systems up -d
 
 # 2. Build, and fetch the MAS documents for the knowledge base (indexed on platform start)
 ./mvnw install -DskipTests
 ./scripts/fetch-knowledge.sh
 
-# 3. Platform on :8090
+# 3. MCP servers on :8091 and :8092 (optional: without them agents report those checks as not done), platform on :8090
+java -jar mcp-banking/target/mcp-banking-0.1.0-SNAPSHOT.jar &
+java -jar mcp-compliance/target/mcp-compliance-0.1.0-SNAPSHOT.jar &
 java -jar agent-platform/target/agent-platform-0.1.0-SNAPSHOT.jar
 
 # 4. Flink job in an embedded MiniCluster (web UI on :8082); override rules with -Djob.args

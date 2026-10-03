@@ -1,0 +1,16 @@
+{
+  "priority": 10,
+  "request": { "method": "GET", "urlPathPattern": "/core/[^/]+/accounts/[^/]+" },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "accountId": "{{request.pathSegments.[3]}}",
+      "status": "ACTIVE",
+      "product": "Everyday Savings",
+      "openedOn": "2019-03-14",
+      "recentSecurityEvents": []
+    },
+    "transformers": ["response-template"]
+  }
+}

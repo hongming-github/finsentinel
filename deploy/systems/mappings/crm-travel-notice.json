@@ -1,0 +1,23 @@
+{
+  "priority": 5,
+  "request": { "method": "GET", "urlPathPattern": "/crm/[^/]+/customers/[^/]*3" },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "customerId": "{{request.pathSegments.[3]}}",
+      "segment": "AFFLUENT",
+      "onboardedOn": "2016-08-02",
+      "kycRiskRating": "LOW",
+      "occupation": "Engineer",
+      "residenceCountry": "SG",
+      "travelNotices": [
+        { "country": "JP", "from": "{{now offset='-3 days' format='yyyy-MM-dd'}}", "to": "{{now offset='7 days' format='yyyy-MM-dd'}}" }
+      ],
+      "notes": [
+        { "at": "{{now offset='-4 days'}}", "author": "contact-centre", "text": "Customer called to say they will be in Japan for ten days visiting family." }
+      ]
+    },
+    "transformers": ["response-template"]
+  }
+}

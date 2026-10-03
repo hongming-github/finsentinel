@@ -66,6 +66,12 @@ finsentinel:
         enabled: true
         model: gpt-5.4-nano
         max-passage-chars: 700
+  systems:
+    # MCP servers (mcp-banking, mcp-compliance). Connected on first use; when one is down, agents carry on without it.
+    banking-url: http://localhost:8091
+    compliance-url: http://localhost:8092
+    connect-timeout: 2s
+    request-timeout: 8s
   outbox:
     enabled: true
     poll-interval: 1s
