@@ -161,6 +161,8 @@ class CaseAnalysisResumeTest {
         stale.get(10, TimeUnit.SECONDS);
 
         assertThat(investigator.calls()).isEqualTo(2);
+        assertThat(reviewer.calls()).as("the stale worker stopped at its first write: it never ran the review")
+                .isEqualTo(1);
         assertThat(checkpointNodes(caseId)).isEmpty();
         assertThat(cases.analyses(tenant, caseId)).singleElement();
         assertThat(eventTypes(cases, tenant, caseId)).containsExactly("OPENED", "ANALYSED");
