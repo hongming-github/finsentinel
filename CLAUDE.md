@@ -14,7 +14,8 @@ committed, and how the user likes to work. Keep it updated at the end of each se
 - Run: see README "Quick start"
 - Retrieval eval (costs a little): `./mvnw -pl agent-platform test -Dtest=RetrievalEvalTest -Dlive=true -Dsurefire.failIfNoSpecifiedTests=false`
 - Knowledge documents: `./scripts/fetch-knowledge.sh` (PDFs are gitignored, MAS copyright)
-- Live LLM tests (cost money; every scenario in both analysis modes, prints a comparison table): `./mvnw -pl agent-platform test -Dtest=LiveInvestigationTest -Dlive=true -Dsurefire.failIfNoSpecifiedTests=false`
+- Live LLM tests (cost money: about $0.10 per run in the default SINGLE mode, prints cost per case; add
+  `-Dlive.modes=SINGLE,MULTI` for a mode comparison): `./mvnw -pl agent-platform test -Dtest=LiveInvestigationTest -Dlive=true -Dsurefire.failIfNoSpecifiedTests=false`
 
 ## Rules
 
@@ -66,6 +67,8 @@ committed, and how the user likes to work. Keep it updated at the end of each se
   reports, so do not fake it in tests that assert on cost.
 - Model choice is per agent role and deterministic (`ModelRouter`); escalation to gpt-5.5 is off by default on
   measured data (ADR 0011). Change it only with a new comparison that includes cost.
+- Review is risk-based (`review-dispositions`); a skipped review is recorded as skipped (`Review.skipped`), never as
+  an approval.
 - `finsentinel.analysis.mode` defaults to SINGLE on measured data (ADR 0010); change it only with a new comparison
   from `LiveInvestigationTest`. Specialists write their own state keys; never let parallel nodes write the same key.
 - Only validated reports are stored (ADR 0006). Repairs are bounded by `report.max-repairs`.

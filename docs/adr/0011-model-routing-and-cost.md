@@ -46,6 +46,17 @@ raises fewer immaterial objections; unproven on this sample.
   invented. The writer's repair now names the ids it may cite, and the failure log says which specialist, if any,
   cited the id. Not yet re-measured live (credit ran out).
 
+## Cost optimisations that followed (2026-10-03, after the OpenAI credit ran out)
+
+- **Risk-based review** (`finsentinel.analysis.review-dispositions`, default LIKELY_LEGITIMATE and NEEDS_REVIEW):
+  LIKELY_FRAUD reports go to the analyst unreviewed, marked as such (`review.skippedBecause`), so nobody takes them
+  for reviewed ones. The reviewer's real catches were on reports that clear a case; its immaterial objections were
+  mostly on fraud reports; every case is decided by an analyst anyway. AML operations sample closures for the same
+  reason. Saves every review call on fraud reports; to be measured when credit is back.
+- **Live suite runs one mode by default** (`-Dlive.modes=SINGLE,MULTI` for a comparison): about $0.10 a run.
+- Next candidates: prompt order for provider prompt caching (stable text first; cached input is billed at 10% of
+  the input price), and the semantic cache of step 5C.
+
 ## Consequences
 
 - Every analysis has a price; routing changes can be judged in dollars and accuracy, not guessed.
