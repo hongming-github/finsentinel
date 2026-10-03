@@ -10,7 +10,7 @@ committed, and how the user likes to work. Keep it updated at the end of each se
 
 - Build: `./mvnw install -DskipTests`
 - Test: `./mvnw test` (Docker required; agent-platform uses Testcontainers)
-- Infra: `docker compose -f deploy/docker-compose.yml --profile core up -d`
+- Infra: `docker compose -f deploy/docker-compose.yml --profile core --profile systems up -d`
 - Run: see README "Quick start"
 - Retrieval eval (costs a little): `./mvnw -pl agent-platform test -Dtest=RetrievalEvalTest -Dlive=true -Dsurefire.failIfNoSpecifiedTests=false`
 - Knowledge documents: `./scripts/fetch-knowledge.sh` (PDFs are gitignored, MAS copyright)
@@ -33,7 +33,9 @@ committed, and how the user likes to work. Keep it updated at the end of each se
 - Alert ids are deterministic (ADR 0003). Do not change `Alert.idFor` casually.
 - Check dependency versions on Maven Central before adding or bumping; do not guess.
 - Agent tools are scoped by construction (tenant/account fixed in `InvestigationTools`); never add a tool
-  parameter that selects tenant or account.
+  parameter that selects tenant or account. MCP server tools are never handed to the model directly: wrap each in a
+  case-scoped tool via `ExternalSystems`, and return `Unavailable` (not an exception) when the system is down.
+- Agent tool parameters are boxed (`Integer`, not `int`): the model sometimes sends null, which fails a primitive.
 - Normal tests must not call an LLM: `@PlatformTest` swaps in `StubCaseInvestigator`.
 - Never remove or bypass `max-per-hour`; any new LLM-calling path needs a budget.
 - The platform must be safe to run as several instances: coordinate through Postgres (row locks, fencing,
@@ -51,4 +53,7 @@ committed, and how the user likes to work. Keep it updated at the end of each se
 - Only validated reports are stored (ADR 0006). Repairs are bounded by `report.max-repairs`.
 - After changing the prompt, tools, or model, run the live tests at least 3 times: one pass proves little.
 - Avoid nested ternaries mixing `Integer` and `int` (silent unboxing NPE).
-- Host ports: Redis 6380 and platform 8090, because 6379 and 8080 are used by other local projects.
+- Host ports: Redis 6380, platform 8090, mcp-banking 8091, mcp-compliance 8092, fake systems (WireMock) 8093;
+  6379 and 8080 are used by other local projects.
+- Code inside graph nodes runs on pool-spawned threads; never rely on `ServiceLoader` defaults there (pass
+  dependencies explicitly). Verify library integrations with the packaged jar, not only tests.

@@ -1,0 +1,30 @@
+server:
+  port: 8091
+
+spring:
+  application:
+    name: mcp-banking
+  threads:
+    virtual:
+      enabled: true
+  ai:
+    mcp:
+      server:
+        name: finsentinel-banking
+        version: 0.1.0
+        # Read-only lookups with no conversation state: any instance can answer any request.
+        protocol: STATELESS
+        instructions: Read-only access to the bank's CRM and core banking records.
+
+finsentinel:
+  banking:
+    crm-url: http://localhost:8093/crm
+    core-url: http://localhost:8093/core
+    connect-timeout: 2s
+    read-timeout: 5s
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

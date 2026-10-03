@@ -48,8 +48,15 @@ public class CaseAnalysisGraph {
     /**
      * LangGraph4j drives the graph from the common fork-join pool. Nodes block on LLM and database calls, so they do
      * that on virtual threads; the driver then waits through {@code CompletableFuture}, which the pool compensates for.
+     * Node threads get the application class loader: pool threads carry the system class loader, which inside the
+     * packaged jar cannot see the libraries, and anything in a node that uses {@code ServiceLoader} would fail.
      */
-    private static final Executor NODE_EXECUTOR = task -> Thread.ofVirtual().name("case-graph-node").start(task);
+    private static final ClassLoader APPLICATION_LOADER = CaseAnalysisGraph.class.getClassLoader();
+    private static final Executor NODE_EXECUTOR = task -> {
+        Thread node = Thread.ofVirtual().name("case-graph-node").unstarted(task);
+        node.setContextClassLoader(APPLICATION_LOADER);
+        node.start();
+    };
 
     private final CompiledGraph<CaseGraphState> graph;
     private final FencedPostgresCheckpointSaver saver;

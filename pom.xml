@@ -21,6 +21,8 @@
         <module>txn-simulator</module>
         <module>stream-job</module>
         <module>agent-platform</module>
+        <module>mcp-banking</module>
+        <module>mcp-compliance</module>
     </modules>
 
     <properties>
