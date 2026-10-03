@@ -14,7 +14,7 @@ committed, and how the user likes to work. Keep it updated at the end of each se
 - Run: see README "Quick start"
 - Retrieval eval (costs a little): `./mvnw -pl agent-platform test -Dtest=RetrievalEvalTest -Dlive=true -Dsurefire.failIfNoSpecifiedTests=false`
 - Knowledge documents: `./scripts/fetch-knowledge.sh` (PDFs are gitignored, MAS copyright)
-- Live LLM tests (cost money): `./mvnw -pl agent-platform test -Dtest=LiveInvestigationTest -Dlive=true -Dsurefire.failIfNoSpecifiedTests=false`
+- Live LLM tests (cost money; every scenario in both analysis modes, prints a comparison table): `./mvnw -pl agent-platform test -Dtest=LiveInvestigationTest -Dlive=true -Dsurefire.failIfNoSpecifiedTests=false`
 
 ## Rules
 
@@ -53,6 +53,11 @@ committed, and how the user likes to work. Keep it updated at the end of each se
   them. After any Spring AI or Spring AI Alibaba upgrade, run the full suite and a packaged-jar case.
 - Graph state keys are declared with their type in `CaseGraphState.TYPES`; values are immutable records that
   round-trip through JSON.
+- The reviewer always sees exactly the evidence the report's author saw (raw tool results for the single agent,
+  specialist reports for the writer); without it, it flags supported claims and the writer deletes them (ADR 0010).
+- Playbook guidance that differs by channel goes in separate sections (card vs transfer); agents misapply mixed lists.
+- `finsentinel.analysis.mode` defaults to SINGLE on measured data (ADR 0010); change it only with a new comparison
+  from `LiveInvestigationTest`. Specialists write their own state keys; never let parallel nodes write the same key.
 - Only validated reports are stored (ADR 0006). Repairs are bounded by `report.max-repairs`.
 - After changing the prompt, tools, or model, run the live tests at least 3 times: one pass proves little.
 - Avoid nested ternaries mixing `Integer` and `int` (silent unboxing NPE).

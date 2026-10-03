@@ -46,6 +46,14 @@ finsentinel:
       legitimate-max-score: 40
       max-repairs: 1
       require-regulations-for-transfers: true
+  analysis:
+    # SINGLE: one investigator with every tool. MULTI: plan, parallel specialists, report writer. SINGLE measured as
+    # accurate and cheaper/faster on the live scenarios (ADR 0010).
+    mode: SINGLE
+    # Times the reviewer may send a report back per run. Worst case model calls per analysis:
+    # SINGLE: (1 + max-repairs) * (1 + max-revisions) + (1 + max-revisions)
+    # MULTI:  3 specialists + (1 + max-repairs) * (1 + max-revisions) + (1 + max-revisions)
+    max-revisions: 1
   knowledge:
     # Relative to the working directory; README runs the platform from the repository root.
     dir: knowledge

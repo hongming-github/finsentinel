@@ -27,7 +27,11 @@ record CaseRun(UUID caseId, int run, Instant claimedAt) {
     }
 
     RunnableConfig config() {
-        return RunnableConfig.builder().threadId(threadId()).addMetadata(METADATA_KEY, this).build();
+        return RunnableConfig.builder()
+                .threadId(threadId())
+                .addMetadata(METADATA_KEY, this)
+                .defaultParallelExecutor(CaseAnalysisGraph.NODE_EXECUTOR)
+                .build();
     }
 
     static CaseRun of(RunnableConfig config) {

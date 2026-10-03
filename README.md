@@ -16,7 +16,7 @@ flowchart LR
         TS[TransactionStore]
         AI[Alert intake<br/>groups alerts into cases]
         Q[Case queue<br/>ANALYSIS stage]
-        AG[Analysis graph · Spring AI Alibaba<br/>investigate → review<br/>fenced checkpoints]
+        AG[Analysis graph · Spring AI Alibaba<br/>single agent or plan → specialists → writer<br/>LLM reviewer · fenced checkpoints]
         API[Case API<br/>analyst decision]
         OB[Outbox relay]
     end
@@ -38,7 +38,7 @@ The transaction topic has two independent consumers. Flink does not write transa
 down database would back-pressure the detection job, and fraud detection must keep running when the platform's
 database does not. Each consumer group can also be replayed on its own.
 
-**Status:** phases 1–3 of 9 done (data path, investigation agent, regulatory RAG); phase 4 steps A (case lifecycle), B (checkpointed analysis graph) and C1 (bank systems over MCP) done. See [docs/roadmap.md](docs/roadmap.md).
+**Status:** phases 1–3 of 9 done (data path, investigation agent, regulatory RAG); phase 4 steps A (case lifecycle), B (checkpointed analysis graph), C1 (bank systems over MCP) and C2 (multi-agent analysis with a reviewer) done. See [docs/roadmap.md](docs/roadmap.md).
 
 ## Stack
 
@@ -99,7 +99,10 @@ Lifecycle: `ANALYSIS → AWAITING_DECISION → CLOSED` (or `FAILED` after the ma
 re-opens the case; `REQUEST_REANALYSIS` sends it back to the agents with the analyst's note. Decisions and readiness are
 published to `case.events.v1` through a transactional outbox.
 
-Inside ANALYSIS a Spring AI Alibaba graph runs the agents and checkpoints after every node to `graph_checkpoint` (plain
+Inside ANALYSIS a Spring AI Alibaba graph runs the agents (`finsentinel.analysis.mode`: `SINGLE`, one investigator,
+the default; or `MULTI`, deterministic plan, parallel specialists and a report writer, ADR 0010). In both, an LLM
+reviewer checks the report against the author's evidence and can send it back once; its verdict is stored with the
+analysis. The graph checkpoints after every node to `graph_checkpoint` (plain
 JSON). If the platform dies mid-analysis, the next worker to claim the case (after `claim-timeout`) resumes after the
 last finished node; a worker whose claim has timed out can no longer write checkpoints.
 
