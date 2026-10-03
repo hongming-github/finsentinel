@@ -8,10 +8,10 @@ import com.alibaba.cloud.ai.graph.state.strategy.ReplaceStrategy;
 import com.finsentinel.platform.investigation.AnalysisPlan;
 import com.finsentinel.platform.investigation.CaseContext;
 import com.finsentinel.platform.investigation.InvestigationResult;
-import com.finsentinel.platform.investigation.LlmUsage;
 import com.finsentinel.platform.investigation.Review;
 import com.finsentinel.platform.investigation.Specialist;
 import com.finsentinel.platform.investigation.SpecialistReport;
+import com.finsentinel.platform.llm.LlmUsage;
 
 import java.util.HashMap;
 import java.util.Locale;

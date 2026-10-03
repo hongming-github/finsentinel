@@ -91,13 +91,14 @@ public class CaseWorker {
             InvestigationResult result = outcome.investigation();
             CaseRepository.Completion completion = cases.complete(claim, outcome.mode(), result, outcome.review());
             log.info("Case {} run {} ({} alerts, {}): {} {} {} risk={} review={} tools={} calls={} tokens={}/{} "
-                            + "cached={} {}ms{}",
+                            + "cached={} cost=${} {}ms{}",
                     c.caseId(), c.analysisRun(), caseAlerts.size(), context.rules(), outcome.mode(), completion,
                     result.report().disposition(), result.report().riskScore(),
                     outcome.review().approved() ? "approved" : "rejected " + outcome.review().issues(),
                     result.toolCalls().size(),
                     result.llmCalls(), result.inputTokens(), result.outputTokens(), result.cachedInputTokens(),
-                    result.latencyMs(), outcome.resumedAfter() == null ? "" : " resumed after " + outcome.resumedAfter());
+                    result.costUsd(), result.latencyMs(),
+                    outcome.resumedAfter() == null ? "" : " resumed after " + outcome.resumedAfter());
         } catch (LostClaimException e) {
             // Our claim timed out and another worker owns the case now: its result counts, ours must not.
             log.warn("Abandoning analysis of case {}: {}", c.caseId(), e.getMessage());

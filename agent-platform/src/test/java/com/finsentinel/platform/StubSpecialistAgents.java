@@ -2,10 +2,10 @@ package com.finsentinel.platform;
 
 import com.finsentinel.platform.investigation.CaseContext;
 import com.finsentinel.platform.investigation.CaseReport;
-import com.finsentinel.platform.investigation.LlmUsage;
 import com.finsentinel.platform.investigation.Specialist;
 import com.finsentinel.platform.investigation.SpecialistAgents;
 import com.finsentinel.platform.investigation.SpecialistReport;
+import com.finsentinel.platform.llm.LlmUsage;
 import org.springframework.boot.test.context.TestComponent;
 import org.springframework.context.annotation.Primary;
 

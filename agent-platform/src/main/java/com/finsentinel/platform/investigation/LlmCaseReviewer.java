@@ -2,7 +2,7 @@ package com.finsentinel.platform.investigation;
 
 import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 import com.finsentinel.common.AlertRule;
-import org.springframework.ai.chat.client.ChatClient;
+import com.finsentinel.platform.llm.AgentRole;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Component;
@@ -18,14 +18,14 @@ import java.util.Map;
 @Component
 class LlmCaseReviewer implements CaseReviewer {
 
-    private final ChatClient chatClient;
+    private final AgentModels models;
     private final JsonMapper json;
     private final String systemPrompt;
     private final Map<AlertRule, String> playbooks;
 
-    LlmCaseReviewer(ChatClient.Builder chatClientBuilder, JsonMapper json,
+    LlmCaseReviewer(AgentModels models, JsonMapper json,
                     @Value("classpath:prompts/reviewer.md") Resource systemPrompt) {
-        this.chatClient = chatClientBuilder.build();
+        this.models = models;
         this.json = json;
         this.systemPrompt = ReportWriting.read(systemPrompt);
         this.playbooks = ReportWriting.loadPlaybooks();
@@ -43,7 +43,7 @@ class LlmCaseReviewer implements CaseReviewer {
         String user = "Review this case report. " + ReportWriting.caseBrief(caseContext, playbooks, json)
                 + "\n\n" + evidenceText
                 + "\n\nReport:\n" + json.writerWithDefaultPrettyPrinter().writeValueAsString(investigation.report());
-        StructuredOutput.Answer<Verdict> answer = StructuredOutput.ask(chatClient, systemPrompt, user, List.of(),
+        StructuredOutput.Answer<Verdict> answer = models.ask(AgentRole.REVIEWER, caseContext, systemPrompt, user, List.of(),
                 Verdict.class);
         Verdict verdict = answer.value();
         if (verdict.approved()) {

@@ -1,7 +1,8 @@
 package com.finsentinel.platform.investigation;
 
 import com.finsentinel.common.AlertRule;
-import org.springframework.ai.chat.client.ChatClient;
+import com.finsentinel.platform.llm.AgentRole;
+import com.finsentinel.platform.llm.LlmUsage;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
@@ -21,17 +22,17 @@ import java.util.Map;
 @Component
 class LlmCaseInvestigator implements CaseInvestigator {
 
-    private final ChatClient chatClient;
+    private final AgentModels models;
     private final InvestigationToolsFactory toolsFactory;
     private final JsonMapper json;
     private final InvestigationProperties.Report rules;
     private final String systemPrompt;
     private final Map<AlertRule, String> playbooks;
 
-    LlmCaseInvestigator(ChatClient.Builder chatClientBuilder, InvestigationToolsFactory toolsFactory, JsonMapper json,
+    LlmCaseInvestigator(AgentModels models, InvestigationToolsFactory toolsFactory, JsonMapper json,
                         InvestigationProperties props,
                         @Value("classpath:prompts/investigator-system.md") Resource systemPrompt) {
-        this.chatClient = chatClientBuilder.build();
+        this.models = models;
         this.toolsFactory = toolsFactory;
         this.json = json;
         this.rules = props.report();
@@ -45,7 +46,7 @@ class LlmCaseInvestigator implements CaseInvestigator {
         List<ToolCallback> callbacks = tools.callbacks();
         String brief = brief(caseContext) + ReportWriting.revisionNote(revision, json);
 
-        StructuredOutput.Answer<CaseReport> draft = ask(callbacks, brief);
+        StructuredOutput.Answer<CaseReport> draft = ask(caseContext, callbacks, brief);
         LlmUsage usage = draft.usage();
         boolean involvesTransfer = tools.involvesTransfer();
         List<String> problems = CaseReportValidator.problems(draft.value(), tools.seenTxnIds(), tools.seenChunkIds(),
@@ -53,7 +54,7 @@ class LlmCaseInvestigator implements CaseInvestigator {
         List<String> repaired = new ArrayList<>();
         for (int repair = 0; !problems.isEmpty() && repair < rules.maxRepairs(); repair++) {
             repaired.addAll(problems);
-            draft = ask(callbacks, ReportWriting.repairPrompt(brief, draft.value(), problems, json,
+            draft = ask(caseContext, callbacks, ReportWriting.repairPrompt(brief, draft.value(), problems, json,
                     ReportWriting.FIX_WITH_TOOLS));
             usage = usage.plus(draft.usage());
             problems = CaseReportValidator.problems(draft.value(), tools.seenTxnIds(), tools.seenChunkIds(),
@@ -62,7 +63,9 @@ class LlmCaseInvestigator implements CaseInvestigator {
         if (!problems.isEmpty()) {
             throw new InvalidReportException(problems);
         }
-        return InvestigationResult.of(draft.value(), tools.calls(), List.copyOf(repaired), usage, tools.evidence());
+        // Reranking inside regulation searches is part of what this investigation cost.
+        return InvestigationResult.of(draft.value(), tools.calls(), List.copyOf(repaired), usage.plus(tools.toolUsage()),
+                tools.evidence());
     }
 
     /**
@@ -73,7 +76,7 @@ class LlmCaseInvestigator implements CaseInvestigator {
         return "Investigate this case. " + ReportWriting.caseBrief(caseContext, playbooks, json);
     }
 
-    private StructuredOutput.Answer<CaseReport> ask(List<ToolCallback> tools, String userMessage) {
-        return StructuredOutput.ask(chatClient, systemPrompt, userMessage, tools, CaseReport.class);
+    private StructuredOutput.Answer<CaseReport> ask(CaseContext caseContext, List<ToolCallback> tools, String userMessage) {
+        return models.ask(AgentRole.INVESTIGATOR, caseContext, systemPrompt, userMessage, tools, CaseReport.class);
     }
 }

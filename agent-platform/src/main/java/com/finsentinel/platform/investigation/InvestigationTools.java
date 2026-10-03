@@ -4,6 +4,7 @@ import com.finsentinel.common.Transaction;
 import com.finsentinel.platform.alert.AlertRepository;
 import com.finsentinel.platform.knowledge.KnowledgeSearch;
 import com.finsentinel.platform.knowledge.RegulationHit;
+import com.finsentinel.platform.llm.LlmUsage;
 import com.finsentinel.platform.systems.AccountDetails;
 import com.finsentinel.platform.systems.CustomerProfile;
 import com.finsentinel.platform.systems.ExternalSystems;
@@ -32,6 +33,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * The agent's tools for one case, created by {@link InvestigationToolsFactory}. Tenant and account are fixed
@@ -57,6 +59,7 @@ class InvestigationTools {
     private final Set<String> seenChunkIds = ConcurrentHashMap.newKeySet();
     private final AtomicInteger searches = new AtomicInteger();
     private final List<ToolEvidence> evidence = new CopyOnWriteArrayList<>();
+    private final AtomicReference<LlmUsage> toolUsage = new AtomicReference<>(LlmUsage.NONE);
 
     InvestigationTools(CaseContext caseContext, TransactionRepository transactions, AlertRepository alerts,
                        KnowledgeSearch knowledge, ExternalSystems systems, InvestigationProperties.Tools limits) {
@@ -78,7 +81,9 @@ class InvestigationTools {
             calls.add(new ToolCall("searchRegulations", "limit reached", 0, millisSince(start)));
             return new RegulationSearchResult(List.of(), "Search limit for this case reached; use the passages already found.");
         }
-        List<RegulationHit> hits = knowledge.search(query).stream().map(this::trimmed).toList();
+        KnowledgeSearch.SearchResult search = knowledge.searchWithUsage(query);
+        toolUsage.accumulateAndGet(search.usage(), LlmUsage::plus);
+        List<RegulationHit> hits = search.hits().stream().map(this::trimmed).toList();
         hits.forEach(h -> seenChunkIds.add(h.chunkId()));
         calls.add(new ToolCall("searchRegulations", query, hits.size(), millisSince(start)));
         return new RegulationSearchResult(hits, hits.isEmpty() ? "No matching passages." : null);
@@ -231,6 +236,11 @@ class InvestigationTools {
             throw new IllegalArgumentException("unknown tool among " + names);
         }
         return selected;
+    }
+
+    /** Model calls made inside tools (reranking regulation searches), for the analysis's cost. */
+    LlmUsage toolUsage() {
+        return toolUsage.get();
     }
 
     /** What the model was given by its tool calls, in order. */

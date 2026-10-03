@@ -3,6 +3,7 @@ package com.finsentinel.platform.investigation;
 import com.finsentinel.common.AlertRule;
 import com.finsentinel.common.Severity;
 import com.finsentinel.platform.PlatformTest;
+import com.finsentinel.platform.llm.LlmPricing;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
@@ -30,6 +31,10 @@ class LlmCaseInvestigatorRepairTest {
     InvestigationProperties props;
     @Autowired
     JsonMapper json;
+    @Autowired
+    ModelRouter router;
+    @Autowired
+    LlmPricing pricing;
 
     @Test
     void inconsistentDraftIsRepairedWithTheProblemsSpelledOut() {
@@ -94,11 +99,15 @@ class LlmCaseInvestigatorRepairTest {
     }
 
     private LlmCaseInvestigator investigator(ChatModel model) {
-        return new LlmCaseInvestigator(ChatClient.builder(model), toolsFactory, json, props,
+        return new LlmCaseInvestigator(models(model), toolsFactory, json, props,
                 new ByteArrayResource("You are a test investigator.".getBytes()));
     }
 
     private static CaseContext anyCase() {
         return context(alert(uniqueTenant(), "acc-1", AlertRule.VELOCITY, Severity.MEDIUM, List.of("t1"), Instant.now()));
+    }
+
+    private AgentModels models(ChatModel model) {
+        return new AgentModels(ChatClient.builder(model), router, pricing);
     }
 }

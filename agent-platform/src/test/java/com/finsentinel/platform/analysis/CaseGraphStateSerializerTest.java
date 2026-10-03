@@ -8,9 +8,9 @@ import com.finsentinel.platform.investigation.CaseContext;
 import com.finsentinel.platform.investigation.CaseReport;
 import com.finsentinel.platform.investigation.Disposition;
 import com.finsentinel.platform.investigation.InvestigationResult;
-import com.finsentinel.platform.investigation.LlmUsage;
 import com.finsentinel.platform.investigation.Review;
 import com.finsentinel.platform.investigation.ToolCall;
+import com.finsentinel.platform.llm.LlmUsage;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 

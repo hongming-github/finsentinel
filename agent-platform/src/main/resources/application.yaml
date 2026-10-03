@@ -53,6 +53,29 @@ finsentinel:
       legitimate-max-score: 40
       max-repairs: 1
       require-regulations-for-transfers: true
+  llm:
+    # The model of each agent role on an ordinary case.
+    models:
+      investigator: gpt-5.4-mini
+      specialist: gpt-5.4-mini
+      writer: gpt-5.4-mini
+      reviewer: gpt-5.4-mini
+    # Escalated cases (a transfer, or an alert of these severities) switch these roles to the stronger model.
+    # Off by default: on the live scenarios it cost 5.3x per case with no accuracy gain (ADR 0011). To turn on:
+    # roles: [investigator, writer]
+    escalation:
+      model: gpt-5.5
+      roles: []
+      on-transfer: true
+      on-severity: [HIGH]
+    # USD per million tokens, standard tier, from developers.openai.com/api/docs/pricing (checked 2026-10-03).
+    # Keys with dots need brackets.
+    prices:
+      "[gpt-5.5]": { input: 5.00, cached-input: 0.50, output: 30.00 }
+      "[gpt-5.4-mini]": { input: 0.75, cached-input: 0.075, output: 4.50 }
+      "[gpt-5.4-nano]": { input: 0.20, cached-input: 0.02, output: 1.25 }
+  usage:
+    max-days: 90
   analysis:
     # SINGLE: one investigator with every tool. MULTI: plan, parallel specialists, report writer. SINGLE measured as
     # accurate and cheaper/faster on the live scenarios (ADR 0010).
