@@ -16,7 +16,7 @@ flowchart LR
         TS[TransactionStore]
         AI[Alert intake<br/>groups alerts into cases]
         Q[Case queue<br/>ANALYSIS stage]
-        AG[Analysis graph · LangGraph4j<br/>investigate → review<br/>fenced checkpoints]
+        AG[Analysis graph · Spring AI Alibaba<br/>investigate → review<br/>fenced checkpoints]
         API[Case API<br/>analyst decision]
         OB[Outbox relay]
     end
@@ -52,7 +52,7 @@ Redis · Keycloak · OpenTelemetry / Grafana LGTM · Testcontainers
 | `common` | Event records (`Transaction`, `Alert`). No dependencies. |
 | `txn-simulator` | Traffic for two fictional banks (`harbour`, `straits`), with a week of backfill and injected fraud. |
 | `stream-job` | Flink job. Velocity, large-amount (per-account baseline), and geo-jump rules. Pure-Java `RuleEngine`. |
-| `agent-platform` | Spring Boot modular monolith. Idempotent alert intake, transaction store, Postgres work queue, a case lifecycle around a LangGraph4j analysis graph with fenced Postgres checkpoints, an investigator agent with case-scoped tools and per-rule playbooks, validated case reports, and a regulatory knowledge base (MAS documents, hybrid retrieval with rerank). |
+| `agent-platform` | Spring Boot modular monolith. Idempotent alert intake, transaction store, Postgres work queue, a case lifecycle around a Spring AI Alibaba analysis graph with fenced Postgres checkpoints, an investigator agent with case-scoped tools and per-rule playbooks, validated case reports, and a regulatory knowledge base (MAS documents, hybrid retrieval with rerank). |
 | `mcp-banking` | MCP server for the bank's own systems: CRM profile (KYC, travel notices, staff notes) and core-banking security events. Stateless. |
 | `mcp-compliance` | MCP server for the screening vendor: counterparty watchlists, including the inter-bank mule account list. Stateless. |
 | `deploy/systems/` | WireMock stand-ins for those systems, with id-pattern stories (travel notice, account takeover, mule payee, a prompt-injected CRM note). |
@@ -99,7 +99,7 @@ Lifecycle: `ANALYSIS → AWAITING_DECISION → CLOSED` (or `FAILED` after the ma
 re-opens the case; `REQUEST_REANALYSIS` sends it back to the agents with the analyst's note. Decisions and readiness are
 published to `case.events.v1` through a transactional outbox.
 
-Inside ANALYSIS a LangGraph4j graph runs the agents and checkpoints after every node to `graph_checkpoint` (plain
+Inside ANALYSIS a Spring AI Alibaba graph runs the agents and checkpoints after every node to `graph_checkpoint` (plain
 JSON). If the platform dies mid-analysis, the next worker to claim the case (after `claim-timeout`) resumes after the
 last finished node; a worker whose claim has timed out can no longer write checkpoints.
 

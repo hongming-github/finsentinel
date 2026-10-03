@@ -1,29 +1,29 @@
 package com.finsentinel.platform.analysis;
 
-import org.bsc.langgraph4j.RunnableConfig;
-import org.bsc.langgraph4j.action.InterruptionMetadata;
-import org.bsc.langgraph4j.checkpoint.AbstractCheckpointSaver;
-import org.bsc.langgraph4j.checkpoint.Checkpoint;
-import org.bsc.langgraph4j.state.AgentState;
-import org.jspecify.annotations.Nullable;
+import com.alibaba.cloud.ai.graph.RunnableConfig;
+import com.alibaba.cloud.ai.graph.checkpoint.BaseCheckpointSaver;
+import com.alibaba.cloud.ai.graph.checkpoint.Checkpoint;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 
 import java.sql.Timestamp;
+import java.util.Collection;
 import java.util.LinkedList;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 
 /**
- * LangGraph4j checkpoint saver for the analysis graph (ADR 0008), replacing the library's Postgres saver.
+ * Checkpoint saver for the analysis graph (ADR 0008), in place of the library's savers.
  *
  * <ul>
  *   <li>Fenced: every write first takes a share lock on the case row and checks that the case is still in ANALYSIS
  *       under this worker's claim. A worker whose claim timed out cannot write once a successor has claimed the
  *       case; it gets {@link LostClaimException} at its next checkpoint and stops. The share lock makes check and
- *       write atomic against a concurrent claim, which updates the same row.</li>
- *   <li>Plain JSON state on a Flyway-managed table, through {@link CaseGraphStateSerializer}.</li>
+ *       write atomic against a concurrent claim, which updates the same row. The library's savers (and LangGraph's)
+ *       have no notion of an owner, so a stale worker could keep appending to a thread its successor now runs.</li>
+ *   <li>Plain JSON state on a Flyway-managed table, through {@link CaseGraphStateSerializer}; the library's savers
+ *       store base64 inside jsonb and create their own tables.</li>
  *   <li>{@link JdbcClient}: connections always go back to the pool.</li>
  * </ul>
  *
@@ -32,7 +32,7 @@ import java.util.concurrent.CompletableFuture;
  * survives until the case has moved on; a worker that crashes in between resumes straight to the end.
  */
 @Component
-class FencedPostgresCheckpointSaver extends AbstractCheckpointSaver {
+class FencedPostgresCheckpointSaver implements BaseCheckpointSaver {
 
     /** The case row, share-locked, if this worker still owns it. Shared by every write. */
     private static final String OWNER = """
@@ -51,68 +51,67 @@ class FencedPostgresCheckpointSaver extends AbstractCheckpointSaver {
         this.serializer = serializer;
     }
 
+    /** Newest first, as the library expects. */
     @Override
-    protected LinkedList<Checkpoint> loadCheckpoints(RunnableConfig config) {
-        CaseRun run = CaseRun.of(config);
-        // Newest first: AbstractCheckpointSaver treats the head of the list as the latest checkpoint.
-        return jdbc.sql("""
-                        select checkpoint_id, node_id, next_node_id, state from graph_checkpoint
-                        where case_id = :caseId and run = :run
-                        order by seq desc
-                        """)
-                .param("caseId", run.caseId())
-                .param("run", run.run())
-                .query((rs, n) -> new Checkpoint(rs.getString("checkpoint_id"),
-                        serializer.readDataFromString(rs.getString("state")).data(),
-                        rs.getString("node_id"), rs.getString("next_node_id")))
-                .list()
-                .stream()
-                .collect(LinkedList::new, LinkedList::add, LinkedList::addAll);
+    public Collection<Checkpoint> list(RunnableConfig config) {
+        return load(CaseRun.of(config));
     }
 
+    /** The checkpoint named in the config, else the newest. */
     @Override
-    protected void insertedCheckpoint(RunnableConfig config, LinkedList<Checkpoint> checkpoints, Checkpoint checkpoint) {
+    public Optional<Checkpoint> get(RunnableConfig config) {
+        LinkedList<Checkpoint> checkpoints = load(CaseRun.of(config));
+        return config.checkPointId()
+                .map(id -> checkpoints.stream().filter(cp -> cp.getId().equals(id)).findFirst())
+                .orElseGet(() -> Optional.ofNullable(checkpoints.peek()));
+    }
+
+    /**
+     * Appends a checkpoint, or replaces the one named in the config (state edits between runs; a graph run only
+     * appends). Returns the config pointing at the written checkpoint.
+     */
+    @Override
+    public RunnableConfig put(RunnableConfig config, Checkpoint checkpoint) {
         CaseRun run = CaseRun.of(config);
-        int inserted = jdbc.sql(OWNER + """
+        if (config.checkPointId().isPresent()) {
+            requireOwner(jdbc.sql(OWNER + """
+                            update graph_checkpoint g
+                            set checkpoint_id = :checkpointId, node_id = :nodeId, next_node_id = :nextNodeId,
+                                state = cast(:state as jsonb)
+                            from owner
+                            where g.checkpoint_id = :replaced and g.case_id = owner.case_id and g.run = :run
+                            """)
+                    .param("caseId", run.caseId())
+                    .param("claimedAt", Timestamp.from(run.claimedAt()))
+                    .param("replaced", UUID.fromString(config.checkPointId().get()))
+                    .param("checkpointId", UUID.fromString(checkpoint.getId()))
+                    .param("run", run.run())
+                    .param("nodeId", checkpoint.getNodeId())
+                    .param("nextNodeId", checkpoint.getNextNodeId())
+                    .param("state", serializer.toJson(checkpoint.getState()))
+                    .update(), run);
+            return config;
+        }
+        requireOwner(jdbc.sql(OWNER + """
                         insert into graph_checkpoint (checkpoint_id, case_id, run, node_id, next_node_id, state)
                         select :checkpointId, case_id, :run, :nodeId, :nextNodeId, cast(:state as jsonb) from owner
                         """)
                 .param("caseId", run.caseId())
                 .param("claimedAt", Timestamp.from(run.claimedAt()))
-                .param("checkpointId", UUID.fromString(checkpoint.id()))
+                .param("checkpointId", UUID.fromString(checkpoint.getId()))
                 .param("run", run.run())
-                .param("nodeId", checkpoint.nodeId())
-                .param("nextNodeId", checkpoint.nextNodeId())
-                .param("state", serializer.toJson(checkpoint.state()))
-                .update();
-        requireOwner(inserted, run);
-    }
-
-    /** Used when state is edited between runs ({@code CompiledGraph.updateState}); the graph run itself only inserts. */
-    @Override
-    protected void updatedCheckpoint(RunnableConfig config, LinkedList<Checkpoint> checkpoints, Checkpoint checkpoint) {
-        CaseRun run = CaseRun.of(config);
-        int updated = jdbc.sql(OWNER + """
-                        update graph_checkpoint g
-                        set node_id = :nodeId, next_node_id = :nextNodeId, state = cast(:state as jsonb)
-                        from owner
-                        where g.checkpoint_id = :checkpointId and g.case_id = owner.case_id and g.run = :run
-                        """)
-                .param("caseId", run.caseId())
-                .param("claimedAt", Timestamp.from(run.claimedAt()))
-                .param("checkpointId", UUID.fromString(checkpoint.id()))
-                .param("run", run.run())
-                .param("nodeId", checkpoint.nodeId())
-                .param("nextNodeId", checkpoint.nextNodeId())
-                .param("state", serializer.toJson(checkpoint.state()))
-                .update();
-        requireOwner(updated, run);
+                .param("nodeId", checkpoint.getNodeId())
+                .param("nextNodeId", checkpoint.getNextNodeId())
+                .param("state", serializer.toJson(checkpoint.getState()))
+                .update(), run);
+        return RunnableConfig.builder(config).checkPointId(checkpoint.getId()).build();
     }
 
     /** Not called by our graph (compiled without releaseThread); deletes the thread like the lifecycle would. */
     @Override
-    protected Tag releaseCheckpoints(RunnableConfig config, LinkedList<Checkpoint> checkpoints, @Nullable String message) {
+    public Tag release(RunnableConfig config) {
         CaseRun run = CaseRun.of(config);
+        LinkedList<Checkpoint> checkpoints = load(run);
         boolean owner = jdbc.sql(OWNER + """
                         , released as (
                             delete from graph_checkpoint
@@ -129,23 +128,22 @@ class FencedPostgresCheckpointSaver extends AbstractCheckpointSaver {
         return new Tag(run.threadId(), checkpoints);
     }
 
-    /** Keeps the checkpoints: the next attempt at this run resumes from them. */
-    @Override
-    protected Tag releaseCheckpointsOnError(RunnableConfig config, LinkedList<Checkpoint> checkpoints, Throwable exception) {
-        return new Tag(CaseRun.of(config).threadId(), checkpoints);
-    }
-
-    /** Released threads are not kept as tags: a finished run's record is its {@code case_analysis} row. */
-    @Override
-    public Optional<Tag> tag(RunnableConfig config, @Nullable Integer version) {
-        return Optional.empty();
-    }
-
-    /** No interrupts in the analysis graph: the human gate is the AWAITING_DECISION stage, outside the graph. */
-    @Override
-    public <State extends AgentState> CompletableFuture<InterruptionMetadata<State>> registerInterruption(
-            RunnableConfig config, InterruptionMetadata<State> interruptionMetadata) {
-        return CompletableFuture.completedFuture(interruptionMetadata);
+    private LinkedList<Checkpoint> load(CaseRun run) {
+        List<Checkpoint> rows = jdbc.sql("""
+                        select checkpoint_id, node_id, next_node_id, state from graph_checkpoint
+                        where case_id = :caseId and run = :run
+                        order by seq desc
+                        """)
+                .param("caseId", run.caseId())
+                .param("run", run.run())
+                .query((rs, n) -> Checkpoint.builder()
+                        .id(rs.getString("checkpoint_id"))
+                        .state(serializer.fromJson(rs.getString("state")))
+                        .nodeId(rs.getString("node_id"))
+                        .nextNodeId(rs.getString("next_node_id"))
+                        .build())
+                .list();
+        return new LinkedList<>(rows);
     }
 
     private static void requireOwner(int rows, CaseRun run) {

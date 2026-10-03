@@ -96,7 +96,7 @@ class CaseAnalysisResumeTest {
         assertThat(checkpointNodes(caseId)).as("the lifecycle deletes the run's checkpoints").isEmpty();
         assertThat(eventTypes(cases, tenant, caseId)).containsExactly("OPENED", "ANALYSIS_ATTEMPT_FAILED", "ANALYSED");
         assertThat(cases.events(tenant, caseId).get(1).detail().get("error").asString())
-                .as("the node's own error, not LangGraph4j's wrappers")
+                .as("the node's own error, not the graph runtime's wrappers")
                 .isEqualTo("java.lang.IllegalStateException: reviewer down");
     }
 

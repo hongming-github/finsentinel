@@ -1,6 +1,6 @@
 # 0008. Case orchestration in two layers: a Postgres lifecycle around a LangGraph4j agent graph
 
-- Status: accepted
+- Status: accepted; the inner runtime is now Spring AI Alibaba Graph, see ADR 0009 (two layers and fencing unchanged)
 - Date: 2026-10-02
 
 ## Context

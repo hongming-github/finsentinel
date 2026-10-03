@@ -1,25 +1,30 @@
 package com.finsentinel.platform.analysis;
 
-import org.bsc.langgraph4j.serializer.StateSerializer;
+import com.alibaba.cloud.ai.graph.OverAllState;
+import com.alibaba.cloud.ai.graph.serializer.Serializer;
+import com.alibaba.cloud.ai.graph.serializer.plain_text.PlainTextStateSerializer;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.io.IOException;
+import java.io.ObjectInput;
+import java.io.ObjectOutput;
 import java.util.HashMap;
 import java.util.Map;
 
 /**
- * JSON codec for {@link CaseGraphState}, used twice: LangGraph4j clones the state through it before every node, and
- * the checkpoint saver persists it with it. Cloning through the same JSON as the checkpoints means a state that
- * would not survive a restart already fails in a normal run, not only after a crash.
+ * JSON codec (Jackson 3) for the analysis graph's state, used twice: the graph clones the state through it before
+ * every checkpoint, and the checkpoint saver persists it with it. Cloning through the same JSON as the checkpoints
+ * means a state that would not survive a restart already fails in a normal run, not only after a crash.
  */
 @Component
-class CaseGraphStateSerializer extends StateSerializer<CaseGraphState> {
+class CaseGraphStateSerializer extends PlainTextStateSerializer {
 
     private final JsonMapper json;
 
     CaseGraphStateSerializer(JsonMapper json) {
-        super(CaseGraphState::new);
+        super(OverAllState::new);
         this.json = json;
     }
 
@@ -29,25 +34,28 @@ class CaseGraphStateSerializer extends StateSerializer<CaseGraphState> {
     }
 
     @Override
-    public String writeDataAsString(CaseGraphState state) {
-        return toJson(state.data());
+    public void writeData(Map<String, Object> data, ObjectOutput out) throws IOException {
+        Serializer.writeUTF(toJson(data), out);
     }
 
-    /** Same as {@link #writeDataAsString}, for raw checkpoint state, without the checked exception. */
+    @Override
+    public Map<String, Object> readData(ObjectInput in) throws IOException {
+        return fromJson(Serializer.readUTF(in));
+    }
+
     String toJson(Map<String, Object> data) {
         data.keySet().forEach(CaseGraphStateSerializer::typeOf);
         return json.writeValueAsString(data);
     }
 
-    @Override
-    public CaseGraphState readDataFromString(String string) {
+    Map<String, Object> fromJson(String string) {
         Map<String, Object> data = new HashMap<>();
         for (Map.Entry<String, JsonNode> property : json.readTree(string).properties()) {
             if (!property.getValue().isNull()) {
                 data.put(property.getKey(), json.treeToValue(property.getValue(), typeOf(property.getKey())));
             }
         }
-        return new CaseGraphState(data);
+        return data;
     }
 
     private static Class<?> typeOf(String key) {
