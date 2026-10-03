@@ -348,6 +348,34 @@ public class CaseRepository {
                 .list();
     }
 
+    /**
+     * Like {@link #list}, with each case's latest analysis verdict, in one query (a lateral join, not a query per
+     * case).
+     */
+    public List<CaseListing> listWithLatestVerdict(String tenantId, CaseStage stage, int limit) {
+        return jdbc.sql("""
+                        select c.*, a.disposition as latest_disposition, a.risk_score as latest_risk_score
+                        from fraud_case c
+                        left join lateral (
+                            select disposition, risk_score from case_analysis a
+                            where a.case_id = c.case_id order by a.run desc limit 1
+                        ) a on true
+                        where c.tenant_id = :tenantId and (cast(:stage as text) is null or c.stage = :stage)
+                        order by %s, c.updated_at desc
+                        limit :limit
+                        """.formatted(PRIORITY_ORDER.replace("priority", "c.priority")))
+                .param("tenantId", tenantId)
+                .param("stage", stage == null ? null : stage.name())
+                .param("limit", limit)
+                .query((rs, n) -> new CaseListing(map(rs), rs.getString("latest_disposition"),
+                        (Integer) rs.getObject("latest_risk_score")))
+                .list();
+    }
+
+    /** @param latestDisposition null until the first analysis is stored */
+    public record CaseListing(FraudCase fraudCase, String latestDisposition, Integer latestRiskScore) {
+    }
+
     public List<CaseEvent> events(String tenantId, String caseId) {
         return jdbc.sql("""
                         select e.* from case_event e join fraud_case c using (case_id)

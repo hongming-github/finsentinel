@@ -62,6 +62,12 @@
             <artifactId>pdfbox</artifactId>
             <version>3.0.8</version>
         </dependency>
+        <!-- The platform is also an MCP server (ADR 0002): read-only case lookup and regulation search for external
+             agents, on /mcp next to the REST API. -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
+        </dependency>
         <!-- MCP client for the systems we do not own (ADR 0002). The SDK directly rather than Spring AI's MCP client
              starter: that one connects at startup and hands every server tool to the model, while ours connect on
              first use and wrap each tool in a case-scoped one. 2.0.0 is the version Spring AI 2.0.1 is built on;

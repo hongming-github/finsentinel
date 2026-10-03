@@ -23,6 +23,13 @@ spring:
         reasoning-effort: none
       embedding:
         model: text-embedding-3-small
+    mcp:
+      server:
+        name: finsentinel-platform
+        version: 0.1.0
+        # Read-only lookups: any instance answers any request. Endpoint: /mcp on the platform port.
+        protocol: STATELESS
+        instructions: Fraud cases of FinSentinel's banks and the MAS regulatory knowledge base, read-only.
   kafka:
     bootstrap-servers: localhost:9092
     consumer:
@@ -80,6 +87,11 @@ finsentinel:
     compliance-url: http://localhost:8092
     connect-timeout: 2s
     request-timeout: 8s
+  mcp-server:
+    # External callers pay for embeddings and reranking with every search: a budget of its own, across instances.
+    max-regulation-searches-per-hour: 200
+    max-cases: 50
+    max-passages: 10
   outbox:
     enabled: true
     poll-interval: 1s

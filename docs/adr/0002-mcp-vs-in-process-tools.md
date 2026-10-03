@@ -1,6 +1,6 @@
 # 0002. MCP for systems we do not own; in-process tools for our own data
 
-- Status: accepted (MCP servers and client in phase 4 step C1; the platform's own MCP server in C3; OAuth in phase 6)
+- Status: accepted (MCP servers and client in phase 4 step C1, the platform's own MCP server in C3; OAuth in phase 6)
 - Date: 2026-09-30
 
 ## Context
@@ -49,3 +49,21 @@ compliance search to external agents).
   class loader. Graph nodes run on threads from the common fork-join pool, whose loader cannot see the libraries in
   the packaged jar; tests (flat classpath) cannot see this. Fixed twice over: the mapper and schema validator are
   passed explicitly, and graph node threads get the application class loader.
+
+## As built (phase 4 step C3): the platform as an MCP server
+
+- `/mcp` on the platform port (Spring AI MCP server, `STATELESS`), four read-only tools: `listCases` (with each case's
+  latest disposition and risk score, one lateral-join query), `getCase` (alerts, latest report, reviewer verdict,
+  decision; a compact view without tool calls), `searchRegulations`, `readRegulationPassages` (to check the passages
+  a report cites).
+- The tools are registered with the MCP server only, as tool specifications, never as a `ToolCallbackProvider` bean:
+  Spring AI's tool resolver collects those beans, which would put tenant-parameterised tools where our own agents'
+  tool calling looks.
+- Case tools take the tenant as a parameter, like the REST path; every read is filtered by it. Until phase 6 the
+  endpoint is unauthenticated, like the REST API; then the tenant comes from the caller's token.
+- `searchRegulations` embeds the question and may rerank with a model: an LLM-cost path open to outside callers, so
+  it has its own budget (`max-regulation-searches-per-hour`), a fixed-window counter in Postgres (an atomic upsert,
+  exact across instances; a read-then-write version granted 10 of 5 under contention in the test).
+- `examples/mcp-client-python`: a LangChain/LangGraph agent in Python that uses the platform only through MCP. Its
+  first run exposed a tool-design gap (asked for the riskiest case, it took the first of a priority-sorted list that
+  had no risk scores); the listing now carries the latest verdict and says how it is sorted.
