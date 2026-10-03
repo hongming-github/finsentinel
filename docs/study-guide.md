@@ -539,3 +539,47 @@ LangGraph4j 1.9.3 用 `CompletableFuture.runAsync` 把整个图的驱动循环�
 - 平台测试 92 个，其中 7 个默认跳过（6 个真实 LLM 测试和检索评估）。C1 新增 8 个普通测试和 3 个真实 LLM 测试。
 - 真实 LLM 测试，修复后连跑 3 轮，18/18 通过：不可能旅行 FRAUD 95-97；本地大额刷卡 LEGITIMATE 12-18；系统宕机仍判 FRAUD 96；APP 诈骗 NEEDS_REVIEW 58 / FRAUD 91 / FRAUD 82；注入备注 FRAUD 96 并在发现里指出；账户被盗加钱骡 FRAUD 97-98。
 - 用打包后的 jar 跑完整链路（平台 → MCP 客户端 → MCP 服务 → WireMock）：harbour-acc-0477（被盗迹象加钱骡收款方）判 LIKELY_FRAUD 97，发现里引用了名单命中和"换号 → 新设备 → 提额"；straits-acc-0073（没有任何信号的 APP 形态转账）判 NEEDS_REVIEW 70；WireMock 只收到了这两个案件各自的客户、账户、收款方的请求。
+
+## 阶段 4（C2 前）：换图框架，从 LangGraph4j 到 Spring AI Alibaba Graph
+
+决策记录见 [ADR 0009](adr/0009-graph-runtime-spring-ai-alibaba.md)。两层架构和 fencing 都不变，只换了内层的执行器。
+
+### 为什么换
+
+- LangGraph4j 维护者很少，我们自己就在它的 saver 里抓到过连接泄漏，不算企业级。
+- Spring AI Alibaba Graph 是阿里出品，设计参照 LangGraph，在阿里生态里用得很多，面试官认识度高。
+- 评估过但没选的：AgentScope Java（以单个 ReAct Agent 为中心，不负责持久化执行）、Temporal（真正企业级的持久化执行引擎，但要额外运维一个集群，而且和我们 Postgres 里的生命周期大量重叠）、完全不用框架（流程固定时其实也够用）。
+- 也讨论过"把编排迁到 Python"：不迁。难点（领取、fencing、outbox、预算）全在 Java 和 Postgres 里，迁过去只会多出一个跨语言的分布式问题；目标岗位又以 Java/Spring 为主。Python 留给天然合适的地方（C3 的 MCP 客户端演示、阶段 7 的评估）。
+
+### Fencing：这个项目最值得讲的设计（面试必讲）
+
+**问题**：worker 领取案件是一种租约，超时就被认为已经死了，别人可以接手。但"看起来死了"不等于真的死了。A 可能只是卡在一次很长的 LLM 调用或 GC 停顿里，B 接手之后 A 醒过来，它不知道自己已经失去了领取权，会继续写 checkpoint，把 B 的进度搅乱，还会白花 LLM 的钱。
+
+**为什么锁和超时不够**：进程无法可靠地知道自己的租约是否还有效。检查完"我还没过期"到真正写入之间，它仍然可能被暂停。所以判断必须交给**存储端**：每次领取产生一个新令牌（fencing token），写入时带上令牌，存储端只接受当前令牌（Martin Kleppmann 的 *How to do distributed locking* 讲的就是这个）。
+
+**我们的实现**：令牌就是案件行上的 `claimed_at`。每次写 checkpoint，在同一条 SQL 里 `select ... from fraud_case where claimed_at = :claimedAt for share`，再插入。`for share` 和新的领取（对同一行的 `update`）互斥，在 READ COMMITTED 下等锁后会用最新的行重新判断条件，所以"校验"和"写入"是原子的。插入 0 行就抛 `LostClaimException`，worker 放弃。
+
+**证据**：去掉校验后，过期 worker 测试失败，`["investigate", "review"]` 被写了进去。在 LangGraph4j 上证明过一次，换到 Spring AI Alibaba 之后又证明了一次，结果完全一样。
+
+**和阿里 issue #4792 的对比**：Spring AI Alibaba 自己也有这个问题，2026 年 7 月开了 issue，提议对"最新的 checkpoint"做 compare-and-set。这能防住"两边同时写"，但它**不知道谁才是合法的持有者**：如果新持有者 B 刚接手、还没写任何东西，过期的 A 用旧的"最新 checkpoint"去写，比较是相同的，A 反而写入成功，接着 B 的第一次写入被拒绝。合法持有者被拒绝，过期持有者成功，正好相反。我们按业务上真正的持有者（领取记录）判断，没有这个漏洞。两种方式可以叠加：令牌防"过期的持有者"，版本号防"同一持有者的并发写入"。这个思路准备作为 #4792 的方案贡献给上游。
+
+### 迁移过程中的发现
+
+1. **续跑的调用方式不一样**：Spring AI Alibaba 只有在 config 里带上 `checkPointId` 时才走续跑；`inputs` 传 null 并不算续跑，而是从头开始。第一次验证时我就用错了，结果已经完成的节点被重跑了一次。所以换框架一定要用测试守住行为，而不是看 API 名字像不像。
+2. **强制带上不用的依赖**：`StateGraph` 在静态初始化时构造一个默认序列化器，会加载 DeepSeek 和智谱的消息类。排除这两个依赖后，`StateGraph` 整个类加载失败（实测）。DeepSeek 能被我们的 BOM 抬到正式版，智谱只有里程碑版。这是"里程碑版"的真实代价，写进了 ADR，并要求每次升级都跑全量测试和打包 jar 验证。
+3. **它比 LangGraph4j 好的地方**：`invoke` 在调用线程上执行（基于 Reactor），不再固定扔到 ForkJoin 公共池；并行节点的线程池可以通过 config 传入；自带的 Postgres saver 没有连接泄漏。
+4. **一样的弱点**：自带的 saver 也是把状态 base64 后存进 jsonb、自己建表、不知道持有者。所以 saver 和 Jackson 3 的状态序列化仍然是我们自己写的。
+
+### 迁移的证据
+
+- 改动范围：`CaseAnalysisGraph`、saver、状态和序列化 4 个类，加上依赖；案件生命周期、领取、outbox 都没动。
+- B 步的 5 个续跑和 fencing 测试一行没改，全部通过。平台测试 92 个，全绿。
+- 用打包后的 jar 实测：MCP 服务也在跑的情况下，调查进行中 `kill -9`，重启后新进程重新领取，日志显示 `resuming after node '__START__'`，案件完成，checkpoint 被清理。同一个案件两轮对比：第 1 轮（旧的单 Agent，没有银行系统数据）NEEDS_REVIEW 71；第 2 轮（拿到了账户被盗迹象）LIKELY_FRAUD 96。
+
+### 设计取舍问答
+
+**问：依赖里程碑版不危险吗？**
+危险，所以做了隔离：框架只出现在 4 个类里，节点都是很薄的包装；所有保证正确性的东西（fencing、生命周期、状态格式）都在我们自己的代码和表里；测试覆盖续跑和 fencing；每次升级都跑全量测试和打包 jar。正式版发布后再升级过去。最坏的情况是退回 LangGraph4j 或者不用框架，代价也只是这 4 个类。
+
+**问：为什么不直接用它自带的 Postgres saver？**
+三个原因：状态是 base64，没法用 SQL 查；表由库自己建，绕过了 Flyway；没有持有者的概念，多实例下会出 #4792 那个问题。

@@ -1,6 +1,6 @@
 package com.finsentinel.platform.analysis;
 
-import org.bsc.langgraph4j.RunnableConfig;
+import com.alibaba.cloud.ai.graph.RunnableConfig;
 
 import java.time.Instant;
 import java.util.Objects;
@@ -21,13 +21,13 @@ record CaseRun(UUID caseId, int run, Instant claimedAt) {
         Objects.requireNonNull(claimedAt, "claimedAt");
     }
 
-    /** LangGraph4j thread id: a new run of the same case starts a new graph thread. */
+    /** Graph thread id: a new run of the same case starts a new graph thread. */
     String threadId() {
         return caseId + ":" + run;
     }
 
     RunnableConfig config() {
-        return RunnableConfig.builder().threadId(threadId()).putMetadata(METADATA_KEY, this).build();
+        return RunnableConfig.builder().threadId(threadId()).addMetadata(METADATA_KEY, this).build();
     }
 
     static CaseRun of(RunnableConfig config) {

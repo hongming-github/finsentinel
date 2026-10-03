@@ -1,5 +1,6 @@
 package com.finsentinel.platform.analysis;
 
+import com.alibaba.cloud.ai.graph.OverAllState;
 import com.finsentinel.common.AlertRule;
 import com.finsentinel.common.Severity;
 import com.finsentinel.platform.PlatformTest;
@@ -27,7 +28,7 @@ class CaseGraphStateSerializerTest {
     CaseGraphStateSerializer serializer;
 
     @Test
-    void stateSurvivesJsonAsTypedRecords() throws Exception {
+    void stateSurvivesJsonAsTypedRecords() {
         CaseContext caseContext = context(
                 alert("t1", "acc-1", AlertRule.GEO_JUMP, Severity.HIGH, List.of("t-1", "t-2"), Instant.parse("2026-10-01T10:00:00Z")),
                 alert("t1", "acc-1", AlertRule.VELOCITY, Severity.MEDIUM, List.of("t-3"), Instant.parse("2026-10-01T10:05:00Z")));
@@ -43,18 +44,18 @@ class CaseGraphStateSerializerTest {
                 CaseGraphState.INVESTIGATION, investigation,
                 CaseGraphState.REVIEW, new Review(true, "ok"));
 
-        CaseGraphState copy = serializer.readDataFromString(serializer.toJson(data));
+        OverAllState copy = new OverAllState(serializer.fromJson(serializer.toJson(data)));
 
-        assertThat(copy.caseContext()).isEqualTo(caseContext);
-        assertThat(copy.investigation()).contains(investigation);
-        assertThat(copy.review()).contains(new Review(true, "ok"));
+        assertThat(CaseGraphState.caseContext(copy)).isEqualTo(caseContext);
+        assertThat(CaseGraphState.investigation(copy)).contains(investigation);
+        assertThat(CaseGraphState.review(copy)).contains(new Review(true, "ok"));
     }
 
     @Test
     void undeclaredKeysAreRejectedRatherThanReadBackAsMaps() {
         assertThatThrownBy(() -> serializer.toJson(Map.of("scratch", List.of(1, 2))))
                 .hasMessageContaining("undeclared graph state key 'scratch'");
-        assertThatThrownBy(() -> serializer.readDataFromString("{\"scratch\": 1}"))
+        assertThatThrownBy(() -> serializer.fromJson("{\"scratch\": 1}"))
                 .hasMessageContaining("undeclared graph state key 'scratch'");
     }
 }

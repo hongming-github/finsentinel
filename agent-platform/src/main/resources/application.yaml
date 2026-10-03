@@ -91,6 +91,3 @@ management:
 logging:
   level:
     org.apache.kafka: warn
-    # Logs every failed graph node at ERROR with a stack trace, then hands the exception to CaseWorker, which logs
-    # and records it once.
-    org.bsc.langgraph4j: off

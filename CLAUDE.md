@@ -46,8 +46,11 @@ committed, and how the user likes to work. Keep it updated at the end of each se
   (validated in their compact constructors); Flink settings go in `stream-job.properties`.
 - SQL is hand-written with `JdbcClient` (ADR 0005); bind every value as a parameter, constants included.
 - Tool results returned to the model are compact views; do not return full domain records.
-- The analysis graph checkpoints only through `FencedPostgresCheckpointSaver` (ADR 0008): no other saver, no
-  `releaseThread`. The case lifecycle deletes a run's checkpoints in the transaction that ends the run.
+- The analysis graph runs on Spring AI Alibaba Graph `2.0.0-M1.1` (ADR 0009) and checkpoints only through
+  `FencedPostgresCheckpointSaver`: never the library's savers, no `releaseThread`. The case lifecycle deletes a run's
+  checkpoints in the transaction that ends the run. Resuming needs the checkpoint id in the config.
+- Do not exclude `spring-ai-deepseek`/`spring-ai-zhipuai` from graph-core: `StateGraph`'s static initializer needs
+  them. After any Spring AI or Spring AI Alibaba upgrade, run the full suite and a packaged-jar case.
 - Graph state keys are declared with their type in `CaseGraphState.TYPES`; values are immutable records that
   round-trip through JSON.
 - Only validated reports are stored (ADR 0006). Repairs are bounded by `report.max-repairs`.
