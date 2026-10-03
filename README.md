@@ -38,7 +38,7 @@ The transaction topic has two independent consumers. Flink does not write transa
 down database would back-pressure the detection job, and fraud detection must keep running when the platform's
 database does not. Each consumer group can also be replayed on its own.
 
-**Status:** phases 1–3 of 9 done (data path, investigation agent, regulatory RAG); phase 4 steps A (case lifecycle), B (checkpointed analysis graph), C1 (bank systems over MCP) and C2 (multi-agent analysis with a reviewer) done. See [docs/roadmap.md](docs/roadmap.md).
+**Status:** phases 1–3 of 9 done (data path, investigation agent, regulatory RAG); phase 4 done: case lifecycle, checkpointed and resumable analysis graph, bank systems over MCP, multi-agent analysis with a reviewer, and the platform as an MCP server. See [docs/roadmap.md](docs/roadmap.md).
 
 ## Stack
 
@@ -55,6 +55,7 @@ Redis · Keycloak · OpenTelemetry / Grafana LGTM · Testcontainers
 | `agent-platform` | Spring Boot modular monolith. Idempotent alert intake, transaction store, Postgres work queue, a case lifecycle around a Spring AI Alibaba analysis graph with fenced Postgres checkpoints, an investigator agent with case-scoped tools and per-rule playbooks, validated case reports, and a regulatory knowledge base (MAS documents, hybrid retrieval with rerank). |
 | `mcp-banking` | MCP server for the bank's own systems: CRM profile (KYC, travel notices, staff notes) and core-banking security events. Stateless. |
 | `mcp-compliance` | MCP server for the screening vendor: counterparty watchlists, including the inter-bank mule account list. Stateless. |
+| `examples/mcp-client-python` | A LangGraph analyst assistant in Python that uses the platform only through its MCP server. |
 | `deploy/systems/` | WireMock stand-ins for those systems, with id-pattern stories (travel notice, account takeover, mule payee, a prompt-injected CRM note). |
 | `knowledge/` | `sources.json` lists the MAS documents; `scripts/fetch-knowledge.sh` downloads them (not committed). |
 
@@ -105,6 +106,14 @@ reviewer checks the report against the author's evidence and can send it back on
 analysis. The graph checkpoints after every node to `graph_checkpoint` (plain
 JSON). If the platform dies mid-analysis, the next worker to claim the case (after `claim-timeout`) resumes after the
 last finished node; a worker whose claim has timed out can no longer write checkpoints.
+
+### MCP server
+
+The platform is also an MCP server at `http://localhost:8090/mcp` (streamable HTTP, stateless), read-only:
+`listCases`, `getCase`, `searchRegulations`, `readRegulationPassages`. Any MCP client can use it, e.g. the Python
+example (`cd examples/mcp-client-python && uv run analyst_assistant.py "Which straits cases await a decision?"`) or
+Claude Code (`claude mcp add --transport http finsentinel http://localhost:8090/mcp`). Not authenticated until phase 6,
+like the REST API; regulation searches have their own hourly budget.
 
 Investigations are capped at `finsentinel.investigation.max-per-hour` (default 60) so a burst of alerts cannot
 run up an unbounded LLM bill. Set `finsentinel.investigation.enabled=false` to store alerts without investigating.

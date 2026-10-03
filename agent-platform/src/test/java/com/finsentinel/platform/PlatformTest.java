@@ -11,7 +11,8 @@ import java.lang.annotation.Target;
 
 /**
  * Shared setup for platform integration tests. Every test class uses the same properties and imports,
- * so Spring caches one context (and one set of containers) for the whole run. Scheduled investigation
+ * so Spring caches one context (and one set of containers) for the whole run. The server listens on a random port,
+ * so tests can also reach it as a client would (the MCP endpoint). Scheduled investigation
  * polling and knowledge sync are off, reranking is off, and embeddings are faked: normal tests never call a
  * model API, every agent (investigator, specialists, writer, reviewer) is a stub, and the external systems are
  * fakes. Analyses run in SINGLE mode unless a test asks for MULTI. Live tests opt back in with
@@ -19,12 +20,13 @@ import java.lang.annotation.Target;
  */
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
-@SpringBootTest(properties = {
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "finsentinel.investigation.enabled=false",
         "finsentinel.knowledge.sync-on-startup=false",
         "finsentinel.outbox.enabled=false",
         "finsentinel.knowledge.search.rerank.enabled=false",
-        "finsentinel.knowledge.dir=../knowledge",
+        // Absolute: with a real servlet context a relative "../" path is resolved against the web root and fails.
+        "finsentinel.knowledge.dir=${user.dir}/../knowledge",
         "finsentinel.analysis.mode=SINGLE"})
 @AutoConfigureMockMvc
 @Import({TestcontainersConfig.class, StubCaseInvestigator.class, StubSpecialistAgents.class, StubReportWriter.class,

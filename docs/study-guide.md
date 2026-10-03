@@ -653,3 +653,45 @@ MULTI:  START → plan → 交易专项 ┐
 - 平台测试 105 个（7 个默认跳过），C2 新增 13 个：图层面 6 个（并行、规划、退回上限、按节点续跑、模式保持、持久化），各 Agent 5 个（每个专项只拿自己的工具、只有监管专项能写监管说明、撰写的证据校验和修复、撰写拿到审核意见、审核结论规整），证据记录 2 个。
 - 真实 LLM 对比数据见上表；修复前后共跑了 7 轮，最后 3 轮 36/36 通过。
 - 打包后的 jar 实测（MULTI 模式）：在专项的 checkpoint 写完、撰写还没完成时 `kill -9`；重启后日志显示 `resuming MULTI analysis after node '__PARALLEL__(plan)'`；WireMock 对这个客户的请求数重启前后都是 2，说明专项没有重跑；存下来的分析记了 7 次模型调用（3 个专项来自 checkpoint、2 次撰写、2 次审核），结论 LIKELY_FRAUD 94（收款方在钱骡名单上）。
+
+## 阶段 4（C3）：平台自己作为 MCP 服务端
+
+平台在 `:8090/mcp` 对外提供 4 个只读工具：`listCases`、`getCase`、`searchRegulations`、`readRegulationPassages`。任何 MCP 客户端都能用，`examples/mcp-client-python` 里有一个用 Python（LangChain/LangGraph）写的分析师助手做演示。设计说明见 [ADR 0002](adr/0002-mcp-vs-in-process-tools.md) 的 "As built (phase 4 step C3)"。
+
+### 必读
+
+- [PlatformMcpTools.java](../agent-platform/src/main/java/com/finsentinel/platform/mcp/PlatformMcpTools.java)：返回精简视图（不带工具调用记录这类内部细节），所有案件读取都按租户过滤。
+- [McpServerConfig.java](../agent-platform/src/main/java/com/finsentinel/platform/mcp/McpServerConfig.java)：工具**只注册给 MCP 服务端**，不注册成 Spring AI 的 `ToolCallbackProvider` bean。原因：Spring AI 的工具解析器会收集所有这类 bean，那样这些带租户参数的工具就会出现在我们自己 Agent 的工具查找范围里，破坏"工具按案件固定 id"的原则。
+- [RateLimiter.java](../agent-platform/src/main/java/com/finsentinel/platform/mcp/RateLimiter.java)：外部调用法规检索时会触发 embedding 和 rerank 的模型调用，是一条对外开放的花钱路径，所以有独立的每小时预算。计数放在 Postgres 里用一条原子 upsert（`insert ... on conflict do update set used = used + 1 returning used`）完成，多实例下也是精确的。
+
+### 设计取舍问答
+
+**问：为什么 MCP 工具的参数里有 tenantId，这不违反"工具不能选租户"的规则吗？**
+那条规则约束的是**我们自己的 Agent**：它们在处理某个案件，租户和账户由案件决定，模型不该有选择权。MCP 服务端的调用方是外部的分析师助手，相当于 REST 接口的另一种形式，REST 路径里本来就有租户。所有读取都按这个租户过滤；第 6 阶段加 OAuth 后，租户从 token 里取，就不再是参数了。
+
+**问：限流为什么不用 Redis，或者内存里的计数器？**
+内存计数器在多实例下每个实例各算各的，总量会超。Redis 也行，但我们已有 Postgres，而且"多实例协调全部走 Postgres"是项目的统一原则。一条带行锁的 upsert 就能做到精确计数，不需要再引入一个组件。代价是固定窗口：在窗口交界处，最多可能放过两倍的请求。用来控制成本，这个精度够了。
+
+**问：为什么还要写一个 Python 客户端？**
+ADR 0002 说平台既是 MCP 客户端也是服务端；用另一种语言、另一个 Agent 框架去调用它，最能说明 MCP 的价值：我们的 Java Agent 和外部的 Python Agent，共用同一套只读、精简、按租户隔离的工具。同时也展示了对 Python 生态（LangChain 1.x / LangGraph）的了解。
+
+### 踩过的坑
+
+1. **测试改成随机端口后，`../knowledge` 这个配置绑定失败**：有了真实的 servlet 上下文之后，Spring 把字符串转成 `Path` 时会走 servlet 资源加载，`/../knowledge` 被规范化成 null。一开始的报错看起来像 bean 循环依赖，往下翻到最底层的 `Caused by` 才找到真正原因。测试里改用绝对路径（`${user.dir}/../knowledge`）。教训：**先找到最底层的 `Caused by` 再下结论**。
+2. **第一版并发测试证明不了任何东西**：把限流器换成"先读再写"的错误实现，测试照样通过，因为线程实际上没有同时竞争。改成用 latch 让 40 个调用同时出发、重复 5 轮之后，错误实现会放过 10 个（上限是 5），正确实现通过。**并发测试必须先证明它能抓住错误实现。**
+3. **工具设计的缺陷，是被真实 Agent 用出来的**：Python 助手被问"风险最高的案件"时，调用 `listCases(limit=1)` 拿了第一个。列表是按**优先级**排序的，而且根本没有风险分，所以它不可能答对。修复方式是改工具本身：列表带上每个案件最新的结论和风险分（一条 lateral join 查询，不是每个案件查一次），并在描述里写明排序方式。之后同样的问题答对了（98 分，和数据库里的最大值一致）。**给 Agent 的工具是一种 API 设计，要按 Agent 实际会怎么用来设计。**
+4. **LangGraph 1.0 弃用了 `create_react_agent`**：移到了 LangChain 1.x 的 `create_agent`（底层仍运行在 LangGraph 上）。
+5. **隐藏的测试顺序依赖**：一个老测试默认知识库是空的（空的时候检索结果会附带一条"No matching passages."提示）。新的 MCP 测试往共享数据库里放了一份测试文档，检索能查到结果，提示变成 null，老测试就失败了。修法是让老测试不依赖知识库里有什么。共享数据库的集成测试，每个测试都要自己准备它依赖的数据。
+
+### 可以主动讲的不足和改进方向
+
+| 不足 | 改进方案 |
+|---|---|
+| MCP 端点没有认证 | 第 6 阶段：OAuth 2.1（Keycloak），租户从 token 里取，服务端校验 |
+| 固定窗口限流，在窗口交界处可能放过两倍请求 | 改成滑动窗口或令牌桶（也可以用 Postgres 实现） |
+| 只有只读工具 | 如果要让外部 Agent 提交审批决定，需要带上 `If-Match` 版本号和身份信息，还需要人工确认，不能直接开放 |
+
+### 实测数据
+
+- 平台测试新增 8 个：MCP 服务端 6 个（用真实 MCP 客户端走 HTTP：工具列表、案件详情、跨租户访问返回"找不到"、按阶段列出、法规检索和段落原文、预算用完后报错），限流器 2 个。
+- 用打包后的 jar 和 Python 助手实测：第一个问题里，助手列出 straits 的待审批案件，读了 5 份报告，选出风险最高的（98，澳大利亚到新加坡 20 秒内的不可能旅行），检索法规并引用了 EUPG §4.21、Notice 626 §14.2 等段落；Postgres 里的限流计数记下了这 3 次检索。

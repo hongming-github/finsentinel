@@ -96,6 +96,11 @@ public class KnowledgeSearch {
         return reranked;
     }
 
+    /** Full passages by chunk id, in the order asked; unknown ids are left out. */
+    public List<RegulationHit> passages(List<String> chunkIds) {
+        return hits(chunkIds);
+    }
+
     private List<RegulationHit> hits(List<String> ids) {
         Map<String, KnowledgeRepository.StoredPassage> passages = byId(ids);
         return ids.stream().filter(passages::containsKey).map(passages::get)

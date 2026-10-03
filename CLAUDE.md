@@ -35,6 +35,11 @@ committed, and how the user likes to work. Keep it updated at the end of each se
 - Agent tools are scoped by construction (tenant/account fixed in `InvestigationTools`); never add a tool
   parameter that selects tenant or account. MCP server tools are never handed to the model directly: wrap each in a
   case-scoped tool via `ExternalSystems`, and return `Unavailable` (not an exception) when the system is down.
+- The platform's own MCP server tools are registered as MCP tool specifications only, never as
+  `ToolCallbackProvider` beans (Spring AI's resolver collects those for agents). They take the tenant as a parameter
+  like the REST path until phase 6 takes it from the token; every case read stays tenant-filtered.
+- Any path that lets outside callers trigger model or embedding calls needs a budget; shared limits are counted in
+  Postgres (`RateLimiter`, atomic upsert), never in memory.
 - Agent tool parameters are boxed (`Integer`, not `int`): the model sometimes sends null, which fails a primitive.
 - Normal tests must not call an LLM: `@PlatformTest` swaps in `StubCaseInvestigator`.
 - Never remove or bypass `max-per-hour`; any new LLM-calling path needs a budget.
@@ -61,7 +66,7 @@ committed, and how the user likes to work. Keep it updated at the end of each se
 - Only validated reports are stored (ADR 0006). Repairs are bounded by `report.max-repairs`.
 - After changing the prompt, tools, or model, run the live tests at least 3 times: one pass proves little.
 - Avoid nested ternaries mixing `Integer` and `int` (silent unboxing NPE).
-- Host ports: Redis 6380, platform 8090, mcp-banking 8091, mcp-compliance 8092, fake systems (WireMock) 8093;
+- Host ports: Redis 6380, platform 8090 (REST and `/mcp`), mcp-banking 8091, mcp-compliance 8092, fake systems (WireMock) 8093;
   6379 and 8080 are used by other local projects.
 - Code inside graph nodes runs on pool-spawned threads; never rely on `ServiceLoader` defaults there (pass
   dependencies explicitly). Verify library integrations with the packaged jar, not only tests.

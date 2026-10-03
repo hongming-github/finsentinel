@@ -162,8 +162,9 @@ class InvestigationToolsTest {
     void regulationSearchesAreCappedPerCase() {
         InvestigationTools tools = toolsFor(alert(uniqueTenant(), "acc-1", AlertRule.VELOCITY, Severity.LOW, List.of(), Instant.now()));
 
+        // The note is null when passages are found: whatever the shared knowledge base holds, no limit note yet.
         for (int i = 0; i < 3; i++) {
-            assertThat(tools.searchRegulations("cooling off period").note()).doesNotContain("limit");
+            assertThat(String.valueOf(tools.searchRegulations("cooling off period").note())).doesNotContain("limit");
         }
 
         assertThat(tools.searchRegulations("one more").note()).contains("limit");
