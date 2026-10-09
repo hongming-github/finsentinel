@@ -30,6 +30,13 @@ spring:
         # Read-only lookups: any instance answers any request. Endpoint: /mcp on the platform port.
         protocol: STATELESS
         instructions: Fraud cases of FinSentinel's banks and the MAS regulatory knowledge base, read-only.
+  data:
+    redis:
+      host: localhost
+      port: 6380
+      # The search cache is disposable: an unreachable Redis must cost a search milliseconds, not seconds.
+      connect-timeout: 250ms
+      timeout: 250ms
   kafka:
     bootstrap-servers: localhost:9092
     consumer:
@@ -131,6 +138,11 @@ finsentinel:
         enabled: true
         model: gpt-5.4-nano
         max-passage-chars: 700
+      # Exact question match only (normalised case and spacing). A semantic (embedding similarity) cache was measured
+      # and rejected: one-word-apart questions with different answers score 0.95 cosine (ADR 0013).
+      cache:
+        enabled: true
+        ttl: 7d
   systems:
     # MCP servers (mcp-banking, mcp-compliance). Connected on first use; when one is down, agents carry on without it.
     banking-url: http://localhost:8091
@@ -157,7 +169,14 @@ management:
     web:
       exposure:
         include: health,info,metrics
+  health:
+    # Redis holds only the search cache; the platform works without it, so it must not turn health DOWN.
+    redis:
+      enabled: false
 
 logging:
   level:
     org.apache.kafka: warn
+    # Lettuce's resolver looks for a macOS-native DNS library and logs an ERROR when it is absent; the JDK fallback it
+    # then uses is fine (and production runs on Linux).
+    io.netty.resolver.dns.DnsServerAddressStreamProviders: off

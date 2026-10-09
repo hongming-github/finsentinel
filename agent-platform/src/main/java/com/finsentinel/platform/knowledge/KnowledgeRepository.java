@@ -33,6 +33,20 @@ class KnowledgeRepository {
                 });
     }
 
+    /**
+     * Changes whenever any document is added, replaced or removed ({@link #replace} re-inserts the row, so
+     * {@code ingested_at} moves). Cached search results are keyed by it, so a re-ingest never serves stale passages.
+     */
+    String corpusVersion() {
+        return jdbc.sql("""
+                        select coalesce(md5(string_agg(doc_id || ':' || sha256 || ':' || chunk_count || ':'
+                                                       || extract(epoch from ingested_at), ',' order by doc_id)), '')
+                        from kb_document
+                        """)
+                .query(String.class)
+                .single();
+    }
+
     /** Replaces a document and all its chunks atomically, so searches never see half a document. */
     @Transactional
     void replace(SourceDocument doc, String sha256, List<RegulationChunk> chunks, List<float[]> embeddings) {

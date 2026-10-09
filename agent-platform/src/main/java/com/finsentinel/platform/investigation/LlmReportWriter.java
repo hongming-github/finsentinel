@@ -53,7 +53,7 @@ class LlmReportWriter implements ReportWriter {
             seenChunkIds.addAll(r.seenChunkIds());
             toolCalls.addAll(r.toolCalls());
         }
-        String brief = "Write the report for this case. " + ReportWriting.caseBrief(caseContext, playbooks, json)
+        String brief = "Write the report for this case." + ReportWriting.caseBrief(caseContext, playbooks, json)
                 + "\n\nSpecialist reports:\n" + json.writerWithDefaultPrettyPrinter().writeValueAsString(
                 reports.stream().map(SpecialistView::of).toList())
                 + ReportWriting.revisionNote(revision, json);

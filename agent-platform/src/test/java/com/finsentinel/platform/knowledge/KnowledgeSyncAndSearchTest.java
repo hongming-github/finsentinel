@@ -27,6 +27,8 @@ class KnowledgeSyncAndSearchTest {
     JsonMapper json;
     @Autowired
     JdbcClient jdbc;
+    @Autowired
+    SearchCache cache;
 
     @TempDir
     Path dir;
@@ -122,7 +124,7 @@ class KnowledgeSyncAndSearchTest {
         Embedder down = texts -> {
             throw new IllegalStateException("embedding provider down");
         };
-        KnowledgeSearch search = new KnowledgeSearch(repository, down, (q, candidates) -> List.of(), props);
+        KnowledgeSearch search = new KnowledgeSearch(repository, down, (q, candidates) -> List.of(), cache, props);
 
         assertThat(search.search("suspicious transaction report", KnowledgeSearch.Mode.HYBRID, 1))
                 .extracting(RegulationHit::chunkId).containsExactly("pay:3.1");
@@ -143,6 +145,6 @@ class KnowledgeSyncAndSearchTest {
     }
 
     private KnowledgeSearch search(Reranker reranker) {
-        return new KnowledgeSearch(repository, embedder, reranker, props);
+        return new KnowledgeSearch(repository, embedder, reranker, cache, props);
     }
 }

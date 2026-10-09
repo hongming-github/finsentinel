@@ -32,15 +32,18 @@ final class ReportWriting {
     }
 
     /**
-     * The case's alerts, the playbook of each rule that fired (and only those), and the analyst's note when the case
-     * was sent back for another look.
+     * The playbook of each rule that fired (and only those), the case's alerts, and the analyst's note when the case
+     * was sent back for another look. Text shared by cases comes first and case data last: the provider caches the
+     * longest prompt prefix it has seen, so with the playbooks ahead of the alerts the next case of the same rules
+     * reads most of its prompt from the cache; with the alerts first, no case did (measured, ADR 0013).
      */
     static String caseBrief(CaseContext caseContext, Map<AlertRule, String> playbooks, JsonMapper json) {
-        StringBuilder brief = new StringBuilder("Its alerts:\n")
-                .append(json.writerWithDefaultPrettyPrinter().writeValueAsString(caseContext.alerts()));
+        StringBuilder brief = new StringBuilder();
         for (AlertRule rule : caseContext.rules()) {
             brief.append("\n\nPlaybook for ").append(rule).append(":\n").append(playbooks.get(rule));
         }
+        brief.append("\n\nIts alerts:\n")
+                .append(json.writerWithDefaultPrettyPrinter().writeValueAsString(caseContext.alerts()));
         if (caseContext.analystNote() != null) {
             brief.append("\n\nAn analyst reviewed an earlier report and sent the case back with this note. Address it "
                     + "explicitly in your findings:\n").append(caseContext.analystNote());

@@ -69,12 +69,9 @@ class LlmCaseInvestigator implements CaseInvestigator {
                 tools.evidence());
     }
 
-    /**
-     * The case's alerts, the playbook of each rule that fired (and only those), and the analyst's note when the case
-     * was sent back for another look.
-     */
+    /** See {@link ReportWriting#caseBrief}: playbooks, then alerts, then the analyst's note. */
     private String brief(CaseContext caseContext) {
-        return "Investigate this case. " + ReportWriting.caseBrief(caseContext, playbooks, json);
+        return "Investigate this case." + ReportWriting.caseBrief(caseContext, playbooks, json);
     }
 
     private LlmGateway.Answer<CaseReport> ask(CaseContext caseContext, List<ToolCallback> tools, String userMessage) {

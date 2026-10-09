@@ -7,6 +7,7 @@ import com.finsentinel.platform.StubCaseInvestigator;
 import com.finsentinel.platform.cases.CaseIntake;
 import com.finsentinel.platform.cases.CaseWorker;
 import com.finsentinel.platform.investigation.InvestigationResult;
+import com.finsentinel.platform.investigation.ToolCall;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -50,9 +51,14 @@ class UsageReportTest {
         String tenant = uniqueTenant();
         AtomicInteger n = new AtomicInteger();
         // First case on the small model only, second also escalated to the large one.
-        investigator.respondWith(c -> costed(StubCaseInvestigator.defaultResult(c), n.incrementAndGet() == 1
-                ? Map.of("gpt-5.4-mini", new BigDecimal("0.002"))
-                : Map.of("gpt-5.4-mini", new BigDecimal("0.001"), "gpt-5.5", new BigDecimal("0.020"))));
+        // Searches: a miss and a hit in the first case; the second searched with the cache off (not counted).
+        investigator.respondWith(c -> n.incrementAndGet() == 1
+                ? costed(StubCaseInvestigator.defaultResult(c), Map.of("gpt-5.4-mini", new BigDecimal("0.002")),
+                List.of(search(false, null), search(true, new BigDecimal("0.0008")),
+                        new ToolCall("getAlertTransactions", "", 1, 1)))
+                : costed(StubCaseInvestigator.defaultResult(c),
+                Map.of("gpt-5.4-mini", new BigDecimal("0.001"), "gpt-5.5", new BigDecimal("0.020")),
+                List.of(search(null, null))));
         analyse(tenant);
         analyse(tenant);
 
@@ -63,9 +69,15 @@ class UsageReportTest {
                 .andExpect(jsonPath("$.costPerCase.max").value(0.021))
                 .andExpect(jsonPath("$.costByModel['gpt-5.5']").value(0.02))
                 .andExpect(jsonPath("$.costByModel['gpt-5.4-mini']").value(0.003))
-                .andExpect(jsonPath("$.byMode[0].mode").value("SINGLE"));
+                .andExpect(jsonPath("$.byMode[0].mode").value("SINGLE"))
+                .andExpect(jsonPath("$.regulationSearchCache.searches").value(2))
+                .andExpect(jsonPath("$.regulationSearchCache.hits").value(1))
+                .andExpect(jsonPath("$.regulationSearchCache.hitRate").value(0.5))
+                .andExpect(jsonPath("$.regulationSearchCache.savedUsd").value(0.0008));
         mvc.perform(get("/api/tenants/{t}/llm-usage", uniqueTenant()))
-                .andExpect(jsonPath("$.costPerCase.analyses").value(0));
+                .andExpect(jsonPath("$.costPerCase.analyses").value(0))
+                .andExpect(jsonPath("$.regulationSearchCache.searches").value(0))
+                .andExpect(jsonPath("$.regulationSearchCache.hitRate").doesNotExist());
     }
 
     private void analyse(String tenant) {
@@ -75,9 +87,14 @@ class UsageReportTest {
         worker.runOnce();
     }
 
-    private static InvestigationResult costed(InvestigationResult r, Map<String, BigDecimal> byModel) {
+    private static ToolCall search(Boolean cacheHit, BigDecimal savedUsd) {
+        return new ToolCall("searchRegulations", "cooling off period", 3, 5, cacheHit, savedUsd);
+    }
+
+    private static InvestigationResult costed(InvestigationResult r, Map<String, BigDecimal> byModel,
+                                              List<ToolCall> toolCalls) {
         BigDecimal total = byModel.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
-        return new InvestigationResult(r.report(), r.toolCalls(), r.repairedIssues(), r.model(), r.inputTokens(),
+        return new InvestigationResult(r.report(), toolCalls, r.repairedIssues(), r.model(), r.inputTokens(),
                 r.outputTokens(), r.cachedInputTokens(), r.llmCalls(), r.latencyMs(), List.of(), total, byModel);
     }
 }
