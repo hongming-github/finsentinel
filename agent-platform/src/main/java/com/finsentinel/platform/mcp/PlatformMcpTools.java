@@ -2,6 +2,8 @@ package com.finsentinel.platform.mcp;
 
 import com.finsentinel.common.Alert;
 import com.finsentinel.platform.alert.AlertRepository;
+import com.finsentinel.platform.audit.AuditEntry;
+import com.finsentinel.platform.audit.AuditLog;
 import com.finsentinel.platform.alert.StoredAlert;
 import com.finsentinel.platform.cases.CaseRepository;
 import com.finsentinel.platform.cases.CaseStage;
@@ -18,6 +20,8 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 /**
  * What the platform offers external agents over MCP (ADR 0002): read-only case lookup and the regulatory knowledge
@@ -37,9 +41,11 @@ class PlatformMcpTools {
     private final KnowledgeSearch knowledge;
     private final RateLimiter rateLimiter;
     private final McpServerProperties props;
+    private final AuditLog audit;
 
     PlatformMcpTools(CaseRepository cases, AlertRepository alerts, KnowledgeSearch knowledge, RateLimiter rateLimiter,
-                     McpServerProperties props) {
+                     McpServerProperties props, AuditLog audit) {
+        this.audit = audit;
         this.cases = cases;
         this.alerts = alerts;
         this.knowledge = knowledge;
@@ -53,9 +59,12 @@ class PlatformMcpTools {
     List<CaseSummary> listCases(@ToolParam(description = "Only cases in this stage; omit for all", required = false) CaseStage stage,
                                 @ToolParam(description = "Most cases to return; large values are capped", required = false) Integer limit) {
         int max = limit == null ? props.maxCases() : Math.clamp(limit, 1, props.maxCases());
-        return cases.listWithLatestVerdict(Caller.currentTenant(), stage, max).stream()
+        List<CaseSummary> listed = cases.listWithLatestVerdict(Caller.currentTenant(), stage, max).stream()
                 .map(l -> CaseSummary.of(l.fraudCase(), l.latestDisposition(), l.latestRiskScore()))
                 .toList();
+        audit.record(AuditEntry.forCurrentCaller("mcp listCases", null, "OK",
+                Map.of("stage", String.valueOf(stage), "returned", String.valueOf(listed.size()))));
+        return listed;
     }
 
     @Tool(description = "One fraud case of your bank: its alerts, the latest analysis report (disposition, risk score, "
@@ -64,8 +73,9 @@ class PlatformMcpTools {
     CaseView getCase(@ToolParam(description = "Case id") String caseId) {
         String tenantId = Caller.currentTenant();
         // Same answer for another bank's case as for one that does not exist.
-        FraudCase c = cases.find(tenantId, caseId)
-                .orElseThrow(() -> new IllegalArgumentException("no case " + caseId));
+        Optional<FraudCase> found = cases.find(tenantId, caseId);
+        audit.record(AuditEntry.forCurrentCaller("mcp getCase", caseId, found.isPresent() ? "OK" : "NOT_FOUND", Map.of()));
+        FraudCase c = found.orElseThrow(() -> new IllegalArgumentException("no case " + caseId));
         List<AlertView> caseAlerts = alerts.findByCase(tenantId, caseId).stream().map(StoredAlert::alert)
                 .map(AlertView::of).toList();
         AnalysisView latest = cases.analyses(tenantId, caseId).stream().findFirst().map(AnalysisView::of).orElse(null);

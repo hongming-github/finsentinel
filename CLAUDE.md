@@ -49,6 +49,12 @@ committed, and how the user likes to work. Keep it updated at the end of each se
   goes into `InvestigationTools.SYSTEM_TOOLS`.
 - Case material reaches models only through `AgentModels.ask` and the tool callbacks, both pseudonymised by
   `PiiMasker`; never send case text to a model another way.
+- Untrusted text is flagged by `UntrustedInstructions` in the tool callbacks; a flagged case can never be cleared
+  (`CaseReportValidator`) and is recorded on the case. Keep the detector narrow (ordinary bank data must pass, see its
+  test) and do not rely on prompts alone: on the payee-name scenario the model's first draft cleared the case 11 of
+  15 times (ADR 0016).
+- `audit_log` is append-only and hash-chained per bank (ADR 0016): never grant UPDATE/DELETE on it, record identity
+  only from a verified token, and add new routes' audit expectations to `AuditLogTest` when they matter.
 - Tests authenticate with `TestTokens` (signed by the in-process `TestIssuer`, so the production decoder runs); never
   mock the `JwtDecoder` or use `jwt()` post-processors. Realm changes: run `KeycloakRealmTest -Dkeycloak=true`. MCP server tools are never handed to the model directly: wrap each in a
   case-scoped tool via `ExternalSystems`, and return `Unavailable` (not an exception) when the system is down.

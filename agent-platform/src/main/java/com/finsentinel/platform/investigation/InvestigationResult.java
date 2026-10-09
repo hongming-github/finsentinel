@@ -17,6 +17,8 @@ import java.util.Map;
  *                          written from specialists' findings. Not stored with the analysis
  * @param costUsd           at list prices: every model call of the analysis, reranking included
  * @param costByModel       the same cost split by model
+ * @param untrustedInstructions tool results that tried to instruct the agents, as flagged by the platform (ADR 0016);
+ *                          recorded on the case for the analyst
  */
 public record InvestigationResult(
         CaseReport report,
@@ -30,9 +32,11 @@ public record InvestigationResult(
         long latencyMs,
         List<ToolEvidence> evidence,
         BigDecimal costUsd,
-        Map<String, BigDecimal> costByModel) {
+        Map<String, BigDecimal> costByModel,
+        List<String> untrustedInstructions) {
 
     public InvestigationResult {
+        untrustedInstructions = untrustedInstructions == null ? List.of() : List.copyOf(untrustedInstructions);
         evidence = evidence == null ? List.of() : List.copyOf(evidence);
         costUsd = costUsd == null ? BigDecimal.ZERO : costUsd;
         costByModel = costByModel == null ? Map.of() : Map.copyOf(costByModel);
@@ -42,14 +46,19 @@ public record InvestigationResult(
                                Integer inputTokens, Integer outputTokens, Integer cachedInputTokens, int llmCalls,
                                long latencyMs) {
         this(report, toolCalls, repairedIssues, model, inputTokens, outputTokens, cachedInputTokens, llmCalls,
-                latencyMs, List.of(), BigDecimal.ZERO, Map.of());
+                latencyMs, List.of(), BigDecimal.ZERO, Map.of(), List.of());
     }
 
     static InvestigationResult of(CaseReport report, List<ToolCall> toolCalls, List<String> repairedIssues,
                                   LlmUsage usage, List<ToolEvidence> evidence) {
+        return of(report, toolCalls, repairedIssues, usage, evidence, List.of());
+    }
+
+    static InvestigationResult of(CaseReport report, List<ToolCall> toolCalls, List<String> repairedIssues,
+                                  LlmUsage usage, List<ToolEvidence> evidence, List<String> untrustedInstructions) {
         return new InvestigationResult(report, toolCalls, repairedIssues, usage.model(), usage.inputTokens(),
                 usage.outputTokens(), usage.cachedInputTokens(), usage.calls(), usage.latencyMs(), evidence,
-                usage.costUsd(), usage.costByModel());
+                usage.costUsd(), usage.costByModel(), untrustedInstructions);
     }
 
     public LlmUsage usage() {
@@ -59,6 +68,6 @@ public record InvestigationResult(
 
     /** The same report and evidence, with the cost of the whole analysis (other agents included). */
     public InvestigationResult withUsage(LlmUsage total) {
-        return of(report, toolCalls, repairedIssues, total, evidence);
+        return of(report, toolCalls, repairedIssues, total, evidence, untrustedInstructions);
     }
 }

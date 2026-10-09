@@ -1,5 +1,7 @@
 package com.finsentinel.platform.security;
 
+import com.finsentinel.platform.audit.AuditFilter;
+import com.finsentinel.platform.audit.AuditLog;
 import org.springaicommunity.mcp.security.server.config.McpServerOAuth2Configurer;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -12,6 +14,7 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
 
@@ -23,7 +26,7 @@ import org.springframework.security.web.access.intercept.AuthorizationFilter;
  *
  * <ul>
  *   <li>analyst: reads its bank's cases and alerts, decides cases</li>
- *   <li>supervisor: reads its bank's cases and alerts, and the LLM cost report; does not decide</li>
+ *   <li>supervisor: reads its bank's cases and alerts, the LLM cost report and the audit log; does not decide</li>
  *   <li>assistant: an analyst's AI assistant, MCP only</li>
  * </ul>
  */
@@ -40,7 +43,7 @@ class SecurityConfig {
      */
     @Bean
     @Order(1)
-    SecurityFilterChain mcpSecurity(HttpSecurity http, JwtDecoder jwtDecoder,
+    SecurityFilterChain mcpSecurity(HttpSecurity http, JwtDecoder jwtDecoder, AuditLog audit,
                                     @Value("${spring.security.oauth2.resourceserver.jwt.issuer-uri}") String issuer) {
         return http
                 .securityMatcher("/mcp", "/mcp/**", "/.well-known/oauth-protected-resource/**")
@@ -53,6 +56,7 @@ class SecurityConfig {
                         .jwtDecoder(jwtDecoder)
                         .oauth2ResourceServer(rs -> rs.jwt(jwt -> jwt.jwtAuthenticationConverter(authentication()))))
                 .addFilterAfter(new TenancyFilter(), AuthorizationFilter.class)
+                .addFilterBefore(new AuditFilter(audit), BearerTokenAuthenticationFilter.class)
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .csrf(AbstractHttpConfigurer::disable)
                 .build();
@@ -60,19 +64,21 @@ class SecurityConfig {
 
     @Bean
     @Order(2)
-    SecurityFilterChain apiSecurity(HttpSecurity http) {
+    SecurityFilterChain apiSecurity(HttpSecurity http, AuditLog audit) {
         return http
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
                         .requestMatchers("/actuator/**").hasRole(SUPERVISOR)
                         .requestMatchers(HttpMethod.POST, "/api/tenants/*/cases/*/decision").hasRole(ANALYST)
-                        .requestMatchers(HttpMethod.GET, "/api/tenants/*/llm-usage").hasRole(SUPERVISOR)
+                        .requestMatchers(HttpMethod.GET, "/api/tenants/*/llm-usage", "/api/tenants/*/audit",
+                                "/api/tenants/*/audit/verify").hasRole(SUPERVISOR)
                         .requestMatchers(HttpMethod.GET, "/api/tenants/*/cases", "/api/tenants/*/cases/*",
                                 "/api/tenants/*/alerts").hasAnyRole(ANALYST, SUPERVISOR)
                         .anyRequest().denyAll())
                 .oauth2ResourceServer(rs -> rs.jwt(jwt -> jwt.jwtAuthenticationConverter(authentication())))
                 .addFilterAfter(new TenantPathFilter(), AuthorizationFilter.class)
                 .addFilterAfter(new TenancyFilter(), TenantPathFilter.class)
+                .addFilterBefore(new AuditFilter(audit), BearerTokenAuthenticationFilter.class)
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 // Bearer tokens in a header, no cookies: there is no ambient credential for CSRF to abuse.
                 .csrf(AbstractHttpConfigurer::disable)

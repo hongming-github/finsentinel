@@ -106,7 +106,10 @@ roles: `analyst` reads and decides, `supervisor` reads and sees `llm-usage`, `as
 listed is denied (ADR 0014). Underneath, Postgres row-level security holds every tenant table to the request's bank
 (the platform logs in as `finsentinel_app`, not the schema owner); each bank's agents get only the tools of the systems
 it has connected (`finsentinel.systems.connected`); phone numbers, emails, NRIC and card numbers reach the model as
-per-case pseudonyms (ADR 0015).
+per-case pseudonyms (ADR 0015). Text from outside the platform that tries to instruct the agents is flagged by rule:
+the model gets it marked, such a case cannot be cleared, and the case records it; every request, allowed or refused,
+goes into a per-bank hash-chained audit log (`GET /api/tenants/{t}/audit`, `.../audit/verify` for supervisors;
+ADR 0016).
 
 Lifecycle: `ANALYSIS → AWAITING_DECISION → CLOSED` (or `FAILED` after the maximum attempts). A new alert on the account
 re-opens the case; `REQUEST_REANALYSIS` sends it back to the agents with the analyst's note. Decisions and readiness are

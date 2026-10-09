@@ -9,14 +9,16 @@ import java.util.Set;
  * A specialist's findings plus everything the later steps need without re-running it: the evidence ids its tools
  * returned (to ground the final report) and what it cost. Lives in the graph state, so it survives a restart.
  *
- * @param skipped true when the plan did not call for this specialist; no model call was made
+ * @param skipped               true when the plan did not call for this specialist; no model call was made
+ * @param untrustedInstructions tool results that tried to instruct the specialist (ADR 0016)
  */
 public record SpecialistReport(Specialist specialist, boolean skipped, String summary,
                                List<CaseReport.Finding> findings, List<CaseReport.RegulatoryNote> regulatoryNotes,
                                List<ToolCall> toolCalls, Set<String> seenTxnIds, Set<String> seenChunkIds,
-                               LlmUsage usage) {
+                               LlmUsage usage, List<String> untrustedInstructions) {
 
     public SpecialistReport {
+        untrustedInstructions = untrustedInstructions == null ? List.of() : List.copyOf(untrustedInstructions);
         findings = List.copyOf(findings);
         regulatoryNotes = List.copyOf(regulatoryNotes);
         toolCalls = List.copyOf(toolCalls);
@@ -26,6 +28,6 @@ public record SpecialistReport(Specialist specialist, boolean skipped, String su
 
     public static SpecialistReport skipped(Specialist specialist, String reason) {
         return new SpecialistReport(specialist, true, reason, List.of(), List.of(), List.of(), Set.of(), Set.of(),
-                LlmUsage.NONE);
+                LlmUsage.NONE, List.of());
     }
 }

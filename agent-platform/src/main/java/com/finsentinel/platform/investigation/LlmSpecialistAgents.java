@@ -44,6 +44,7 @@ class LlmSpecialistAgents implements SpecialistAgents {
         SpecialistFindings found = answer.value();
         List<CaseReport.RegulatoryNote> notes = specialist == Specialist.REGULATIONS ? found.regulatoryNotes() : List.of();
         return new SpecialistReport(specialist, false, found.summary(), found.findings(), notes, tools.calls(),
-                tools.seenTxnIds(), tools.seenChunkIds(), answer.usage().plus(tools.toolUsage()));
+                tools.seenTxnIds(), tools.seenChunkIds(), answer.usage().plus(tools.toolUsage()),
+                tools.untrustedInstructions());
     }
 }

@@ -98,6 +98,6 @@ class UsageReportTest {
                                               List<ToolCall> toolCalls) {
         BigDecimal total = byModel.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
         return new InvestigationResult(r.report(), toolCalls, r.repairedIssues(), r.model(), r.inputTokens(),
-                r.outputTokens(), r.cachedInputTokens(), r.llmCalls(), r.latencyMs(), List.of(), total, byModel);
+                r.outputTokens(), r.cachedInputTokens(), r.llmCalls(), r.latencyMs(), List.of(), total, byModel, List.of());
     }
 }

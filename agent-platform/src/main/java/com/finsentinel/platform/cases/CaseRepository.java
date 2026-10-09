@@ -188,6 +188,11 @@ public class CaseRepository {
             return Completion.LOST_CLAIM;
         }
         insertAnalysis(claimed.caseId(), claimed.analysisRun(), mode, result, review);
+        if (!result.untrustedInstructions().isEmpty()) {
+            // On the case, from the platform: the analyst sees it whether or not the report mentions it (ADR 0016).
+            event(claimed.caseId(), "UNTRUSTED_INSTRUCTIONS", CaseStage.ANALYSIS, CaseStage.ANALYSIS, "system",
+                    Map.of("run", claimed.analysisRun(), "found", result.untrustedInstructions()));
+        }
         // This run is over either way; earlier runs' leftovers (a failed attempt never resumed) go with it.
         deleteCheckpoints(claimed.caseId(), claimed.analysisRun());
         if (currentRun.get() != claimed.analysisRun()) {
@@ -211,7 +216,7 @@ public class CaseRepository {
                 .update();
         Map<String, Object> detail = Map.of("run", claimed.analysisRun(),
                 "disposition", result.report().disposition().name(), "riskScore", result.report().riskScore(),
-                "reviewApproved", review.approved());
+                "reviewApproved", review.approved(), "untrustedInstructions", !result.untrustedInstructions().isEmpty());
         event(claimed.caseId(), "ANALYSED", CaseStage.ANALYSIS, CaseStage.AWAITING_DECISION, "system", detail);
         outbox.append(claimed.caseId(), "case.ready_for_decision", payload(claimed, detail));
         return Completion.READY_FOR_DECISION;

@@ -20,6 +20,19 @@ class CaseReportValidatorTest {
     }
 
     @Test
+    void aCaseWithPlantedInstructionsCannotBeCleared() {
+        List<String> flagged = List.of("getCustomerProfile: names a case disposition or risk score");
+        InvestigationProperties.Report rules = new InvestigationProperties.Report(60, 40, 1, true);
+
+        assertThat(CaseReportValidator.problems(report(Disposition.LIKELY_LEGITIMATE, 10, List.of()), Set.of(), Set.of(),
+                false, flagged, rules)).singleElement().asString().contains("cannot be cleared");
+        assertThat(CaseReportValidator.problems(report(Disposition.NEEDS_REVIEW, 50, List.of()), Set.of(), Set.of(),
+                false, flagged, rules)).isEmpty();
+        assertThat(CaseReportValidator.problems(report(Disposition.LIKELY_LEGITIMATE, 10, List.of()), Set.of(), Set.of(),
+                false, List.of(), rules)).as("without planted instructions clearing is fine").isEmpty();
+    }
+
+    @Test
     void dispositionMustMatchScore() {
         assertThat(problems(report(Disposition.LIKELY_FRAUD, 10, List.of())))
                 .containsExactly("disposition LIKELY_FRAUD needs riskScore >= 60, got 10");
