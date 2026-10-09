@@ -17,6 +17,10 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.Map;
 
@@ -33,6 +37,7 @@ class ComplianceMcpServerTest {
     @DynamicPropertySource
     static void systemUrls(DynamicPropertyRegistry registry) {
         registry.add("finsentinel.compliance.screening-url", () -> FakeSystems.url(systems, "/screening"));
+        registry.add("spring.security.oauth2.resourceserver.jwt.issuer-uri", TestAuth::issuer);
     }
 
     @LocalServerPort
@@ -43,7 +48,11 @@ class ComplianceMcpServerTest {
 
     @BeforeEach
     void connect() {
-        client = McpClient.sync(HttpClientStreamableHttpTransport.builder("http://localhost:" + port).build())
+        String token = TestAuth.token("mcp-compliance", SecurityConfig.ROLE);
+        client = McpClient.sync(HttpClientStreamableHttpTransport.builder("http://localhost:" + port)
+                        .httpRequestCustomizer((request, method, endpoint, body, context) ->
+                                request.header("Authorization", "Bearer " + token))
+                        .build())
                 .requestTimeout(Duration.ofSeconds(10))
                 .build();
         client.initialize();
@@ -81,6 +90,27 @@ class ComplianceMcpServerTest {
                 Map.of("tenantId", "straits", "counterpartyId", "vendor-down")));
 
         assertThat(result.isError()).isTrue();
+    }
+
+    @Test
+    void onlyTheServiceAccountForThisServerGetsIn() throws Exception {
+        assertThat(post(null)).as("no token").isEqualTo(401);
+        assertThat(post(TestAuth.token("finsentinel-platform", SecurityConfig.ROLE))).as("another audience").isEqualTo(401);
+        assertThat(post(TestAuth.token("mcp-compliance", "analyst"))).as("without the role").isEqualTo(403);
+        assertThat(post(TestAuth.token("mcp-compliance", SecurityConfig.ROLE))).as("the platform").isEqualTo(200);
+    }
+
+    private int post(String token) throws Exception {
+        HttpRequest.Builder request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/mcp"))
+                .header("Content-Type", "application/json").header("Accept", "application/json, text/event-stream")
+                .POST(HttpRequest.BodyPublishers.ofString("""
+                        {"jsonrpc":"2.0","id":1,"method":"tools/list"}"""));
+        if (token != null) {
+            request.header("Authorization", "Bearer " + token);
+        }
+        try (HttpClient http = HttpClient.newHttpClient()) {
+            return http.send(request.build(), HttpResponse.BodyHandlers.discarding()).statusCode();
+        }
     }
 
     private JsonNode screen(String counterpartyId) {

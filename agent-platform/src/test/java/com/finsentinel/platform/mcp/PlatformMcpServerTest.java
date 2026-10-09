@@ -3,6 +3,7 @@ package com.finsentinel.platform.mcp;
 import com.finsentinel.common.AlertRule;
 import com.finsentinel.common.Severity;
 import com.finsentinel.platform.PlatformTest;
+import com.finsentinel.platform.TestTokens;
 import com.finsentinel.platform.cases.CaseIntake;
 import com.finsentinel.platform.cases.CaseWorker;
 import com.finsentinel.platform.knowledge.TestKnowledgeBase;
@@ -32,7 +33,7 @@ import static com.finsentinel.platform.TestData.alert;
 import static com.finsentinel.platform.TestData.uniqueTenant;
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** The platform's MCP endpoint, called by a real MCP client over HTTP. */
+/** The platform's MCP endpoint, called by a real MCP client over HTTP with a bearer token. */
 @PlatformTest
 class PlatformMcpServerTest {
 
@@ -59,10 +60,18 @@ class PlatformMcpServerTest {
 
     @BeforeEach
     void connect() {
-        client = McpClient.sync(HttpClientStreamableHttpTransport.builder("http://localhost:" + port).build())
+        client = connect(TestTokens.assistant(tenant));
+    }
+
+    private McpSyncClient connect(String token) {
+        McpSyncClient c = McpClient.sync(HttpClientStreamableHttpTransport.builder("http://localhost:" + port)
+                        .httpRequestCustomizer((request, method, endpoint, body, context) ->
+                                request.header("Authorization", "Bearer " + token))
+                        .build())
                 .requestTimeout(Duration.ofSeconds(10))
                 .build();
-        client.initialize();
+        c.initialize();
+        return c;
     }
 
     @AfterEach
@@ -81,7 +90,7 @@ class PlatformMcpServerTest {
     void caseWithItsReportAndReviewerVerdict() {
         String caseId = analysedCase();
 
-        JsonNode view = call("getCase", Map.of("tenantId", tenant, "caseId", caseId));
+        JsonNode view = call("getCase", Map.of("caseId", caseId));
 
         assertThat(view.get("caseSummary").get("stage").asString()).isEqualTo("AWAITING_DECISION");
         assertThat(view.get("alerts").get(0).get("rule").asString()).isEqualTo("GEO_JUMP");
@@ -91,22 +100,52 @@ class PlatformMcpServerTest {
     }
 
     @Test
-    void anotherTenantsCaseIsNotFound() {
+    void anotherTenantsAssistantSeesNoneOfItsCases() {
         String caseId = analysedCase();
+        McpSyncClient other = connect(TestTokens.assistant(uniqueTenant()));
+        try {
+            McpSchema.CallToolResult result = other.callTool(new McpSchema.CallToolRequest("getCase",
+                    Map.of("caseId", caseId)));
+            McpSchema.CallToolResult listed = other.callTool(new McpSchema.CallToolRequest("listCases", Map.of()));
+            // Naming the tenant is not possible: the schema has no such parameter and rejects unknown ones.
+            McpSchema.CallToolResult naming = other.callTool(new McpSchema.CallToolRequest("listCases",
+                    Map.of("tenantId", tenant)));
 
-        McpSchema.CallToolResult result = client.callTool(new McpSchema.CallToolRequest("getCase",
-                Map.of("tenantId", uniqueTenant(), "caseId", caseId)));
+            assertThat(result.isError()).isTrue();
+            assertThat(text(result)).contains("no case").doesNotContain("GEO_JUMP");
+            assertThat(json.readTree(text(listed)).isEmpty()).isTrue();
+            assertThat(naming.isError()).isTrue();
+            assertThat(text(naming)).contains("tenantId").contains("not defined");
+        } finally {
+            other.closeGracefully();
+        }
+    }
 
-        assertThat(result.isError()).isTrue();
-        assertThat(text(result)).contains("no case").doesNotContain("GEO_JUMP");
+    @Test
+    void aTokenWithoutATenantGetsNoCases() {
+        McpSyncClient noTenant = connect(TestTokens.token(null, "someone", "assistant"));
+        try {
+            McpSchema.CallToolResult result = noTenant.callTool(new McpSchema.CallToolRequest("listCases", Map.of()));
+
+            assertThat(result.isError()).isTrue();
+            assertThat(text(result)).contains("no tenant");
+        } finally {
+            noTenant.closeGracefully();
+        }
+    }
+
+    @Test
+    void toolsDoNotTakeATenant() {
+        assertThat(client.listTools().tools()).allSatisfy(tool ->
+                assertThat(String.valueOf(tool.inputSchema().get("properties"))).doesNotContain("tenantId"));
     }
 
     @Test
     void listsOnlyTheTenantsCasesInTheAskedStage() {
         String caseId = analysedCase();
 
-        JsonNode awaiting = call("listCases", Map.of("tenantId", tenant, "stage", "AWAITING_DECISION"));
-        JsonNode inAnalysis = call("listCases", Map.of("tenantId", tenant, "stage", "ANALYSIS"));
+        JsonNode awaiting = call("listCases", Map.of("stage", "AWAITING_DECISION"));
+        JsonNode inAnalysis = call("listCases", Map.of("stage", "ANALYSIS"));
 
         assertThat(awaiting.valueStream().map(c -> c.get("caseId").asString())).containsExactly(caseId);
         assertThat(awaiting.get(0).get("latestDisposition").asString()).isEqualTo("NEEDS_REVIEW");

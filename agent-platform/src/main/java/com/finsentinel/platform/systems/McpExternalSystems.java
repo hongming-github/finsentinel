@@ -1,5 +1,6 @@
 package com.finsentinel.platform.systems;
 
+import com.finsentinel.platform.security.ServiceToken;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -12,11 +13,11 @@ class McpExternalSystems implements ExternalSystems, AutoCloseable {
     private final McpServerConnection banking;
     private final McpServerConnection compliance;
 
-    McpExternalSystems(SystemsProperties props, JsonMapper json) {
+    McpExternalSystems(SystemsProperties props, JsonMapper json, ServiceToken token) {
         this.banking = new McpServerConnection("banking", props.bankingUrl(), props.connectTimeout(),
-                props.requestTimeout(), json);
+                props.requestTimeout(), json, token::bearer);
         this.compliance = new McpServerConnection("compliance", props.complianceUrl(), props.connectTimeout(),
-                props.requestTimeout(), json);
+                props.requestTimeout(), json, token::bearer);
     }
 
     @Override

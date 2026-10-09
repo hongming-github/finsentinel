@@ -3,6 +3,7 @@ package com.finsentinel.platform.cases;
 import com.finsentinel.platform.alert.AlertProperties;
 import com.finsentinel.platform.alert.AlertRepository;
 import com.finsentinel.platform.alert.StoredAlert;
+import com.finsentinel.platform.security.Caller;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -18,8 +19,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Analyst-facing case API. Tenant comes from the path and the analyst from {@code X-Analyst-Id} until Keycloak
- * (phase 6) supplies both from the token.
+ * Analyst-facing case API. The path names the tenant; {@code TenantPathFilter} has already checked it is the caller's
+ * own, and the deciding analyst is the token's user, never a header the client could set.
  */
 @RestController
 @RequestMapping("/api/tenants/{tenantId}/cases")
@@ -59,15 +60,15 @@ class CaseController {
     @PostMapping("/{caseId}/decision")
     ResponseEntity<?> decide(@PathVariable String tenantId, @PathVariable String caseId,
                              @RequestHeader(name = "If-Match", required = false) String ifMatch,
-                             @RequestHeader(name = "X-Analyst-Id", required = false) String analyst,
                              @RequestBody DecisionRequest request) {
         if (ifMatch == null || ifMatch.isBlank()) {
             return ResponseEntity.status(HttpStatus.PRECONDITION_REQUIRED)
                     .body(Map.of("error", "If-Match with the reviewed case version is required"));
         }
-        if (analyst == null || analyst.isBlank() || request.decision() == null) {
-            return ResponseEntity.badRequest().body(Map.of("error", "X-Analyst-Id and decision are required"));
+        if (request.decision() == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "decision is required"));
         }
+        String analyst = Caller.current().map(Caller::username).orElseThrow();
         if (request.decision() == Decision.REQUEST_REANALYSIS && (request.note() == null || request.note().isBlank())) {
             return ResponseEntity.badRequest().body(Map.of("error", "a note telling the agents what to look at is required"));
         }

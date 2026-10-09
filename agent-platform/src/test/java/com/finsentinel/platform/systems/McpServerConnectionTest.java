@@ -4,7 +4,10 @@ import io.modelcontextprotocol.spec.McpSchema;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.net.URI;
+import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -20,6 +23,18 @@ class McpServerConnectionTest {
                         + "\"listedOn\":\"2026-09-12\"}],\"extra\":\"ignored\"}", false), ScreeningResult.class, json);
 
         assertThat(result.hits()).extracting(ScreeningResult.Hit::list).containsExactly("MULE_ACCOUNTS");
+    }
+
+    @Test
+    void noAccessTokenMeansTheSystemIsUnavailableNotAFailedAnalysis() {
+        McpServerConnection connection = new McpServerConnection("banking", URI.create("http://localhost:1"),
+                Duration.ofSeconds(1), Duration.ofSeconds(1), json, () -> {
+                    throw new IllegalStateException("identity provider down");
+                });
+
+        assertThatThrownBy(() -> connection.call("getCustomerProfile", Map.of(), CustomerProfile.class))
+                .isInstanceOf(SystemUnavailableException.class)
+                .hasMessageContaining("banking unavailable");
     }
 
     @Test

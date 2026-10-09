@@ -2,6 +2,7 @@ package com.finsentinel.platform.cases;
 
 import com.finsentinel.common.Severity;
 import com.finsentinel.platform.PlatformTest;
+import com.finsentinel.platform.TestTokens;
 import com.finsentinel.platform.StubCaseInvestigator;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -11,10 +12,12 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import java.util.UUID;
 
 import static com.finsentinel.platform.TestData.uniqueTenant;
+import static com.finsentinel.platform.TestTokens.bearer;
 import static com.finsentinel.platform.cases.CaseTestSupport.alertOn;
 import static com.finsentinel.platform.cases.CaseTestSupport.eventTypes;
 import static com.finsentinel.platform.cases.CaseTestSupport.outboxTypes;
@@ -59,7 +62,7 @@ class CaseDecisionApiTest {
 
     @Test
     void detailCarriesTheVersionAsETagWithAlertsAnalysesAndEvents() throws Exception {
-        mvc.perform(get("/api/tenants/{t}/cases/{id}", tenant, caseId))
+        mvc.perform(get("/api/tenants/{t}/cases/{id}", tenant, caseId).with(asAnalyst()))
                 .andExpect(status().isOk())
                 .andExpect(header().string("ETag", "\"" + version() + "\""))
                 .andExpect(jsonPath("$.alerts.length()").value(1))
@@ -69,7 +72,7 @@ class CaseDecisionApiTest {
 
     @Test
     void decisionWithoutIfMatchIsRefused() throws Exception {
-        mvc.perform(decision("FALSE_POSITIVE", null).header("X-Analyst-Id", "ana"))
+        mvc.perform(decision("FALSE_POSITIVE", null).with(asAnalyst()))
                 .andExpect(status().isPreconditionRequired());
     }
 
@@ -78,7 +81,7 @@ class CaseDecisionApiTest {
         int seen = version();
         intake.accept(alertOn(tenant, cases.find(tenant, caseId).orElseThrow().accountId(), Severity.MEDIUM));
 
-        mvc.perform(decision("FALSE_POSITIVE", null).header("If-Match", "\"" + seen + "\"").header("X-Analyst-Id", "ana"))
+        mvc.perform(decision("FALSE_POSITIVE", null).header("If-Match", "\"" + seen + "\"").with(asAnalyst()))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.stage").value("ANALYSIS"))
                 .andExpect(header().string("ETag", "\"" + version() + "\""));
@@ -87,17 +90,28 @@ class CaseDecisionApiTest {
     @Test
     void anotherTenantCannotSeeOrDecideTheCase() throws Exception {
         String other = uniqueTenant();
-        mvc.perform(get("/api/tenants/{t}/cases/{id}", other, caseId)).andExpect(status().isNotFound());
+        String otherAnalyst = TestTokens.analyst(other);
+        // Its own tenant in the path, this case's id: the repository finds nothing.
+        mvc.perform(get("/api/tenants/{t}/cases/{id}", other, caseId).with(bearer(otherAnalyst)))
+                .andExpect(status().isNotFound());
         mvc.perform(post("/api/tenants/{t}/cases/{id}/decision", other, caseId)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"decision\":\"FALSE_POSITIVE\"}")
-                        .header("If-Match", "\"" + version() + "\"").header("X-Analyst-Id", "ana"))
+                        .header("If-Match", "\"" + version() + "\"").with(bearer(otherAnalyst)))
                 .andExpect(status().isNotFound());
+        // This case's tenant in the path: refused before any controller runs.
+        mvc.perform(get("/api/tenants/{t}/cases/{id}", tenant, caseId).with(bearer(otherAnalyst)))
+                .andExpect(status().isNotFound());
+        mvc.perform(post("/api/tenants/{t}/cases/{id}/decision", tenant, caseId)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"decision\":\"FALSE_POSITIVE\"}")
+                        .header("If-Match", "\"" + version() + "\"").with(bearer(otherAnalyst)))
+                .andExpect(status().isNotFound());
+        assertThat(cases.find(tenant, caseId).orElseThrow().stage()).isEqualTo(CaseStage.AWAITING_DECISION);
     }
 
     @Test
     void closingDecisionClosesTheCaseAuditsItAndTellsDownstream() throws Exception {
         mvc.perform(decision("CONFIRMED_FRAUD", "card blocked").header("If-Match", "\"" + version() + "\"")
-                        .header("X-Analyst-Id", "ana-7"))
+                        .with(bearer(TestTokens.token(tenant, "ana-7", "analyst"))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.stage").value("CLOSED"))
                 .andExpect(jsonPath("$.decision").value("CONFIRMED_FRAUD"))
@@ -110,11 +124,11 @@ class CaseDecisionApiTest {
 
     @Test
     void reanalysisNeedsANoteAndTheNoteReachesTheAgent() throws Exception {
-        mvc.perform(decision("REQUEST_REANALYSIS", " ").header("If-Match", "\"" + version() + "\"").header("X-Analyst-Id", "ana"))
+        mvc.perform(decision("REQUEST_REANALYSIS", " ").header("If-Match", "\"" + version() + "\"").with(asAnalyst()))
                 .andExpect(status().isBadRequest());
 
         String note = "Customer confirms travel to London; look again at the card-not-present burst.";
-        mvc.perform(decision("REQUEST_REANALYSIS", note).header("If-Match", "\"" + version() + "\"").header("X-Analyst-Id", "ana"))
+        mvc.perform(decision("REQUEST_REANALYSIS", note).header("If-Match", "\"" + version() + "\"").with(asAnalyst()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.stage").value("ANALYSIS"))
                 .andExpect(jsonPath("$.analysisRun").value(2));
@@ -127,6 +141,10 @@ class CaseDecisionApiTest {
 
     private int version() {
         return cases.find(tenant, caseId).orElseThrow().version();
+    }
+
+    private RequestPostProcessor asAnalyst() {
+        return bearer(TestTokens.analyst(tenant));
     }
 
     private MockHttpServletRequestBuilder decision(String decision, String note) {

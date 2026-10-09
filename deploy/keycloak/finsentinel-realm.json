@@ -1,0 +1,271 @@
+{
+  "realm": "finsentinel",
+  "enabled": true,
+  "accessTokenLifespan": 300,
+  "sslRequired": "none",
+  "roles": {
+    "realm": [
+      {
+        "name": "analyst",
+        "description": "Reads its bank's cases and decides them"
+      },
+      {
+        "name": "supervisor",
+        "description": "Reads its bank's cases and LLM cost reports; does not decide cases"
+      },
+      {
+        "name": "assistant",
+        "description": "An analyst's AI assistant over MCP: reads cases and regulations"
+      },
+      {
+        "name": "systems-reader",
+        "description": "Service: reads bank and compliance systems through their MCP servers"
+      }
+    ]
+  },
+  "components": {
+    "org.keycloak.userprofile.UserProfileProvider": [
+      {
+        "providerId": "declarative-user-profile",
+        "config": {
+          "kc.user.profile.config": [
+            "{\"attributes\":[{\"name\":\"username\",\"displayName\":\"${username}\",\"validations\":{\"length\":{\"min\":3,\"max\":255}},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\"]}},{\"name\":\"email\",\"displayName\":\"${email}\",\"validations\":{\"email\":{}},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\"]}},{\"name\":\"tenant\",\"displayName\":\"Bank (tenant)\",\"permissions\":{\"view\":[\"admin\"],\"edit\":[\"admin\"]}}],\"unmanagedAttributePolicy\":\"ADMIN_VIEW\"}"
+          ]
+        }
+      }
+    ]
+  },
+  "clientScopes": [
+    {
+      "name": "finsentinel",
+      "description": "Subject, username, tenant and roles as flat claims",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "subject",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-sub-mapper",
+          "config": {
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "username",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-property-mapper",
+          "config": {
+            "user.attribute": "username",
+            "claim.name": "preferred_username",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false"
+          }
+        },
+        {
+          "name": "tenant",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "tenant",
+            "claim.name": "tenant",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false"
+          }
+        },
+        {
+          "name": "roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": {
+            "claim.name": "roles",
+            "multivalued": "true",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false"
+          }
+        }
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "analyst-cli",
+      "name": "Analyst CLI (development only: password grant for curl)",
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "defaultClientScopes": [
+        "finsentinel"
+      ],
+      "optionalClientScopes": [],
+      "protocolMappers": [
+        {
+          "name": "audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "finsentinel-platform",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "analyst-assistant",
+      "name": "Analyst assistant (MCP client example), acting for one bank",
+      "secret": "analyst-assistant-dev-secret",
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "defaultClientScopes": [
+        "finsentinel"
+      ],
+      "optionalClientScopes": [],
+      "protocolMappers": [
+        {
+          "name": "audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "finsentinel-platform",
+            "access.token.claim": "true"
+          }
+        },
+        {
+          "name": "tenant",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-hardcoded-claim-mapper",
+          "config": {
+            "claim.name": "tenant",
+            "claim.value": "straits",
+            "jsonType.label": "String",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "platform-service",
+      "name": "The platform calling mcp-banking and mcp-compliance",
+      "secret": "platform-service-dev-secret",
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "defaultClientScopes": [
+        "finsentinel"
+      ],
+      "optionalClientScopes": [],
+      "protocolMappers": [
+        {
+          "name": "audience-banking",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "mcp-banking",
+            "access.token.claim": "true"
+          }
+        },
+        {
+          "name": "audience-compliance",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "mcp-compliance",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "alice",
+      "email": "alice@straits.example",
+      "emailVerified": true,
+      "enabled": true,
+      "attributes": {
+        "tenant": [
+          "straits"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "alice",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "analyst"
+      ]
+    },
+    {
+      "username": "sam",
+      "email": "sam@straits.example",
+      "emailVerified": true,
+      "enabled": true,
+      "attributes": {
+        "tenant": [
+          "straits"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "sam",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "supervisor"
+      ]
+    },
+    {
+      "username": "bob",
+      "email": "bob@harbour.example",
+      "emailVerified": true,
+      "enabled": true,
+      "attributes": {
+        "tenant": [
+          "harbour"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "bob",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "analyst"
+      ]
+    },
+    {
+      "username": "service-account-analyst-assistant",
+      "enabled": true,
+      "serviceAccountClientId": "analyst-assistant",
+      "realmRoles": [
+        "assistant"
+      ]
+    },
+    {
+      "username": "service-account-platform-service",
+      "enabled": true,
+      "serviceAccountClientId": "platform-service",
+      "realmRoles": [
+        "systems-reader"
+      ]
+    }
+  ]
+}

@@ -4,6 +4,7 @@ import com.finsentinel.common.AlertRule;
 import com.finsentinel.common.Severity;
 import com.finsentinel.platform.PlatformTest;
 import com.finsentinel.platform.StubCaseInvestigator;
+import com.finsentinel.platform.TestTokens;
 import com.finsentinel.platform.cases.CaseIntake;
 import com.finsentinel.platform.cases.CaseWorker;
 import com.finsentinel.platform.investigation.InvestigationResult;
@@ -23,6 +24,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.finsentinel.platform.TestData.alert;
 import static com.finsentinel.platform.TestData.uniqueTenant;
+import static com.finsentinel.platform.TestTokens.bearer;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -62,7 +64,7 @@ class UsageReportTest {
         analyse(tenant);
         analyse(tenant);
 
-        mvc.perform(get("/api/tenants/{t}/llm-usage", tenant))
+        mvc.perform(get("/api/tenants/{t}/llm-usage", tenant).with(bearer(TestTokens.supervisor(tenant))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.costPerCase.analyses").value(2))
                 .andExpect(jsonPath("$.costPerCase.total").value(0.023))
@@ -74,7 +76,8 @@ class UsageReportTest {
                 .andExpect(jsonPath("$.regulationSearchCache.hits").value(1))
                 .andExpect(jsonPath("$.regulationSearchCache.hitRate").value(0.5))
                 .andExpect(jsonPath("$.regulationSearchCache.savedUsd").value(0.0008));
-        mvc.perform(get("/api/tenants/{t}/llm-usage", uniqueTenant()))
+        String empty = uniqueTenant();
+        mvc.perform(get("/api/tenants/{t}/llm-usage", empty).with(bearer(TestTokens.supervisor(empty))))
                 .andExpect(jsonPath("$.costPerCase.analyses").value(0))
                 .andExpect(jsonPath("$.regulationSearchCache.searches").value(0))
                 .andExpect(jsonPath("$.regulationSearchCache.hitRate").doesNotExist());

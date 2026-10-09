@@ -853,3 +853,60 @@ ADR 0002 说平台既是 MCP 客户端也是服务端；用另一种语言、另
 - 本步花费约 $0.31：embedding 评测不到 $0.001，nano 判断器实验约 $0.003，前缀重放实验约 $0.04，live 套件 4 次约 $0.26，打包 jar 验证约 $0.004。
 - 打包 jar 验证：同一问题只改大小写和标点，第二次命中，耗时 14 ms（未命中时 4.6 秒）；"authorised" 版本未命中；停掉 Redis 后检索照常返回、健康检查仍是 UP、错误计数 +2/次；缓存条目 TTL 7 天。
 - 平台测试 139 个（8 个默认跳过），本步新增 8 个：检索缓存 6 个（重复问题跳过 embedding 和 rerank 并报告省下的钱、一字之差是不同的 key、重新入库后未命中、降级结果不缓存、Redis 不可用时检索照常、规范化只合并大小写/空白/结尾标点）、prompt 前缀顺序 1 个（旧顺序下失败）、语义缓存评测 1 个（live，默认跳过）；usage 报告测试加了命中率断言。
+
+## 阶段 6（A）：身份与权限：Keycloak、租户只来自 token、默认拒绝
+
+决策记录见 [ADR 0014](adr/0014-identity-and-access.md)。之前 REST 和 MCP 都"相信调用方"：tenant 来自 URL，分析师身份来自 `X-Analyst-Id` 请求头，MCP 工具直接接受 `tenantId` 参数（MCP 客户端背后的模型想看哪家银行就看哪家）。
+
+### 必读
+
+- `deploy/keycloak/finsentinel-realm.json`：realm 当代码管理；token 里的 `tenant`、`roles`、`aud` 是怎么来的。
+- `security/SecurityConfig.java`：两条 filter chain（MCP、REST），都以 `denyAll()` 结尾；角色规则。
+- `security/TenantPathFilter.java`：路径租户必须等于 token 租户，否则 404。
+- `security/Caller.java`、`security/ServiceToken.java`、`systems/McpServerConnection.java`（请求头里带服务 token）。
+- 测试：`TestIssuer`（进程内的假 Keycloak）、`TestTokens`、`SecurityTest`、`KeycloakRealmTest`。
+
+### 做了什么
+
+- **Keycloak realm 当代码**：两家银行 straits / harbour；alice、bob 是分析师，sam 是主管；`analyst-assistant`（MCP 助手，client credentials，token 里写死 tenant）；`platform-service`（平台调用 MCP 服务用，audience 是两个 MCP 服务，没有 tenant）。
+- **租户只来自 token**：URL 里保留 `/api/tenants/{t}`，但 `{t}` 必须等于 token 的 tenant，否则 404（和"case 不存在"同一个回答，不暴露别的银行有没有数据）。做成 security chain 里的 filter，而不是每个 controller 自己检查，新加的接口自动受保护。
+- **RBAC**：analyst 能看能决策；supervisor 能看、能看费用报告、不能决策；assistant 只能用 MCP。两条 chain 都"没写到的一律拒绝"。
+- **MCP 按规范做 OAuth 2.1**：401 响应头带 `resource_metadata`，指向 `/.well-known/oauth-protected-resource/mcp`，里面写明授权服务器是哪个 realm。MCP 工具去掉了 tenant 参数；客户端硬塞一个，schema 校验直接拒绝。
+- **服务间调用**：平台用自己的 client credentials token 调 mcp-banking / mcp-compliance（缓存到快过期再换）；拿不到 token 和"系统挂了"一样处理，返回 Unavailable，分析继续。MCP 服务只接受发给自己的 audience 和 `systems-reader` 角色。
+- **测试走生产的 JWT 校验路径**：`TestIssuer` 在测试进程里提供 OpenID discovery、JWKS 和 token 端点，密钥运行时生成；仓库里没有任何密钥文件，也不 mock `JwtDecoder`。真 Keycloak 的测试（`KeycloakRealmTest`）按需运行，验证 realm 文件本身。
+
+### 踩过的坑（面试可讲）
+
+1. **测试悄悄依赖了本机的 Keycloak**：一开始用 `public-key-location` 给测试配公钥，但 Spring Boot 4 只要设了 `issuer-uri` 就会忽略它（`KeyValueCondition`），于是测试去本机正在跑的真 Keycloak 取公钥，所有测试 token 都报"签名无效"。换成进程内的假 issuer 之后，测试既不依赖外部环境，又走了生产同一条路径。**教训：测试失败时先看它到底连了什么。**
+2. **一个测试类的属性被全局配置覆盖**：真 Keycloak 测试里设置的 issuer 被 `TestcontainersConfig` 的 `DynamicPropertyRegistrar` 覆盖，平台仍然信任假 issuer。加了一个显式开关 `finsentinel.test.external-issuer`。
+3. **Keycloak 的几个默认行为**：`sslRequired: external` 会把经过 Docker 网桥的请求当外部请求，要求 HTTPS；Keycloak 26 默认丢弃没在 user profile 里声明的用户属性（tenant 一开始出不来）；显式指定 client scope 后，内置的 `basic`/`profile` 不再生效，`sub` 和用户名都没了。
+4. **反向验证**：去掉 `TenantPathFilter` 后 3 个测试失败，其中一个是真实的泄露：别的银行的分析师走本银行的路径，能直接读到这个 case（200）。
+
+### 设计取舍问答
+
+**问：既然 tenant 来自 token，为什么 URL 里还保留 `{tenant}`？**
+URL 稳定、日志和网关路由里能直接看到是哪家银行；代价是要保证两者一致，所以有一个统一的 filter。保留路径但不信任路径，路径只是"声明"，token 才是"授权"。
+
+**问：跨租户为什么返回 404 而不是 403？**
+403 等于告诉调用方"这个东西存在，只是你不能看"。对多租户系统来说，"有没有某家银行的数据"本身就是信息。和"case 不存在"返回同一个结果，攻击者无法区分。
+
+**问：MCP 工具为什么连 tenant 参数都不要了，而不是校验参数和 token 一致？**
+参数是模型填的，模型可能被 prompt 注入诱导去填别的银行。把参数去掉，从结构上就不存在"选错银行"的可能，和我们自己的 agent 工具"构造时就固定 tenant/account"是同一个思路。
+
+**问：平台调 MCP 服务的 token 为什么不带 tenant？**
+平台服务账号要为所有银行工作，"每个 agent 只能看自己案件"的约束由平台在构造工具时保证（ADR 0002）。MCP 服务只负责"只让平台进来"。如果把用户 token 一路透传下去（token exchange），能做到下游也按租户校验，这是可以改进的方向。
+
+**问：为什么不在测试里直接用 Spring Security 的 `jwt()` 模拟？**
+那会跳过 JWT 的解码和校验（issuer、audience、签名、过期），而这些恰恰是最容易配错的地方。我们用真签名的 token 走生产的 decoder，所以"audience 不对""别的密钥签的""`alg: none`"这些攻击都能真的测到。
+
+### 可以主动讲的不足和改进方向
+
+- 开发用的 password grant 只为了 README 里的 curl；真实的分析师界面应该用 authorization code + PKCE。
+- 支持 OAuth 自动发现的 MCP 客户端（如 Claude Code）需要 Keycloak 开启动态客户端注册（DCR），现在是手动传 bearer token。
+- 下游 MCP 服务不知道"是哪个用户、哪家银行"在调用；token exchange（RFC 8693）可以把用户身份传下去。
+- 数据库层还没有隔离：如果以后某个查询漏写了 `tenant_id` 条件，应用层的 filter 防不住。这是 6B 的 Postgres RLS 要解决的。
+
+### 实测数据
+
+- 平台测试 158 个（12 个默认跳过：live 8 个、真 Keycloak 4 个）；Keycloak 停掉时安全相关测试照样通过（不再依赖本机环境）。新增：`SecurityTest` 11 个（无 token、5 种不该接受的 token、角色、全端点跨租户扫描、无 tenant 的 token、默认拒绝）、`ServiceTokenTest` 1 个、MCP 跨租户和无 tenant 2 个、工具不含 tenant 参数 1 个、拿不到 token 时系统 Unavailable 1 个；`KeycloakRealmTest` 4 个（按需）。mcp-banking、mcp-compliance 各新增 1 个认证测试。
+- 打包 jar 端到端（真 Keycloak）：无 token 401（带 resource_metadata）；alice 看 straits 200、看 harbour 404；bob 读 straits 的 case 404；alice 发起重新分析，事件记录操作人 alice；worker 用服务 token 调 MCP 服务成功（CRM、core、筛查都收到请求），分析结果 NEEDS_REVIEW 68，花费 $0.024；Python 助手用 client credentials 只看到 straits 的 16 个待决策案件，要求看 harbour 时它无法获取。

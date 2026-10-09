@@ -12,6 +12,7 @@ committed, and how the user likes to work. Keep it updated at the end of each se
 - Test: `./mvnw test` (Docker required; agent-platform uses Testcontainers)
 - Infra: `docker compose -f deploy/docker-compose.yml --profile core --profile systems up -d`
 - Run: see README "Quick start"
+- Real Keycloak realm test (no LLM): `./mvnw -pl agent-platform test -Dtest=KeycloakRealmTest -Dkeycloak=true -Dsurefire.failIfNoSpecifiedTests=false`
 - Retrieval eval (costs a little): `./mvnw -pl agent-platform test -Dtest=RetrievalEvalTest -Dlive=true -Dsurefire.failIfNoSpecifiedTests=false`
 - Semantic cache evaluation (embeddings only, under $0.001): `./mvnw -pl agent-platform test -Dtest=SemanticCacheEvalTest -Dlive=true -Dsurefire.failIfNoSpecifiedTests=false`
 - Knowledge documents: `./scripts/fetch-knowledge.sh` (PDFs are gitignored, MAS copyright)
@@ -35,11 +36,17 @@ committed, and how the user likes to work. Keep it updated at the end of each se
 - Alert ids are deterministic (ADR 0003). Do not change `Alert.idFor` casually.
 - Check dependency versions on Maven Central before adding or bumping; do not guess.
 - Agent tools are scoped by construction (tenant/account fixed in `InvestigationTools`); never add a tool
-  parameter that selects tenant or account. MCP server tools are never handed to the model directly: wrap each in a
+  parameter that selects tenant or account.
+- Identity comes from Keycloak JWTs (ADR 0014): the tenant only ever from the token (`Caller`), never from a header,
+  body or tool argument. `/api/tenants/{t}/...` must match the token's tenant (`TenantPathFilter`, 404 otherwise).
+  Security chains deny anything not listed: a new endpoint needs an explicit rule and a case in `SecurityTest`.
+- Tests authenticate with `TestTokens` (signed by the in-process `TestIssuer`, so the production decoder runs); never
+  mock the `JwtDecoder` or use `jwt()` post-processors. Realm changes: run `KeycloakRealmTest -Dkeycloak=true`. MCP server tools are never handed to the model directly: wrap each in a
   case-scoped tool via `ExternalSystems`, and return `Unavailable` (not an exception) when the system is down.
 - The platform's own MCP server tools are registered as MCP tool specifications only, never as
-  `ToolCallbackProvider` beans (Spring AI's resolver collects those for agents). They take the tenant as a parameter
-  like the REST path until phase 6 takes it from the token; every case read stays tenant-filtered.
+  `ToolCallbackProvider` beans (Spring AI's resolver collects those for agents). They take the tenant from the token,
+  never as a parameter; every case read stays tenant-filtered. The platform calls mcp-banking/mcp-compliance with its
+  own client-credentials token (`ServiceToken`); no token is a system `Unavailable`, not a failed analysis.
 - Any path that lets outside callers trigger model or embedding calls needs a budget; shared limits are counted in
   Postgres (`RateLimiter`, atomic upsert), never in memory.
 - Agent tool parameters are boxed (`Integer`, not `int`): the model sometimes sends null, which fails a primitive.
@@ -84,7 +91,7 @@ committed, and how the user likes to work. Keep it updated at the end of each se
 - Only validated reports are stored (ADR 0006). Repairs are bounded by `report.max-repairs`.
 - After changing the prompt, tools, or model, run the live tests at least 3 times: one pass proves little.
 - Avoid nested ternaries mixing `Integer` and `int` (silent unboxing NPE).
-- Host ports: Redis 6380, platform 8090 (REST and `/mcp`), mcp-banking 8091, mcp-compliance 8092, fake systems (WireMock) 8093;
+- Host ports: Redis 6380, platform 8090 (REST and `/mcp`), mcp-banking 8091, mcp-compliance 8092, fake systems (WireMock) 8093, Keycloak 8094;
   6379 and 8080 are used by other local projects.
 - Code inside graph nodes runs on pool-spawned threads; never rely on `ServiceLoader` defaults there (pass
   dependencies explicitly). Verify library integrations with the packaged jar, not only tests.

@@ -66,7 +66,7 @@ Needs Docker, JDK 21, and `OPENAI_API_KEY` in the environment (the platform star
 investigations fail). Maven comes from the wrapper.
 
 ```bash
-# 1. Kafka, Postgres, Redis (~1.2 GB), and the fake bank systems
+# 1. Kafka, Postgres, Redis, Keycloak on :8094 (~2 GB), and the fake bank systems
 docker compose -f deploy/docker-compose.yml --profile core --profile systems up -d
 
 # 2. Build, and fetch the MAS documents for the knowledge base (indexed on platform start)
@@ -84,9 +84,12 @@ java -jar agent-platform/target/agent-platform-0.1.0-SNAPSHOT.jar
 # 5. Traffic: 10 tps, one fraud scenario every 10 s
 ./mvnw -pl txn-simulator exec:java -Dexec.args="--fraud-every=10"
 
-# 6. See the analyst queue, then one case with its alerts, analyses and audit trail
-curl -s 'localhost:8090/api/tenants/straits/cases?stage=AWAITING_DECISION' | jq
-curl -s localhost:8090/api/tenants/straits/cases/<caseId> | jq
+# 6. Sign in as alice (straits analyst; dev-only password grant), see the queue, then one case with its alerts,
+#    analyses and audit trail. Other users: bob (harbour analyst), sam (straits supervisor), password = name.
+TOKEN=$(curl -s localhost:8094/realms/finsentinel/protocol/openid-connect/token \
+  -d grant_type=password -d client_id=analyst-cli -d username=alice -d password=alice | jq -r .access_token)
+curl -s -H "Authorization: Bearer $TOKEN" 'localhost:8090/api/tenants/straits/cases?stage=AWAITING_DECISION' | jq
+curl -s -H "Authorization: Bearer $TOKEN" localhost:8090/api/tenants/straits/cases/<caseId> | jq
 ```
 
 ### Case API
@@ -95,7 +98,12 @@ curl -s localhost:8090/api/tenants/straits/cases/<caseId> | jq
 |---|---|---|
 | GET | `/api/tenants/{t}/cases?stage=AWAITING_DECISION` | Analyst queue, highest priority first |
 | GET | `/api/tenants/{t}/cases/{id}` | Case, alerts, every analysis run, audit trail; `ETag` = case version |
-| POST | `/api/tenants/{t}/cases/{id}/decision` | `{"decision": "CONFIRMED_FRAUD" \| "FALSE_POSITIVE" \| "REQUEST_REANALYSIS", "note": "..."}` with `If-Match` (428 if missing, 409 if the case changed) and `X-Analyst-Id` |
+| POST | `/api/tenants/{t}/cases/{id}/decision` | `{"decision": "CONFIRMED_FRAUD" \| "FALSE_POSITIVE" \| "REQUEST_REANALYSIS", "note": "..."}` with `If-Match` (428 if missing, 409 if the case changed); the deciding analyst is the token's user |
+
+Every request needs a bearer token from the Keycloak realm `finsentinel` (deploy/keycloak) with this platform as
+audience. The token's `tenant` claim must match the path (another bank's path is 404, like a case that does not exist);
+roles: `analyst` reads and decides, `supervisor` reads and sees `llm-usage`, `assistant` uses MCP only. Anything not
+listed is denied (ADR 0014).
 
 Lifecycle: `ANALYSIS → AWAITING_DECISION → CLOSED` (or `FAILED` after the maximum attempts). A new alert on the account
 re-opens the case; `REQUEST_REANALYSIS` sends it back to the agents with the analyst's note. Decisions and readiness are
@@ -126,10 +134,14 @@ serves about 80% of each case's first request (it served none when case data cam
 ### MCP server
 
 The platform is also an MCP server at `http://localhost:8090/mcp` (streamable HTTP, stateless), read-only:
-`listCases`, `getCase`, `searchRegulations`, `readRegulationPassages`. Any MCP client can use it, e.g. the Python
-example (`cd examples/mcp-client-python && uv run analyst_assistant.py "Which straits cases await a decision?"`) or
-Claude Code (`claude mcp add --transport http finsentinel http://localhost:8090/mcp`). Not authenticated until phase 6,
-like the REST API; regulation searches have their own hourly budget.
+`listCases`, `getCase`, `searchRegulations`, `readRegulationPassages`. It follows the MCP authorization spec: a request
+without a token gets 401 with `resource_metadata` pointing to `/.well-known/oauth-protected-resource/mcp`, which names
+the Keycloak realm. Case tools take no bank parameter: the bank is the token's `tenant` claim, so a model driving the
+client cannot ask for another bank's cases. The Python example signs in with client credentials
+(`cd examples/mcp-client-python && uv run analyst_assistant.py "Which cases await a decision?"`); any MCP client that
+sends a bearer token works, e.g. Claude Code with
+`claude mcp add --transport http finsentinel http://localhost:8090/mcp --header "Authorization: Bearer $TOKEN"` (realm
+tokens last 5 minutes). Regulation searches have their own hourly budget.
 
 Investigations are capped at `finsentinel.investigation.max-per-hour` (default 60) so a burst of alerts cannot
 run up an unbounded LLM bill. Set `finsentinel.investigation.enabled=false` to store alerts without investigating.
