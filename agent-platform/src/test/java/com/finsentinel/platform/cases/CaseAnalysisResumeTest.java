@@ -1,5 +1,7 @@
 package com.finsentinel.platform.cases;
 
+import com.finsentinel.platform.systems.SystemsProperties;
+import com.finsentinel.platform.systems.BankSystem;
 import com.finsentinel.common.Alert;
 import com.finsentinel.common.Severity;
 import com.finsentinel.platform.PlatformTest;
@@ -38,6 +40,8 @@ class CaseAnalysisResumeTest {
     @Autowired
     CaseRepository cases;
     @Autowired
+    SystemsProperties systems;
+    @Autowired
     CaseIntake intake;
     @Autowired
     AlertRepository alerts;
@@ -59,7 +63,7 @@ class CaseAnalysisResumeTest {
         investigator.reset();
         reviewer.reset();
         // Unlimited budget: these tests are about resuming, not about the hourly cap other tests use up.
-        worker = new CaseWorker(cases, alerts, analysis, CaseWorkerTest.props(0, Duration.ofSeconds(2)));
+        worker = new CaseWorker(cases, alerts, analysis, CaseWorkerTest.props(0, Duration.ofSeconds(2)), systems);
     }
 
     @AfterEach
@@ -202,7 +206,7 @@ class CaseAnalysisResumeTest {
         FraudCase c = claim.fraudCase();
         List<Alert> caseAlerts = alerts.findByCase(c.tenantId(), c.caseId()).stream().map(StoredAlert::alert).toList();
         return new CaseContext(c.caseId(), c.tenantId(), c.accountId(), c.customerId(), caseAlerts, c.analysisRun(),
-                c.analystNote());
+                c.analystNote(), BankSystem.ALL);
     }
 
     private void expireClaim(String caseId) {

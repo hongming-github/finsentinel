@@ -1,5 +1,6 @@
 package com.finsentinel.platform.investigation;
 
+import com.finsentinel.platform.privacy.PiiMasker;
 import com.finsentinel.platform.alert.AlertRepository;
 import com.finsentinel.platform.knowledge.KnowledgeSearch;
 import com.finsentinel.platform.systems.ExternalSystems;
@@ -15,9 +16,11 @@ class InvestigationToolsFactory {
     private final KnowledgeSearch knowledge;
     private final ExternalSystems systems;
     private final InvestigationProperties props;
+    private final PiiMasker masker;
 
     InvestigationToolsFactory(TransactionRepository transactions, AlertRepository alerts, KnowledgeSearch knowledge,
-                              ExternalSystems systems, InvestigationProperties props) {
+                              ExternalSystems systems, InvestigationProperties props, PiiMasker masker) {
+        this.masker = masker;
         this.transactions = transactions;
         this.alerts = alerts;
         this.knowledge = knowledge;
@@ -26,6 +29,6 @@ class InvestigationToolsFactory {
     }
 
     InvestigationTools forCase(CaseContext caseContext) {
-        return new InvestigationTools(caseContext, transactions, alerts, knowledge, systems, props.tools());
+        return new InvestigationTools(caseContext, transactions, alerts, knowledge, systems, props.tools(), masker);
     }
 }

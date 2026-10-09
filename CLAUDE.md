@@ -40,6 +40,15 @@ committed, and how the user likes to work. Keep it updated at the end of each se
 - Identity comes from Keycloak JWTs (ADR 0014): the tenant only ever from the token (`Caller`), never from a header,
   body or tool argument. `/api/tenants/{t}/...` must match the token's tenant (`TenantPathFilter`, 404 otherwise).
   Security chains deny anything not listed: a new endpoint needs an explicit rule and a case in `SecurityTest`.
+- Postgres row-level security backs every tenant filter (ADR 0015). The platform logs in as `finsentinel_app`, never
+  the owner; tenant tables need a `Tenancy` scope set where the tenant is trusted (token, alert, claimed case), never
+  from a method parameter. Code on a thread it starts (graph nodes, executors) sets the scope again there. The system
+  scope (`Tenancy.callAsSystem`) is for cross-bank queue work only. New tenant tables get a policy in a migration and
+  a case in `RowLevelSecurityTest`.
+- Tools of outside systems are offered per bank (`finsentinel.systems.connected`, `BankSystem`); a new MCP-backed tool
+  goes into `InvestigationTools.SYSTEM_TOOLS`.
+- Case material reaches models only through `AgentModels.ask` and the tool callbacks, both pseudonymised by
+  `PiiMasker`; never send case text to a model another way.
 - Tests authenticate with `TestTokens` (signed by the in-process `TestIssuer`, so the production decoder runs); never
   mock the `JwtDecoder` or use `jwt()` post-processors. Realm changes: run `KeycloakRealmTest -Dkeycloak=true`. MCP server tools are never handed to the model directly: wrap each in a
   case-scoped tool via `ExternalSystems`, and return `Unavailable` (not an exception) when the system is down.

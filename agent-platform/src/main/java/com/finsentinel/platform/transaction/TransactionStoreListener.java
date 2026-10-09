@@ -1,5 +1,7 @@
 package com.finsentinel.platform.transaction;
 
+import java.util.stream.Collectors;
+import com.finsentinel.platform.security.Tenancy;
 import com.finsentinel.common.Topics;
 import com.finsentinel.common.Transaction;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -44,8 +46,8 @@ class TransactionStoreListener {
                 log.debug("Skipping unparseable transaction at {}-{}@{}", record.topic(), record.partition(), record.offset());
             }
         }
-        if (!batch.isEmpty()) {
-            transactions.insertAll(batch);
-        }
+        // A batch mixes banks; each bank's rows are written in its own tenant scope.
+        batch.stream().collect(Collectors.groupingBy(Transaction::tenantId))
+                .forEach((tenant, txns) -> Tenancy.run(tenant, () -> transactions.insertAll(txns)));
     }
 }

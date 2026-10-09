@@ -208,7 +208,8 @@ public class CaseAnalysisGraph {
      * @throws LostClaimException when another worker has taken the case over; nothing more was written
      */
     public Outcome analyse(CaseContext context, Instant claimedAt, AnalysisMode mode) {
-        RunnableConfig config = new CaseRun(UUID.fromString(context.caseId()), context.run(), claimedAt).config();
+        RunnableConfig config = new CaseRun(UUID.fromString(context.caseId()), context.tenantId(), context.run(),
+                claimedAt).config();
         Optional<Checkpoint> last = saver.get(config);
         AnalysisMode runMode = last.map(cp -> (AnalysisMode) cp.getState().get(CaseGraphState.MODE)).orElse(mode);
         CompiledGraph graph = graphs.get(runMode);

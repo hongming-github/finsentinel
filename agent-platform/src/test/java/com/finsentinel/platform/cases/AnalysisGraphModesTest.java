@@ -1,5 +1,6 @@
 package com.finsentinel.platform.cases;
 
+import com.finsentinel.platform.systems.BankSystem;
 import com.finsentinel.common.Alert;
 import com.finsentinel.common.AlertRule;
 import com.finsentinel.common.Channel;
@@ -250,7 +251,7 @@ class AnalysisGraphModesTest {
         FraudCase c = claim.fraudCase();
         List<Alert> caseAlerts = alerts.findByCase(c.tenantId(), c.caseId()).stream().map(StoredAlert::alert).toList();
         return new CaseContext(c.caseId(), c.tenantId(), c.accountId(), c.customerId(), caseAlerts, c.analysisRun(),
-                c.analystNote());
+                c.analystNote(), BankSystem.ALL);
     }
 
     private static void await(CountDownLatch latch) {

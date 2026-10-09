@@ -1,5 +1,6 @@
 package com.finsentinel.platform.cases;
 
+import com.finsentinel.platform.systems.SystemsProperties;
 import com.finsentinel.common.Severity;
 import com.finsentinel.platform.PlatformTest;
 import com.finsentinel.platform.StubCaseInvestigator;
@@ -29,6 +30,8 @@ class CaseWorkerTest {
     CaseWorker worker;
     @Autowired
     CaseRepository cases;
+    @Autowired
+    SystemsProperties systems;
     @Autowired
     CaseIntake intake;
     @Autowired
@@ -151,7 +154,7 @@ class CaseWorkerTest {
         newCase(Severity.HIGH);
         newCase(Severity.HIGH);
         int alreadyUsed = cases.startedInLastHour();
-        CaseWorker capped = new CaseWorker(cases, alerts, analysis, props(alreadyUsed + 1, Duration.ofSeconds(2)));
+        CaseWorker capped = new CaseWorker(cases, alerts, analysis, props(alreadyUsed + 1, Duration.ofSeconds(2)), systems);
 
         assertThat(capped.runOnce()).isEqualTo(1);
         assertThat(capped.runOnce()).isZero();

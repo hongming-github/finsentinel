@@ -1,5 +1,6 @@
 package com.finsentinel.platform.investigation;
 
+import com.finsentinel.platform.privacy.PiiMasker;
 import com.finsentinel.common.AlertRule;
 import com.finsentinel.common.Severity;
 import com.finsentinel.platform.PlatformTest;
@@ -25,6 +26,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @PlatformTest
 class MultiAgentAgentsTest {
 
+    @Autowired
+    PiiMasker masker;
     @Autowired
     InvestigationToolsFactory toolsFactory;
     @Autowired
@@ -149,6 +152,6 @@ class MultiAgentAgentsTest {
     }
 
     private AgentModels models(ChatModel model) {
-        return new AgentModels(TestLlm.gateway(model, model, TestLlm.properties(Set.of()), Clock.systemUTC()), router);
+        return new AgentModels(TestLlm.gateway(model, model, TestLlm.properties(Set.of()), Clock.systemUTC()), router, masker);
     }
 }

@@ -1,7 +1,9 @@
 package com.finsentinel.platform.cases;
 
+import com.finsentinel.platform.systems.SystemsProperties;
 import com.finsentinel.common.Severity;
 import com.finsentinel.platform.PlatformTest;
+import com.finsentinel.platform.security.Tenancy;
 import com.finsentinel.platform.alert.AlertRepository;
 import com.finsentinel.platform.analysis.CaseAnalysisGraph;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,6 +39,8 @@ class ConcurrentCaseClaimTest {
 
     @Autowired
     CaseRepository cases;
+    @Autowired
+    SystemsProperties systems;
     @Autowired
     CaseIntake intake;
     @Autowired
@@ -86,7 +90,7 @@ class ConcurrentCaseClaimTest {
         }));
         locked.await();
         CaseWorker worker = new CaseWorker(cases, alerts, analysis,
-                CaseWorkerTest.props(1_000, Duration.ofMillis(300)));
+                CaseWorkerTest.props(1_000, Duration.ofMillis(300)), systems);
 
         int claimed;
         long waitedMs;
@@ -114,8 +118,9 @@ class ConcurrentCaseClaimTest {
                 futures.add(pool.submit(() -> {
                     start.await();
                     while (true) {
-                        CaseRepository.ClaimBatch batch =
-                                cases.claimWithinBudget(3, Duration.ofMinutes(5), 3, maxPerHour, Duration.ofSeconds(5));
+                        // Claiming spans every bank: the system scope, as CaseWorker does.
+                        CaseRepository.ClaimBatch batch = Tenancy.callAsSystem(() ->
+                                cases.claimWithinBudget(3, Duration.ofMinutes(5), 3, maxPerHour, Duration.ofSeconds(5)));
                         if (batch.claims().isEmpty()) {
                             return null;
                         }

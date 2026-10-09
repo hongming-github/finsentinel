@@ -910,3 +910,64 @@ URL 稳定、日志和网关路由里能直接看到是哪家银行；代价是�
 
 - 平台测试 158 个（12 个默认跳过：live 8 个、真 Keycloak 4 个）；Keycloak 停掉时安全相关测试照样通过（不再依赖本机环境）。新增：`SecurityTest` 11 个（无 token、5 种不该接受的 token、角色、全端点跨租户扫描、无 tenant 的 token、默认拒绝）、`ServiceTokenTest` 1 个、MCP 跨租户和无 tenant 2 个、工具不含 tenant 参数 1 个、拿不到 token 时系统 Unavailable 1 个；`KeycloakRealmTest` 4 个（按需）。mcp-banking、mcp-compliance 各新增 1 个认证测试。
 - 打包 jar 端到端（真 Keycloak）：无 token 401（带 resource_metadata）；alice 看 straits 200、看 harbour 404；bob 读 straits 的 case 404；alice 发起重新分析，事件记录操作人 alice；worker 用服务 token 调 MCP 服务成功（CRM、core、筛查都收到请求），分析结果 NEEDS_REVIEW 68，花费 $0.024；Python 助手用 client credentials 只看到 straits 的 16 个待决策案件，要求看 harbour 时它无法获取。
+
+## 阶段 6（B）：数据库层的租户隔离、按银行的工具权限、发给模型前脱敏
+
+决策记录见 [ADR 0015](adr/0015-tenant-isolation-and-data-protection.md)。6A 之后租户只来自 token，但隔离仍然依赖"每条 SQL 都写对 `where tenant_id`"。6B 在数据库层加一道兜底，并完成路线图里的"工具权限隔离"和"调用 LLM 前脱敏"。
+
+### 必读
+
+- `db/migration/V10__row_level_security.sql`：三个数据库角色、`app_tenant()`、6 张表的策略。
+- `security/Tenancy.java`、`TenantAwareDataSource.java`、`TenancyFilter.java`：作用域怎么设置、怎么写进每个连接。
+- `cases/CaseWorker.java`（唯一用系统身份的地方）、`investigation/InvestigationTools.java`（`db(...)`、`SYSTEM_TOOLS`、脱敏的工具回调）。
+- `privacy/PiiMasker.java` 和它的测试（哪些会被替换、哪些必须原样保留）。
+- `security/RowLevelSecurityTest.java`。
+
+### 做了什么
+
+- **Postgres RLS，三个角色**：属主只跑迁移；平台用 `finsentinel_app` 登录（不拥有任何表，受所有策略约束）；跨银行的队列操作切到 `finsentinel_system`（BYPASSRLS），只能显式切换，不能继承。
+- **"没设租户就报错"而不是"返回空"**：`app_tenant()` 在会话没有租户时直接抛异常。如果某条路径忘了设作用域，测试里立刻失败，而不是 agent 悄悄看到"这个账户没有交易历史"然后得出错误结论。
+- **作用域在"可信来源"处设置**：请求来自 token，入库来自告警/交易本身，worker 来自领取的 case，graph 线程池里的代码（工具、规划节点、checkpoint）由 case 自己提供。不从方法参数推断：如果有 bug 把别的银行的 id 传进了 repository，RLS 正好能拦住。
+- **每次借连接都设置**：`TenantAwareDataSource` 包装连接池，一次往返设置 `app.tenant` 和角色；在 auto-commit 状态下设置，之后事务回滚也撤销不了。
+- **按银行的工具权限**：配置每家银行接入了哪些外部系统（CRM/core、筛查厂商）。没接入的系统，工具不交给模型、被调用也拒绝、请求永远不会发到那个系统；brief 里说明哪些检查做不了。只有缺系统的银行 prompt 才变，其他银行的 prompt 和前缀缓存不受影响。
+- **发给模型前脱敏**：电话、邮件、NRIC/FIN、卡号（Luhn 校验）替换成 `[PHONE_3f9a1b2c]` 这样的假名，是"值 + case id"在密钥下的 HMAC。同一个 case 里同一个号码是同一个假名（模型仍能发现"OTP 号码换了"），不同 case 之间无关，没有密钥无法反推。只在两个入口做：`AgentModels.ask`（用户消息）和工具回调（工具结果）；模型只见过脱敏后的输入，所以它的输出也不会有原始值。
+
+### 最重要的结论（面试必讲）
+
+1. **RLS 是兜底，不是替代**：应用层仍然每条查询都按租户过滤；RLS 保证"漏写条件"和"传错租户"这两类 bug 不会变成数据泄露。测试证明：不写 where 的查询只能看到本银行的数据；把别的银行的 id 传给 repository 什么也查不到；写别的银行的行被拒绝；关掉 RLS，6 个测试里 4 个失败。
+2. **"大声失败"的价值**：开启 RLS 后全量测试一次性暴露了所有没设作用域的路径，全部是报错而不是静默的空结果，其中包括我这次改动自己漏掉的一处（MULTI 模式的规划节点在线程池里读交易）。
+3. **性能**：在 10 万条交易的 dev 数据上看执行计划：查询本身带租户条件时，策略变成只算一次的 "One-Time Filter"，索引扫描不变（0.9 ms）；完全不带条件时 `app_tenant()` 直接作为索引条件。没有逐行调用函数。
+
+### 踩过的坑
+
+1. **超级用户绕过 RLS**：Testcontainers 的 service connection 会用容器的超级用户登录，RLS 完全不生效，测试会"全部通过"但什么也没测到。所以测试也必须用 `finsentinel_app` 登录，数据库连接手动配置。
+2. **表的属主默认也绕过 RLS**：这就是为什么必须拆出一个不拥有任何表的登录角色。
+3. **ThreadLocal 不跨线程**：Awaitility 默认在另一个线程轮询、并发测试自己开线程、graph 节点在线程池，这些地方都没有作用域，需要显式设置（或 `pollInSameThread`）。
+4. **脱敏的误伤**：UUID、交易 id、金额、时间戳里都有长串数字。规则要求"不能是更长 token 的一部分"，并用 Luhn 过滤卡号；假名本身写成 `[PHONE_xxxx]`（下划线后的数字不会再被当成号码），保证脱敏两次结果不变。live 运行里请求体中除了那两个电话假名，没有出现任何别的假名，说明没有误伤。
+
+### 设计取舍问答
+
+**问：为什么不直接给每个租户一个 schema 或一个数据库？**
+隔离更强，但租户多了以后迁移、连接池、跨租户的队列（worker 按优先级领所有银行的案件）都会变复杂。共享表 + RLS 在"每个银行数据量不大、租户数可能很多"的场景更合适；对隔离要求极高的大客户可以单独部署。
+
+**问：系统身份（绕过 RLS）不是一个后门吗？**
+是一个受控的后门：只能显式 `SET ROLE` 切换（app 角色不继承它的权限），代码里只有 worker 领取/超时处理这一个地方使用，而且这个操作本来就是跨银行的。
+
+**问：为什么用假名而不是直接删掉或打码成 `***`？**
+打码会丢掉"是不是同一个号码"这个信息，而这对反欺诈很重要（OTP 号码刚被改过）。按 case 生成的假名既保留了等同关系，又不让模型提供商拿到真实值。
+
+**问：名字和地址为什么不脱敏？**
+没有固定格式，正则做不到，需要 NER 模型（成本和误伤都更高）。这里的防线是数据最小化：给 agent 的 CRM 视图里根本没有姓名和地址字段。自由文本备注里仍可能出现名字，这是已知的不足。
+
+### 可以主动讲的不足和改进方向
+
+- 分析师在报告里看到的是假名；要还原需要一个按 case 的映射库（vault），没做。
+- 创建 BYPASSRLS 角色需要超级用户；生产环境应由 DBA 预先创建，迁移脚本会跳过。
+- 名字、地址、自由文本里的其他个人信息需要 NER；可以在网关层加一个可插拔的检测器。
+- 大额转账给新收款人的场景，这次 3 次都判为 LIKELY_FRAUD（之前是 NEEDS_REVIEW），工具结果内容完全相同，属于模型在边界案例上的波动；阶段 7 的评估集需要更多这种边界案例，才能区分"模型变了"和"随机波动"。
+
+### 实测数据
+
+- 平台测试 182 个（12 个默认跳过）。新增：`RowLevelSecurityTest` 6 个、`PiiMaskerTest` 12 个、工具权限 3 个、brief 提示缺失系统 1 个、分析师备注脱敏 1 个、工具结果脱敏 1 个。
+- live 3 次 18/18：请求体里原始号码 0 次，两个不同的电话假名各出现在被盗场景里，该场景仍判 LIKELY_FRAUD 97-98。花费约 $0.20。
+- 打包 jar 在 dev 数据库上：V10 迁移成功、连接池全部是 `finsentinel_app`；bob 重新分析 harbour 的转账案件：没有筛查工具、筛查系统收到 harbour 请求 0 次、报告写明合规检查不可用，LIKELY_FRAUD 96，$0.009。

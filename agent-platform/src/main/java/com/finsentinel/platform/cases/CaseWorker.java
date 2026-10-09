@@ -1,5 +1,7 @@
 package com.finsentinel.platform.cases;
 
+import com.finsentinel.platform.systems.SystemsProperties;
+import com.finsentinel.platform.security.Tenancy;
 import com.finsentinel.common.Alert;
 import com.finsentinel.platform.alert.AlertRepository;
 import com.finsentinel.platform.alert.StoredAlert;
@@ -35,10 +37,12 @@ public class CaseWorker {
     private final AlertRepository alerts;
     private final CaseAnalysisGraph analysis;
     private final InvestigationProperties props;
+    private final SystemsProperties systems;
     private final AtomicLong lastBudgetWarning = new AtomicLong();
 
     CaseWorker(CaseRepository cases, AlertRepository alerts, CaseAnalysisGraph analysis,
-               InvestigationProperties props) {
+               InvestigationProperties props, SystemsProperties systems) {
+        this.systems = systems;
         this.cases = cases;
         this.alerts = alerts;
         this.analysis = analysis;
@@ -54,14 +58,15 @@ public class CaseWorker {
 
     /** One poll cycle. Public so tests can drive the queue deterministically. */
     public int runOnce() {
-        int abandoned = cases.failAbandoned(props.claimTimeout(), props.maxAttempts());
+        // Queue work spans every bank: the system scope, the only place outside tests that uses it.
+        int abandoned = Tenancy.callAsSystem(() -> cases.failAbandoned(props.claimTimeout(), props.maxAttempts()));
         if (abandoned > 0) {
             log.warn("Marked {} abandoned analyses as FAILED", abandoned);
         }
         CaseRepository.ClaimBatch batch;
         try {
-            batch = cases.claimWithinBudget(props.batchSize(), props.claimTimeout(), props.maxAttempts(),
-                    props.maxPerHour(), props.claimLockTimeout());
+            batch = Tenancy.callAsSystem(() -> cases.claimWithinBudget(props.batchSize(), props.claimTimeout(),
+                    props.maxAttempts(), props.maxPerHour(), props.claimLockTimeout()));
         } catch (DataAccessException e) {
             if (!CaseRepository.isLockTimeout(e)) {
                 throw e;
@@ -81,12 +86,17 @@ public class CaseWorker {
         return claims.size();
     }
 
+    /** In the claimed case's tenant scope: everything the analysis reads or writes belongs to that bank. */
     private void process(CaseClaim claim) {
+        Tenancy.run(claim.fraudCase().tenantId(), () -> analyse(claim));
+    }
+
+    private void analyse(CaseClaim claim) {
         FraudCase c = claim.fraudCase();
         try {
             List<Alert> caseAlerts = alerts.findByCase(c.tenantId(), c.caseId()).stream().map(StoredAlert::alert).toList();
             CaseContext context = new CaseContext(c.caseId(), c.tenantId(), c.accountId(), c.customerId(), caseAlerts,
-                    c.analysisRun(), c.analystNote());
+                    c.analysisRun(), c.analystNote(), systems.connectedFor(c.tenantId()));
             CaseAnalysisGraph.Outcome outcome = analysis.analyse(context, claim.claimedAt());
             InvestigationResult result = outcome.investigation();
             CaseRepository.Completion completion = cases.complete(claim, outcome.mode(), result, outcome.review());

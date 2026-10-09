@@ -1,5 +1,6 @@
 package com.finsentinel.platform;
 
+import com.finsentinel.platform.systems.BankSystem;
 import com.finsentinel.common.Alert;
 import com.finsentinel.common.AlertRule;
 import com.finsentinel.common.Channel;
@@ -37,9 +38,14 @@ public final class TestData {
 
     /** A context for a case that exists only in memory (tools tests that do not need the case row). */
     public static CaseContext context(Alert... alerts) {
+        return context(BankSystem.ALL, alerts);
+    }
+
+    /** A case of a bank that has connected only these outside systems. */
+    public static CaseContext context(java.util.Set<BankSystem> connected, Alert... alerts) {
         Alert first = alerts[0];
         return new CaseContext(UUID.randomUUID().toString(), first.tenantId(), first.accountId(), first.customerId(),
-                List.of(alerts), 1, null);
+                List.of(alerts), 1, null, connected);
     }
 
     public static Alert alert(String tenant, String account, AlertRule rule, Severity severity, List<String> txnIds,

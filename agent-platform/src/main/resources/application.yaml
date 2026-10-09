@@ -9,8 +9,16 @@ spring:
       enabled: true
   datasource:
     url: jdbc:postgresql://localhost:5432/finsentinel
-    username: finsentinel
-    password: finsentinel
+    # The platform's login is subject to row-level security (V10, ADR 0015); it is never the schema owner.
+    username: finsentinel_app
+    password: ${FINSENTINEL_APP_DB_PASSWORD:finsentinel_app}
+  flyway:
+    # Migrations run as the schema owner on a connection of their own; V10 creates the app login with this password.
+    url: ${spring.datasource.url}
+    user: finsentinel
+    password: ${FINSENTINEL_OWNER_DB_PASSWORD:finsentinel}
+    placeholders:
+      app_password: ${spring.datasource.password}
   ai:
     openai:
       # Empty when unset: the client starts in no-auth mode, so tests and builds work without a key.
@@ -126,6 +134,9 @@ finsentinel:
       "[groq:openai/gpt-oss-20b]": { input: 0.075, cached-input: 0.075, output: 0.30 }
   usage:
     max-days: 90
+  privacy:
+    # HMAC key for the pseudonyms that replace phone numbers, emails, NRIC and card numbers in model prompts (ADR 0015).
+    pseudonym-key: ${FINSENTINEL_PSEUDONYM_KEY:dev-only-pseudonym-key-change-me}
   analysis:
     # SINGLE: one investigator with every tool. MULTI: plan, parallel specialists, report writer. SINGLE measured as
     # accurate and cheaper/faster on the live scenarios (ADR 0010).
@@ -169,6 +180,12 @@ finsentinel:
     compliance-url: http://localhost:8092
     connect-timeout: 2s
     request-timeout: 8s
+    # Outside systems each bank has connected (BANKING: CRM and core banking; COMPLIANCE: watchlist screening). Agents
+    # get only the tools of their bank's systems, and the brief says which checks are not available.
+    connected-default: [BANKING, COMPLIANCE]
+    connected:
+      # Example of a bank without a screening vendor contract: its payees are never sent to mcp-compliance.
+      harbour: [BANKING]
   mcp-server:
     # External callers pay for embeddings and reranking with every search: a budget of its own, across instances.
     max-regulation-searches-per-hour: 200

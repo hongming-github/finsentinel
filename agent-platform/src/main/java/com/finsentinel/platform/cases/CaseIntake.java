@@ -1,5 +1,6 @@
 package com.finsentinel.platform.cases;
 
+import com.finsentinel.platform.security.Tenancy;
 import com.finsentinel.common.Alert;
 import com.finsentinel.platform.alert.AlertRepository;
 import org.springframework.stereotype.Component;
@@ -24,9 +25,13 @@ public class CaseIntake {
         this.transactions = transactions;
     }
 
-    /** @return the case the alert was filed under, or empty if it was a redelivery */
+    /**
+     * Runs in the alert's tenant scope: the alert names its bank, and row-level security holds every write to it.
+     *
+     * @return the case the alert was filed under, or empty if it was a redelivery
+     */
     public Optional<String> accept(Alert alert) {
-        return transactions.execute(status -> {
+        return Tenancy.call(alert.tenantId(), () -> transactions.execute(status -> {
             if (alerts.exists(alert.alertId())) {
                 return Optional.<String>empty();
             }
@@ -37,6 +42,6 @@ public class CaseIntake {
                 return Optional.<String>empty();
             }
             return Optional.of(caseId);
-        });
+        }));
     }
 }

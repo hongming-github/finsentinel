@@ -103,7 +103,10 @@ curl -s -H "Authorization: Bearer $TOKEN" localhost:8090/api/tenants/straits/cas
 Every request needs a bearer token from the Keycloak realm `finsentinel` (deploy/keycloak) with this platform as
 audience. The token's `tenant` claim must match the path (another bank's path is 404, like a case that does not exist);
 roles: `analyst` reads and decides, `supervisor` reads and sees `llm-usage`, `assistant` uses MCP only. Anything not
-listed is denied (ADR 0014).
+listed is denied (ADR 0014). Underneath, Postgres row-level security holds every tenant table to the request's bank
+(the platform logs in as `finsentinel_app`, not the schema owner); each bank's agents get only the tools of the systems
+it has connected (`finsentinel.systems.connected`); phone numbers, emails, NRIC and card numbers reach the model as
+per-case pseudonyms (ADR 0015).
 
 Lifecycle: `ANALYSIS → AWAITING_DECISION → CLOSED` (or `FAILED` after the maximum attempts). A new alert on the account
 re-opens the case; `REQUEST_REANALYSIS` sends it back to the agents with the analyst's note. Decisions and readiness are
