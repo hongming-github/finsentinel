@@ -51,7 +51,7 @@ class LlmCaseInvestigator implements CaseInvestigator {
         LlmUsage usage = draft.usage();
         boolean involvesTransfer = tools.involvesTransfer();
         List<String> problems = CaseReportValidator.problems(draft.value(), tools.seenTxnIds(), tools.seenChunkIds(),
-                involvesTransfer, rules);
+                involvesTransfer, tools.untrustedInstructions(), rules);
         List<String> repaired = new ArrayList<>();
         for (int repair = 0; !problems.isEmpty() && repair < rules.maxRepairs(); repair++) {
             repaired.addAll(problems);
@@ -59,14 +59,14 @@ class LlmCaseInvestigator implements CaseInvestigator {
                     ReportWriting.FIX_WITH_TOOLS));
             usage = usage.plus(draft.usage());
             problems = CaseReportValidator.problems(draft.value(), tools.seenTxnIds(), tools.seenChunkIds(),
-                    involvesTransfer, rules);
+                    involvesTransfer, tools.untrustedInstructions(), rules);
         }
         if (!problems.isEmpty()) {
             throw new InvalidReportException(problems);
         }
         // Reranking inside regulation searches is part of what this investigation cost.
         return InvestigationResult.of(draft.value(), tools.calls(), List.copyOf(repaired), usage.plus(tools.toolUsage()),
-                tools.evidence());
+                tools.evidence(), tools.untrustedInstructions());
     }
 
     /** See {@link ReportWriting#caseBrief}: playbooks, then alerts, then the analyst's note. */

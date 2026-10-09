@@ -148,7 +148,7 @@ class MultiAgentAgentsTest {
 
     private static SpecialistReport report(Specialist specialist, Set<String> seen, ToolCall... calls) {
         return new SpecialistReport(specialist, false, specialist + " stub summary", List.of(), List.of(),
-                List.of(calls), seen, Set.of(), LlmUsage.NONE);
+                List.of(calls), seen, Set.of(), LlmUsage.NONE, List.of());
     }
 
     private AgentModels models(ChatModel model) {

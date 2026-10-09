@@ -1,5 +1,6 @@
 package com.finsentinel.platform.cases;
 
+import com.finsentinel.platform.investigation.InvestigationResult;
 import com.finsentinel.platform.systems.SystemsProperties;
 import com.finsentinel.common.Severity;
 import com.finsentinel.platform.PlatformTest;
@@ -53,6 +54,22 @@ class CaseWorkerTest {
     @AfterEach
     void resetStub() {
         investigator.reset();
+    }
+
+    @Test
+    void plantedInstructionsTheToolsFlaggedAreRecordedOnTheCase() {
+        String caseId = newCase(Severity.HIGH);
+        List<String> flagged = List.of("getCustomerProfile: addresses automated systems");
+        investigator.respondWith(c -> {
+            InvestigationResult r = StubCaseInvestigator.defaultResult(c);
+            return new InvestigationResult(r.report(), r.toolCalls(), r.repairedIssues(), r.model(), r.inputTokens(),
+                    r.outputTokens(), r.cachedInputTokens(), r.llmCalls(), r.latencyMs(), List.of(), null, null, flagged);
+        });
+
+        worker.runOnce();
+
+        assertThat(eventTypes(cases, tenant, caseId)).containsExactly("OPENED", "UNTRUSTED_INSTRUCTIONS", "ANALYSED");
+        assertThat(cases.events(tenant, caseId).get(1).detail().toString()).contains("addresses automated systems");
     }
 
     @Test

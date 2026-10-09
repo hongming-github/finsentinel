@@ -58,6 +58,6 @@ public class StubSpecialistAgents implements SpecialistAgents {
         return new SpecialistReport(specialist, false, specialist + " stub summary",
                 List.of(new CaseReport.Finding(specialist + " stub finding", caseContext.txnIds())), List.of(),
                 List.of(), Set.copyOf(caseContext.txnIds()), Set.of(),
-                new LlmUsage("stub-specialist", 100, 20, null, 1, 1));
+                new LlmUsage("stub-specialist", 100, 20, null, 1, 1), List.of());
     }
 }
