@@ -13,10 +13,12 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.Map;
+import java.util.function.Supplier;
 
 /**
  * One MCP server, connected on first use. The platform starts and keeps working when a server is down: a failed call
- * drops the connection, and the next call connects again. Thread-safe.
+ * drops the connection, and the next call connects again. Thread-safe. Every request carries the platform's own
+ * access token; no token (identity provider down) fails the call like a server that is down.
  */
 class McpServerConnection implements AutoCloseable {
 
@@ -25,14 +27,17 @@ class McpServerConnection implements AutoCloseable {
     private final Duration connectTimeout;
     private final Duration requestTimeout;
     private final JsonMapper json;
+    private final Supplier<String> bearerToken;
     private McpSyncClient client;
 
-    McpServerConnection(String name, URI url, Duration connectTimeout, Duration requestTimeout, JsonMapper json) {
+    McpServerConnection(String name, URI url, Duration connectTimeout, Duration requestTimeout, JsonMapper json,
+                        Supplier<String> bearerToken) {
         this.name = name;
         this.url = url;
         this.connectTimeout = connectTimeout;
         this.requestTimeout = requestTimeout;
         this.json = json;
+        this.bearerToken = bearerToken;
     }
 
     <T> T call(String tool, Map<String, Object> arguments, Class<T> type) {
@@ -72,6 +77,8 @@ class McpServerConnection implements AutoCloseable {
         if (client == null) {
             McpSyncClient fresh = McpClient.sync(HttpClientStreamableHttpTransport.builder(url.toString())
                             .clientBuilder(HttpClient.newBuilder().connectTimeout(connectTimeout))
+                            .httpRequestCustomizer((request, method, endpoint, body, context) ->
+                                    request.header("Authorization", "Bearer " + bearerToken.get()))
                             .jsonMapper(new JacksonMcpJsonMapper(json))
                             .build())
                     .jsonSchemaValidator(new DefaultJsonSchemaValidator(json))

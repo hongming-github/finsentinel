@@ -1,6 +1,6 @@
 # 0002. MCP for systems we do not own; in-process tools for our own data
 
-- Status: accepted (MCP servers and client in phase 4 step C1, the platform's own MCP server in C3; OAuth in phase 6)
+- Status: accepted (MCP servers and client in phase 4 step C1, the platform's own MCP server in C3; OAuth in phase 6A, ADR 0014)
 - Date: 2026-09-30
 
 ## Context
@@ -59,8 +59,8 @@ compliance search to external agents).
 - The tools are registered with the MCP server only, as tool specifications, never as a `ToolCallbackProvider` bean:
   Spring AI's tool resolver collects those beans, which would put tenant-parameterised tools where our own agents'
   tool calling looks.
-- Case tools take the tenant as a parameter, like the REST path; every read is filtered by it. Until phase 6 the
-  endpoint is unauthenticated, like the REST API; then the tenant comes from the caller's token.
+- Case tools took the tenant as a parameter until phase 6A; since then the tenant comes from the caller's token and
+  the tools have no such parameter (ADR 0014). Every read is filtered by it.
 - `searchRegulations` embeds the question and may rerank with a model: an LLM-cost path open to outside callers, so
   it has its own budget (`max-regulation-searches-per-hour`), a fixed-window counter in Postgres (an atomic upsert,
   exact across instances; a read-then-write version granted 10 of 5 under contention in the test).

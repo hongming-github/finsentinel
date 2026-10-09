@@ -16,7 +16,7 @@ import java.lang.annotation.Target;
  * polling and knowledge sync are off, reranking is off, and embeddings are faked: normal tests never call a
  * model API, every agent (investigator, specialists, writer, reviewer) is a stub, and the external systems are
  * fakes. Analyses run in SINGLE mode unless a test asks for MULTI. Live tests opt back in with
- * {@code finsentinel.test.fake-ai=false}.
+ * {@code finsentinel.test.fake-ai=false}. Requests authenticate with {@link TestTokens}.
  */
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)

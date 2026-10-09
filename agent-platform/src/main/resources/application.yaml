@@ -30,6 +30,26 @@ spring:
         # Read-only lookups: any instance answers any request. Endpoint: /mcp on the platform port.
         protocol: STATELESS
         instructions: Fraud cases of FinSentinel's banks and the MAS regulatory knowledge base, read-only.
+  security:
+    oauth2:
+      # Keycloak realm "finsentinel" (deploy/keycloak). Tokens must be issued by it, for this platform (audience).
+      # The decoder fetches the realm's keys on first use: the platform starts while Keycloak is still starting.
+      resourceserver:
+        jwt:
+          issuer-uri: ${FINSENTINEL_ISSUER:http://localhost:8094/realms/finsentinel}
+          audiences: [finsentinel-platform]
+      # The platform's own identity towards mcp-banking and mcp-compliance. token-uri rather than issuer-uri: an
+      # issuer would be contacted at startup, and the platform must start while the identity provider is down.
+      client:
+        registration:
+          platform-service:
+            provider: finsentinel
+            client-id: platform-service
+            client-secret: ${PLATFORM_SERVICE_SECRET:platform-service-dev-secret}
+            authorization-grant-type: client_credentials
+        provider:
+          finsentinel:
+            token-uri: ${FINSENTINEL_ISSUER:http://localhost:8094/realms/finsentinel}/protocol/openid-connect/token
   data:
     redis:
       host: localhost

@@ -52,6 +52,23 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-jdbc</artifactId>
         </dependency>
+        <!-- Callers authenticate with Keycloak-issued JWTs; the platform calls the MCP servers with its own
+             client-credentials token (ADR 0014). -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security-oauth2-resource-server</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security-oauth2-client</artifactId>
+        </dependency>
+        <!-- OAuth 2.1 for the MCP endpoint as the MCP authorization spec asks (protected resource metadata,
+             WWW-Authenticate). Version checked on Maven Central; 0.1.x targets Spring AI 2.0. -->
+        <dependency>
+            <groupId>org.springaicommunity</groupId>
+            <artifactId>mcp-server-security</artifactId>
+            <version>0.1.14</version>
+        </dependency>
         <!-- Regulation search cache, shared by every instance (ADR 0013). -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -127,6 +144,11 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webmvc-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security-test</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

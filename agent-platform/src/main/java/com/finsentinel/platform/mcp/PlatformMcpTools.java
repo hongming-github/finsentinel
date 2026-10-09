@@ -10,6 +10,7 @@ import com.finsentinel.platform.investigation.CaseReport;
 import com.finsentinel.platform.investigation.Review;
 import com.finsentinel.platform.knowledge.KnowledgeSearch;
 import com.finsentinel.platform.knowledge.RegulationHit;
+import com.finsentinel.platform.security.Caller;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
@@ -22,9 +23,9 @@ import java.util.List;
  * What the platform offers external agents over MCP (ADR 0002): read-only case lookup and the regulatory knowledge
  * base. Results are compact views, like the tools of our own agents.
  *
- * <p>Case tools take the tenant as a parameter, as the REST API takes it in the path: the caller is an analyst's
- * assistant, not one of our case-scoped agents. Every case read is filtered by that tenant. Until phase 6 the MCP
- * endpoint, like the REST API, is not authenticated; then the tenant comes from the caller's token instead.
+ * <p>Case tools have no tenant parameter: the tenant is the caller's, from its access token (ADR 0014), so a model
+ * driving the client cannot be talked into another bank's cases. Every case read is filtered by it; a token without a
+ * tenant gets no cases at all.
  */
 @Component
 class PlatformMcpTools {
@@ -46,25 +47,25 @@ class PlatformMcpTools {
         this.props = props;
     }
 
-    @Tool(description = "List a bank's fraud cases with each one's latest verdict (disposition, risk score). Sorted by "
+    @Tool(description = "List your bank's fraud cases with each one's latest verdict (disposition, risk score). Sorted by "
             + "alert priority, then most recently updated; not by risk score. Stages: ANALYSIS (agents working), "
             + "AWAITING_DECISION (report ready for an analyst), CLOSED, FAILED.")
-    List<CaseSummary> listCases(@ToolParam(description = "Bank (tenant) id, e.g. straits") String tenantId,
-                                @ToolParam(description = "Only cases in this stage; omit for all", required = false) CaseStage stage,
+    List<CaseSummary> listCases(@ToolParam(description = "Only cases in this stage; omit for all", required = false) CaseStage stage,
                                 @ToolParam(description = "Most cases to return; large values are capped", required = false) Integer limit) {
         int max = limit == null ? props.maxCases() : Math.clamp(limit, 1, props.maxCases());
-        return cases.listWithLatestVerdict(tenantId, stage, max).stream()
+        return cases.listWithLatestVerdict(Caller.currentTenant(), stage, max).stream()
                 .map(l -> CaseSummary.of(l.fraudCase(), l.latestDisposition(), l.latestRiskScore()))
                 .toList();
     }
 
-    @Tool(description = "One fraud case of a bank: its alerts, the latest analysis report (disposition, risk score, "
+    @Tool(description = "One fraud case of your bank: its alerts, the latest analysis report (disposition, risk score, "
             + "findings with transaction ids, recommended actions, regulatory notes citing chunk ids) and the reviewer's "
             + "verdict, and the analyst's decision if any.")
-    CaseView getCase(@ToolParam(description = "Bank (tenant) id, e.g. straits") String tenantId,
-                     @ToolParam(description = "Case id") String caseId) {
+    CaseView getCase(@ToolParam(description = "Case id") String caseId) {
+        String tenantId = Caller.currentTenant();
+        // Same answer for another bank's case as for one that does not exist.
         FraudCase c = cases.find(tenantId, caseId)
-                .orElseThrow(() -> new IllegalArgumentException("no case " + caseId + " for tenant " + tenantId));
+                .orElseThrow(() -> new IllegalArgumentException("no case " + caseId));
         List<AlertView> caseAlerts = alerts.findByCase(tenantId, caseId).stream().map(StoredAlert::alert)
                 .map(AlertView::of).toList();
         AnalysisView latest = cases.analyses(tenantId, caseId).stream().findFirst().map(AnalysisView::of).orElse(null);
