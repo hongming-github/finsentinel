@@ -14,7 +14,7 @@ import java.util.TreeMap;
 
 /**
  * What a bank's case analyses cost: per case and in total, split by model and by analysis mode. Answers "what does
- * an alert cost us" and shows what routing to a stronger model is buying.
+ * an alert cost us" and shows what routing to a stronger model is buying, and what the regulation search cache saves.
  */
 @RestController
 @RequestMapping("/api/tenants/{tenantId}/llm-usage")
@@ -71,10 +71,37 @@ class UsageController {
                         rs.getBigDecimal("average_cost"), rs.getLong("average_latency_ms"),
                         rs.getDouble("average_calls")))
                 .list();
-        return new UsageReport(d, total, byModel, byMode);
+        SearchCacheStats searchCache = jdbc.sql("""
+                        select count(*) as searches,
+                               count(*) filter (where cast(t ->> 'cacheHit' as boolean)) as hits,
+                               coalesce(sum(cast(t ->> 'savedUsd' as numeric)), 0) as saved
+                        from case_analysis a join fraud_case c using (case_id),
+                             jsonb_array_elements(a.tool_calls) t
+                        where c.tenant_id = :tenantId and a.created_at > now() - make_interval(days => :days)
+                          and t ->> 'tool' = :tool and t ->> 'cacheHit' is not null
+                        """)
+                .param("tenantId", tenantId)
+                .param("days", d)
+                .param("tool", "searchRegulations")
+                .query((rs, n) -> SearchCacheStats.of(rs.getInt("searches"), rs.getInt("hits"),
+                        rs.getBigDecimal("saved")))
+                .single();
+        return new UsageReport(d, total, byModel, byMode, searchCache);
     }
 
-    record UsageReport(int days, CostStats costPerCase, Map<String, BigDecimal> costByModel, List<ModeStats> byMode) {
+    record UsageReport(int days, CostStats costPerCase, Map<String, BigDecimal> costByModel, List<ModeStats> byMode,
+                       SearchCacheStats regulationSearchCache) {
+    }
+
+    /**
+     * Regulation searches made while the cache was on, and how many it answered. {@code savedUsd} is what the cached
+     * results had cost to produce: the rerank calls the hits avoided.
+     */
+    record SearchCacheStats(int searches, int hits, Double hitRate, BigDecimal savedUsd) {
+
+        static SearchCacheStats of(int searches, int hits, BigDecimal savedUsd) {
+            return new SearchCacheStats(searches, hits, searches == 0 ? null : (double) hits / searches, savedUsd);
+        }
     }
 
     /** Over analyses with a recorded cost; {@code total} is their sum. */

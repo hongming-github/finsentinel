@@ -39,7 +39,7 @@ class LlmSpecialistAgents implements SpecialistAgents {
         InvestigationTools tools = toolsFactory.forCase(caseContext);
         LlmGateway.Answer<SpecialistFindings> answer = models.ask(AgentRole.SPECIALIST, caseContext,
                 prompts.get(specialist),
-                "Examine this case. " + ReportWriting.caseBrief(caseContext, playbooks, json),
+                "Examine this case." + ReportWriting.caseBrief(caseContext, playbooks, json),
                 tools.callbacks(specialist.tools()), SpecialistFindings.class);
         SpecialistFindings found = answer.value();
         List<CaseReport.RegulatoryNote> notes = specialist == Specialist.REGULATIONS ? found.regulatoryNotes() : List.of();

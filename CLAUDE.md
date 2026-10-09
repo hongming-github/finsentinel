@@ -13,6 +13,7 @@ committed, and how the user likes to work. Keep it updated at the end of each se
 - Infra: `docker compose -f deploy/docker-compose.yml --profile core --profile systems up -d`
 - Run: see README "Quick start"
 - Retrieval eval (costs a little): `./mvnw -pl agent-platform test -Dtest=RetrievalEvalTest -Dlive=true -Dsurefire.failIfNoSpecifiedTests=false`
+- Semantic cache evaluation (embeddings only, under $0.001): `./mvnw -pl agent-platform test -Dtest=SemanticCacheEvalTest -Dlive=true -Dsurefire.failIfNoSpecifiedTests=false`
 - Knowledge documents: `./scripts/fetch-knowledge.sh` (PDFs are gitignored, MAS copyright)
 - Live LLM tests (cost money: about $0.10 per run in the default SINGLE mode, prints cost per case; add
   `-Dlive.modes=SINGLE,MULTI` for a mode comparison): `./mvnw -pl agent-platform test -Dtest=LiveInvestigationTest -Dlive=true -Dsurefire.failIfNoSpecifiedTests=false`
@@ -65,6 +66,12 @@ committed, and how the user likes to work. Keep it updated at the end of each se
 - Every model the platform can call has a price in `finsentinel.llm.prices` (USD per million tokens, with the date it
   was checked on developers.openai.com); startup fails otherwise. Cost is computed from the model the provider
   reports, so do not fake it in tests that assert on cost.
+- Regulation search results are cached in Redis by exact normalised question only (`SearchCache`, ADR 0013). Never
+  add a semantic (embedding-similarity) cache in front of retrieval or reranking without re-running
+  `SemanticCacheEvalTest`: near-miss questions embed above most paraphrases. Redis is disposable: errors are misses,
+  degraded rankings are not cached, nothing that must be correct lives there.
+- Prompts put text shared by cases (system prompt, playbooks) before case data; case data first disables the provider's
+  prompt cache for every case. Watch the cached-token share after prompt changes.
 - Every model call goes through `LlmGateway` (never a ChatClient directly): it prices the call and falls back to
   another provider on provider failure only (OpenAI SDK errors), with a per-instance circuit breaker (ADR 0012).
   Models are `provider:model`; a new provider needs `structured-output-with-tools` set honestly.

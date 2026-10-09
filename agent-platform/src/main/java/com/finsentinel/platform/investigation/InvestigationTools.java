@@ -85,7 +85,8 @@ class InvestigationTools {
         toolUsage.accumulateAndGet(search.usage(), LlmUsage::plus);
         List<RegulationHit> hits = search.hits().stream().map(this::trimmed).toList();
         hits.forEach(h -> seenChunkIds.add(h.chunkId()));
-        calls.add(new ToolCall("searchRegulations", query, hits.size(), millisSince(start)));
+        calls.add(new ToolCall("searchRegulations", query, hits.size(), millisSince(start), search.cacheHit(),
+                search.savedUsd()));
         return new RegulationSearchResult(hits, hits.isEmpty() ? "No matching passages." : null);
     }
 

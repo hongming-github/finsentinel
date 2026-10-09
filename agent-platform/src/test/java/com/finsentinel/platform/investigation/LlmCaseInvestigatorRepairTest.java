@@ -72,6 +72,25 @@ class LlmCaseInvestigatorRepairTest {
     }
 
     @Test
+    void casesOfTheSameRuleShareThePlaybookAsAPromptPrefix() {
+        ScriptedChatModel model = new ScriptedChatModel(json, CaseReportValidatorTest.report(Disposition.NEEDS_REVIEW, 50, List.of()),
+                CaseReportValidatorTest.report(Disposition.NEEDS_REVIEW, 50, List.of()));
+
+        investigator(model).investigate(anyCase());
+        investigator(model).investigate(anyCase());
+
+        // The provider caches shared prefixes only: case data placed before the playbook made every case a miss.
+        String a = model.prompts.get(0);
+        String b = model.prompts.get(1);
+        int shared = 0;
+        while (shared < Math.min(a.length(), b.length()) && a.charAt(shared) == b.charAt(shared)) {
+            shared++;
+        }
+        assertThat(a.substring(0, shared)).contains("Playbook for VELOCITY").contains("card testing");
+        assertThat(a.substring(shared)).as("after the first case-specific character").doesNotContain("Playbook");
+    }
+
+    @Test
     void caseWithTwoRulesGetsBothPlaybooksAndTheAnalystNote() {
         ScriptedChatModel model = new ScriptedChatModel(json, CaseReportValidatorTest.report(Disposition.NEEDS_REVIEW, 50, List.of()));
         String tenant = uniqueTenant();

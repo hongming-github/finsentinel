@@ -5,17 +5,20 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
  * Hybrid retrieval over the regulatory corpus: vector and keyword candidates fused with reciprocal rank fusion,
  * then optionally reranked by an LLM. {@link Mode} exists so the retrieval evaluation can compare the stages.
+ * The production pipeline goes through {@link SearchCache}; the evaluation modes never do.
  */
 @Component
 public class KnowledgeSearch {
@@ -27,12 +30,15 @@ public class KnowledgeSearch {
     private final KnowledgeRepository repository;
     private final Embedder embedder;
     private final Reranker reranker;
+    private final SearchCache cache;
     private final KnowledgeProperties.Search props;
 
-    KnowledgeSearch(KnowledgeRepository repository, Embedder embedder, Reranker reranker, KnowledgeProperties props) {
+    KnowledgeSearch(KnowledgeRepository repository, Embedder embedder, Reranker reranker, SearchCache cache,
+                    KnowledgeProperties props) {
         this.repository = repository;
         this.embedder = embedder;
         this.reranker = reranker;
+        this.cache = cache;
         this.props = props.search();
     }
 
@@ -41,34 +47,64 @@ public class KnowledgeSearch {
         return searchWithUsage(query).hits();
     }
 
-    /** The production pipeline, with what the reranking model cost (embedding the query is not counted). */
+    /**
+     * The production pipeline, with what the reranking model cost (embedding the query is not counted). A cached
+     * result costs nothing and reports what producing it had cost.
+     */
     public SearchResult searchWithUsage(String query) {
-        return run(query, props.rerank().enabled() ? Mode.HYBRID_RERANK : Mode.HYBRID, props.topK());
+        String corpus = cache.enabled() ? repository.corpusVersion() : null;
+        Optional<SearchCache.Entry> cached = cache.get(query, corpus);
+        if (cached.isPresent()) {
+            List<RegulationHit> hits = hits(cached.get().chunkIds());
+            if (hits.size() == cached.get().chunkIds().size()) {
+                return new SearchResult(hits, LlmUsage.NONE, true, cached.get().costUsd());
+            }
+        }
+        Ranked ranked = run(query, props.rerank().enabled() ? Mode.HYBRID_RERANK : Mode.HYBRID, props.topK());
+        if (!ranked.degraded() && !ranked.hits().isEmpty()) {
+            // A degraded ranking (provider down) is served but not remembered: it would outlive the outage.
+            cache.put(query, corpus, new SearchCache.Entry(
+                    ranked.hits().stream().map(RegulationHit::chunkId).toList(), ranked.usage().costUsd()));
+        }
+        return new SearchResult(ranked.hits(), ranked.usage(), cache.enabled() ? false : null, null);
     }
 
     public List<RegulationHit> search(String query, Mode mode, int topK) {
         return run(query, mode, topK).hits();
     }
 
-    public record SearchResult(List<RegulationHit> hits, LlmUsage usage) {
+    /**
+     * @param cacheHit served from {@link SearchCache}; null when the cache is off
+     * @param savedUsd on a hit, what the cached search had cost to produce
+     */
+    public record SearchResult(List<RegulationHit> hits, LlmUsage usage, Boolean cacheHit, BigDecimal savedUsd) {
     }
 
-    private SearchResult run(String query, Mode mode, int topK) {
-        Reranker.Ranking ranking = switch (mode) {
-            case VECTOR -> free(repository.vectorSearch(embedder.embed(query), props.candidates()));
-            case KEYWORD -> free(repository.keywordSearch(query, props.candidates()));
-            case HYBRID -> free(hybrid(query));
-            case HYBRID_RERANK -> rerank(query, hybrid(query));
+    /** @param degraded a stage failed and was skipped (keyword-only, or fused order instead of reranked) */
+    private record Ranked(List<RegulationHit> hits, LlmUsage usage, boolean degraded) {
+    }
+
+    private record Fused(List<String> ids, boolean degraded) {
+    }
+
+    private Ranked run(String query, Mode mode, int topK) {
+        Fused fused = switch (mode) {
+            case VECTOR -> new Fused(repository.vectorSearch(embedder.embed(query), props.candidates()), false);
+            case KEYWORD -> new Fused(repository.keywordSearch(query, props.candidates()), false);
+            case HYBRID, HYBRID_RERANK -> hybrid(query);
         };
+        Reranker.Ranking ranking = new Reranker.Ranking(fused.ids(), LlmUsage.NONE);
+        boolean degraded = fused.degraded();
+        if (mode == Mode.HYBRID_RERANK) {
+            Optional<Reranker.Ranking> reranked = rerank(query, fused.ids());
+            degraded |= reranked.isEmpty();
+            ranking = reranked.orElse(ranking);
+        }
         List<String> ranked = ranking.ids();
-        return new SearchResult(hits(ranked.subList(0, Math.min(topK, ranked.size()))), ranking.usage());
+        return new Ranked(hits(ranked.subList(0, Math.min(topK, ranked.size()))), ranking.usage(), degraded);
     }
 
-    private static Reranker.Ranking free(List<String> ids) {
-        return new Reranker.Ranking(ids, LlmUsage.NONE);
-    }
-
-    private List<String> hybrid(String query) {
+    private Fused hybrid(String query) {
         List<String> keyword = repository.keywordSearch(query, props.candidates());
         List<String> vector;
         try {
@@ -77,9 +113,9 @@ public class KnowledgeSearch {
             // The embedding provider is down and the question is not in the embedding cache: keyword search alone is
             // a worse ranking, not a failed search. Same rule as for reranking.
             log.warn("Embedding failed, searching by keyword only: {}", e.toString());
-            return keyword;
+            return new Fused(keyword, true);
         }
-        return fuse(List.of(vector, keyword), props.rrfK());
+        return new Fused(fuse(List.of(vector, keyword), props.rrfK()), false);
     }
 
     /**
@@ -99,7 +135,8 @@ public class KnowledgeSearch {
                 .toList();
     }
 
-    private Reranker.Ranking rerank(String query, List<String> fused) {
+    /** Empty when the reranker failed: the caller keeps the fused order. */
+    private Optional<Reranker.Ranking> rerank(String query, List<String> fused) {
         List<String> top = fused.subList(0, Math.min(props.candidates(), fused.size()));
         Map<String, KnowledgeRepository.StoredPassage> passages = byId(top);
         List<Reranker.Candidate> candidates = top.stream()
@@ -116,13 +153,13 @@ public class KnowledgeSearch {
         } catch (RuntimeException e) {
             // Reranking improves order; it must never take search down with it.
             log.warn("Rerank failed, using fused order: {}", e.toString());
-            return free(fused);
+            return Optional.empty();
         }
         if (reranked.size() < props.topK()) {
             // Never return fewer passages than plain fusion would because the grader dropped some.
             fused.stream().filter(id -> !reranked.contains(id)).limit(props.topK() - reranked.size()).forEach(reranked::add);
         }
-        return new Reranker.Ranking(reranked, usage);
+        return Optional.of(new Reranker.Ranking(reranked, usage));
     }
 
     /** Full passages by chunk id, in the order asked; unknown ids are left out. */

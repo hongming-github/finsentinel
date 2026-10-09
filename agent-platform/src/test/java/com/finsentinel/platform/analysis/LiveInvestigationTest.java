@@ -268,11 +268,14 @@ class LiveInvestigationTest {
                 alert.customerId(), List.of(alert), 1, null), claim.claimedAt(), mode);
         InvestigationResult result = outcome.investigation();
         System.out.println(json.writerWithDefaultPrettyPrinter().writeValueAsString(outcome));
-        results.add("%-6s %-60s %-18s %3d review=%-8s calls=%2d tokens=%6d/%5d %6dms $%.4f %s".formatted(mode,
-                Thread.currentThread().getStackTrace()[2].getMethodName(), result.report().disposition(),
-                result.report().riskScore(), outcome.review().approved() ? "approved" : "rejected", result.llmCalls(),
-                result.inputTokens(), result.outputTokens(), result.latencyMs(), result.costUsd(),
-                result.costByModel().keySet()));
+        List<ToolCall> searches = result.toolCalls().stream().filter(t -> t.tool().equals("searchRegulations")).toList();
+        results.add("%-6s %-60s %-18s %3d review=%-8s calls=%2d tokens in/cached/out=%6d/%6d/%5d search-cache=%d/%d %6dms $%.4f %s"
+                .formatted(mode, Thread.currentThread().getStackTrace()[2].getMethodName(),
+                        result.report().disposition(), result.report().riskScore(),
+                        outcome.review().approved() ? "approved" : "rejected", result.llmCalls(), result.inputTokens(),
+                        result.cachedInputTokens() == null ? 0 : result.cachedInputTokens(), result.outputTokens(),
+                        searches.stream().filter(t -> Boolean.TRUE.equals(t.cacheHit())).count(), searches.size(),
+                        result.latencyMs(), result.costUsd(), result.costByModel().keySet()));
         return result;
     }
 

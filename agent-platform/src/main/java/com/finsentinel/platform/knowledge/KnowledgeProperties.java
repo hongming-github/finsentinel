@@ -3,6 +3,7 @@ package com.finsentinel.platform.knowledge;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.nio.file.Path;
+import java.time.Duration;
 
 /**
  * Bound from {@code finsentinel.knowledge.*}.
@@ -32,13 +33,14 @@ public record KnowledgeProperties(Path dir, boolean syncOnStartup, int maxChunks
      * @param maxSearchesPerCase searches one investigation may run; each one can cost a rerank call
      * @param agentPassageChars  passage text returned to the agent per hit; long passages drown the case evidence
      * @param rerank             LLM reranking of the fused candidates
+     * @param cache              exact-match cache of search results, shared by every instance
      */
     public record Search(int candidates, int topK, int rrfK, int maxSearchesPerCase, int agentPassageChars,
-                         Rerank rerank) {
+                         Rerank rerank, Cache cache) {
 
         public Search {
             if (candidates < topK || topK <= 0 || rrfK <= 0 || maxSearchesPerCase <= 0 || agentPassageChars < 200
-                    || rerank == null) {
+                    || rerank == null || cache == null) {
                 throw new IllegalArgumentException("finsentinel.knowledge.search: invalid settings");
             }
         }
@@ -50,5 +52,20 @@ public record KnowledgeProperties(Path dir, boolean syncOnStartup, int maxChunks
      * @param maxPassageChars passage text sent to the reranker per candidate
      */
     public record Rerank(boolean enabled, String model, int maxPassageChars) {
+    }
+
+    /**
+     * Results are cached under the normalised question text only, never by embedding similarity (ADR 0013).
+     *
+     * @param enabled on/off; off means every search runs the full pipeline
+     * @param ttl     how long a result is reused; a re-ingested corpus or changed search settings miss anyway
+     */
+    public record Cache(boolean enabled, Duration ttl) {
+
+        public Cache {
+            if (ttl == null || ttl.isNegative() || ttl.isZero()) {
+                throw new IllegalArgumentException("finsentinel.knowledge.search.cache: invalid settings");
+            }
+        }
     }
 }
