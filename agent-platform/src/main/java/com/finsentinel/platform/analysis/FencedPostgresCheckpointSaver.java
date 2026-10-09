@@ -3,6 +3,7 @@ package com.finsentinel.platform.analysis;
 import com.alibaba.cloud.ai.graph.RunnableConfig;
 import com.alibaba.cloud.ai.graph.checkpoint.BaseCheckpointSaver;
 import com.alibaba.cloud.ai.graph.checkpoint.Checkpoint;
+import com.finsentinel.platform.security.Tenancy;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 
@@ -54,13 +55,15 @@ class FencedPostgresCheckpointSaver implements BaseCheckpointSaver {
     /** Newest first, as the library expects. */
     @Override
     public Collection<Checkpoint> list(RunnableConfig config) {
-        return load(CaseRun.of(config));
+        CaseRun run = CaseRun.of(config);
+        return Tenancy.call(run.tenantId(), () -> load(run));
     }
 
     /** The checkpoint named in the config, else the newest. */
     @Override
     public Optional<Checkpoint> get(RunnableConfig config) {
-        LinkedList<Checkpoint> checkpoints = load(CaseRun.of(config));
+        CaseRun run = CaseRun.of(config);
+        LinkedList<Checkpoint> checkpoints = Tenancy.call(run.tenantId(), () -> load(run));
         return config.checkPointId()
                 .map(id -> checkpoints.stream().filter(cp -> cp.getId().equals(id)).findFirst())
                 .orElseGet(() -> Optional.ofNullable(checkpoints.peek()));
@@ -73,6 +76,11 @@ class FencedPostgresCheckpointSaver implements BaseCheckpointSaver {
     @Override
     public RunnableConfig put(RunnableConfig config, Checkpoint checkpoint) {
         CaseRun run = CaseRun.of(config);
+        // Graph nodes run on pool threads: the scope comes from the run, not from the calling thread.
+        return Tenancy.call(run.tenantId(), () -> write(config, checkpoint, run));
+    }
+
+    private RunnableConfig write(RunnableConfig config, Checkpoint checkpoint, CaseRun run) {
         if (config.checkPointId().isPresent()) {
             requireOwner(jdbc.sql(OWNER + """
                             update graph_checkpoint g
@@ -111,6 +119,10 @@ class FencedPostgresCheckpointSaver implements BaseCheckpointSaver {
     @Override
     public Tag release(RunnableConfig config) {
         CaseRun run = CaseRun.of(config);
+        return Tenancy.call(run.tenantId(), () -> releaseRun(run));
+    }
+
+    private Tag releaseRun(CaseRun run) {
         LinkedList<Checkpoint> checkpoints = load(run);
         boolean owner = jdbc.sql(OWNER + """
                         , released as (

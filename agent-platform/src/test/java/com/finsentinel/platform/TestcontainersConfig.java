@@ -17,8 +17,11 @@ import org.testcontainers.utility.DockerImageName;
 @TestConfiguration(proxyBeanMethods = false)
 public class TestcontainersConfig {
 
+    /**
+     * Not a service connection: that would log the platform in as the container's superuser, which bypasses row-level
+     * security. The platform logs in as finsentinel_app (created by V10), Flyway as the owner, as in production.
+     */
     @Bean
-    @ServiceConnection
     PostgreSQLContainer postgres() {
         return new PostgreSQLContainer(DockerImageName.parse("pgvector/pgvector:0.8.6-pg17")
                 .asCompatibleSubstituteFor("postgres"));
@@ -31,6 +34,18 @@ public class TestcontainersConfig {
     }
 
     /** Off when a test brings its own identity provider ({@code finsentinel.test.external-issuer=true}). */
+    @Bean
+    DynamicPropertyRegistrar database(PostgreSQLContainer postgres) {
+        return registry -> {
+            registry.add("spring.datasource.url", postgres::getJdbcUrl);
+            registry.add("spring.datasource.username", () -> "finsentinel_app");
+            registry.add("spring.datasource.password", () -> "test-app-password");
+            registry.add("spring.flyway.url", postgres::getJdbcUrl);
+            registry.add("spring.flyway.user", postgres::getUsername);
+            registry.add("spring.flyway.password", postgres::getPassword);
+        };
+    }
+
     @Bean
     DynamicPropertyRegistrar testIssuer(Environment environment) {
         if (environment.getProperty("finsentinel.test.external-issuer", Boolean.class, false)) {

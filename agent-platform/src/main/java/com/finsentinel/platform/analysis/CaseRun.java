@@ -10,14 +10,16 @@ import java.util.UUID;
  * One analysis run of a case as seen by the worker running it: the graph thread it owns and the claim that fences
  * its writes. Travels to the checkpoint saver in the {@link RunnableConfig} metadata.
  *
+ * @param tenantId  the case's bank: the saver runs on the graph's pool threads and sets this scope itself
  * @param claimedAt the worker's claim on the case; checkpoints are written only while the case still carries it
  */
-record CaseRun(UUID caseId, int run, Instant claimedAt) {
+record CaseRun(UUID caseId, String tenantId, int run, Instant claimedAt) {
 
     static final String METADATA_KEY = "finsentinel.caseRun";
 
     CaseRun {
         Objects.requireNonNull(caseId, "caseId");
+        Objects.requireNonNull(tenantId, "tenantId");
         Objects.requireNonNull(claimedAt, "claimedAt");
     }
 

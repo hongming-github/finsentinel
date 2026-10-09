@@ -39,7 +39,7 @@ class TransactionStoreIntegrationTest {
         kafka.send(Topics.TRANSACTIONS, t1.accountKey(), json.writeValueAsString(t1));
         kafka.send(Topics.TRANSACTIONS, t2.accountKey(), json.writeValueAsString(t2));
 
-        await().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
+        await().pollInSameThread().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
                 assertThat(repository.findRecent(tenant, "acc-1", Instant.now().minusSeconds(3600), 100))
                         .containsExactlyInAnyOrder(t1, t2));
     }

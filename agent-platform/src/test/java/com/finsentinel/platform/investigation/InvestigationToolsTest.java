@@ -1,5 +1,6 @@
 package com.finsentinel.platform.investigation;
 
+import com.finsentinel.platform.systems.BankSystem;
 import com.finsentinel.common.Alert;
 import com.finsentinel.common.AlertRule;
 import com.finsentinel.common.Channel;
@@ -11,6 +12,8 @@ import com.finsentinel.platform.cases.CaseIntake;
 import com.finsentinel.platform.systems.AccountDetails;
 import com.finsentinel.platform.systems.CustomerProfile;
 import com.finsentinel.platform.systems.ScreeningResult;
+import com.finsentinel.platform.systems.SystemsProperties;
+import com.finsentinel.platform.TestData;
 import com.finsentinel.platform.transaction.TransactionRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.springframework.ai.tool.ToolCallback;
@@ -48,6 +51,10 @@ class InvestigationToolsTest {
     JdbcClient jdbc;
     @Autowired
     FakeExternalSystems systems;
+    @Autowired
+    CasePlanner planner;
+    @Autowired
+    SystemsProperties systemsConfig;
 
     @AfterEach
     void resetSystems() {
@@ -133,7 +140,7 @@ class InvestigationToolsTest {
         String currentCase = intake.accept(current).orElseThrow();
 
         List<InvestigationTools.PriorAlert> prior = toolsFactory.forCase(new CaseContext(currentCase, tenant, "acc-1",
-                current.customerId(), List.of(current), 1, null)).getPriorAlerts(30);
+                current.customerId(), List.of(current), 1, null, BankSystem.ALL)).getPriorAlerts(30);
 
         assertThat(prior).singleElement().satisfies(p -> {
             assertThat(p.rule()).isEqualTo("LARGE_AMOUNT");
@@ -200,6 +207,25 @@ class InvestigationToolsTest {
     }
 
     @Test
+    void whatTheModelReceivesFromAToolIsPseudonymised() {
+        String tenant = uniqueTenant();
+        systems.profile(tenant, new CustomerProfile("cus-acc-1", "MASS", LocalDate.parse("2019-03-14"), "LOW",
+                "Engineer", "SG", List.of(), List.of(new CustomerProfile.Note(Instant.now(), "contact-centre",
+                "Called from +65 9123 4567, asked to send statements to tan.wei@example.com, NRIC S1234567D."))));
+        InvestigationTools tools = toolsFor(alert(tenant, "acc-1", AlertRule.GEO_JUMP, Severity.HIGH, List.of(),
+                Instant.now()));
+        ToolCallback profile = tools.callbacks().stream()
+                .filter(c -> c.getToolDefinition().name().equals("getCustomerProfile")).findFirst().orElseThrow();
+
+        String sentToModel = profile.call("{}");
+
+        assertThat(sentToModel).doesNotContain("9123 4567", "tan.wei@example.com", "S1234567D")
+                .contains("[PHONE_", "[EMAIL_", "[NRIC_", "Called from");
+        assertThat(tools.evidence()).extracting(ToolEvidence::output).as("the reviewer sees what the author saw")
+                .containsExactly(sentToModel);
+    }
+
+    @Test
     void profileViewLabelsStaffNotesAndDropsTheIds() {
         String tenant = uniqueTenant();
         Instant noted = Instant.parse("2026-09-28T16:08:35.123Z");
@@ -252,6 +278,45 @@ class InvestigationToolsTest {
                 u -> assertThat(u.unavailable()).contains("CRM could not be reached"));
         assertThat(tools.calls()).singleElement().extracting(ToolCall::arguments).asString()
                 .startsWith("unavailable: banking unavailable");
+    }
+
+    @Test
+    void aBankGetsOnlyTheToolsOfTheSystemsItConnected() {
+        String tenant = uniqueTenant();
+        Instant now = Instant.now();
+        Transaction transfer = txn(tenant, "acc-1", "900.00", Channel.TRANSFER, "SG", "payee-1", now);
+        transactions.insertAll(List.of(transfer));
+        InvestigationTools tools = toolsFactory.forCase(TestData.context(Set.of(BankSystem.BANKING),
+                alert(tenant, "acc-1", AlertRule.LARGE_AMOUNT, Severity.HIGH, List.of(transfer.txnId()), now)));
+
+        assertThat(names(tools.callbacks())).contains("getCustomerProfile", "getAlertTransactions")
+                .doesNotContain("screenTransferPayees");
+        assertThat(names(tools.callbacks(Specialist.CUSTOMER.tools())))
+                .containsExactlyInAnyOrder("getCustomerProfile", "getAccountSecurityEvents");
+        // Not offered, so the model cannot call it; called anyway, it refuses before reaching the vendor.
+        assertThat(tools.screenTransferPayees()).isInstanceOf(InvestigationTools.Unavailable.class);
+        assertThat(systems.requests()).noneMatch(r -> r.startsWith("screenCounterparty"));
+        assertThat(tools.calls()).extracting(ToolCall::arguments).contains("not connected: COMPLIANCE");
+    }
+
+    @Test
+    void aBankWithNoOutsideSystemsGetsNoCustomerSpecialist() {
+        String tenant = uniqueTenant();
+        Alert alert = alert(tenant, "acc-1", AlertRule.GEO_JUMP, Severity.HIGH, List.of("t-1"), Instant.now());
+
+        assertThat(planner.plan(TestData.context(Set.of(), alert)).specialists()).containsExactly(Specialist.TRANSACTIONS);
+        assertThat(planner.plan(TestData.context(alert)).specialists())
+                .containsExactlyInAnyOrder(Specialist.TRANSACTIONS, Specialist.CUSTOMER);
+    }
+
+    @Test
+    void connectedSystemsComeFromConfigurationPerBank() {
+        assertThat(systemsConfig.connectedFor("harbour")).containsExactly(BankSystem.BANKING);
+        assertThat(systemsConfig.connectedFor(uniqueTenant())).isEqualTo(BankSystem.ALL);
+    }
+
+    private static List<String> names(List<ToolCallback> callbacks) {
+        return callbacks.stream().map(c -> c.getToolDefinition().name()).toList();
     }
 
     private InvestigationTools toolsFor(Alert alert) {

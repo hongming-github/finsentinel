@@ -1,6 +1,7 @@
 package com.finsentinel.platform.investigation;
 
 import com.finsentinel.common.Channel;
+import com.finsentinel.platform.security.Tenancy;
 import com.finsentinel.platform.transaction.TransactionRepository;
 import org.springframework.stereotype.Component;
 
@@ -19,12 +20,19 @@ public class CasePlanner {
         this.transactions = transactions;
     }
 
+    /** Runs as a graph node, on a pool thread without a scope of its own: the case supplies it. */
     public AnalysisPlan plan(CaseContext caseContext) {
-        boolean transfer = transactions.findByIds(caseContext.tenantId(), caseContext.accountId(), caseContext.txnIds())
+        boolean transfer = Tenancy.call(caseContext.tenantId(), () -> transactions.findByIds(caseContext.tenantId(),
+                        caseContext.accountId(), caseContext.txnIds()))
                 .stream().anyMatch(t -> t.channel() == Channel.TRANSFER);
-        Set<Specialist> specialists = EnumSet.of(Specialist.TRANSACTIONS, Specialist.CUSTOMER);
-        List<String> reasons = new ArrayList<>(List.of(
-                "transactions and customer specialists run on every case"));
+        Set<Specialist> specialists = EnumSet.of(Specialist.TRANSACTIONS);
+        List<String> reasons = new ArrayList<>(List.of("transactions specialist runs on every case"));
+        if (caseContext.connectedSystems().isEmpty()) {
+            reasons.add("the bank has connected no outside systems: customer specialist skipped");
+        } else {
+            specialists.add(Specialist.CUSTOMER);
+            reasons.add("customer specialist for the bank's connected systems " + caseContext.connectedSystems());
+        }
         if (transfer) {
             specialists.add(Specialist.REGULATIONS);
             reasons.add("a transfer is involved: regulations specialist for loss responsibility and reporting duties");

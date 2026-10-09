@@ -1,5 +1,6 @@
 package com.finsentinel.platform.investigation;
 
+import com.finsentinel.platform.privacy.PiiMasker;
 import com.finsentinel.common.AlertRule;
 import com.finsentinel.common.Channel;
 import com.finsentinel.common.Severity;
@@ -30,6 +31,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @PlatformTest
 class ModelRoutingTest {
 
+    @Autowired
+    PiiMasker masker;
     @Autowired
     ModelRouter configured;
     @Autowired
@@ -80,7 +83,7 @@ class ModelRoutingTest {
         ScriptedChatModel model = new ScriptedChatModel(json,
                 CaseReportValidatorTest.report(Disposition.NEEDS_REVIEW, 50, List.of()));
         LlmCaseInvestigator investigator = new LlmCaseInvestigator(
-                new AgentModels(TestLlm.gateway(model, model, TestLlm.properties(Set.of()), Clock.systemUTC()), router),
+                new AgentModels(TestLlm.gateway(model, model, TestLlm.properties(Set.of()), Clock.systemUTC()), router, masker),
                 toolsFactory, json, investigationProps,
                 new ByteArrayResource("You are a test investigator.".getBytes()));
 

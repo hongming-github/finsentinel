@@ -42,6 +42,11 @@ final class ReportWriting {
         for (AlertRule rule : caseContext.rules()) {
             brief.append("\n\nPlaybook for ").append(rule).append(":\n").append(playbooks.get(rule));
         }
+        if (!caseContext.unconnectedSystems().isEmpty()) {
+            // Only for banks missing a system, so every other bank's prompt (and its prompt-cache prefix) is unchanged.
+            brief.append("\n\nThis bank has not connected ").append(caseContext.unconnectedSystems())
+                    .append(": their checks are not available. Say in the summary which checks could not be done.");
+        }
         brief.append("\n\nIts alerts:\n")
                 .append(json.writerWithDefaultPrettyPrinter().writeValueAsString(caseContext.alerts()));
         if (caseContext.analystNote() != null) {

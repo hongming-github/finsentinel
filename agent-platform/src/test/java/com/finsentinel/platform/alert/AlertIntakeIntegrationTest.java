@@ -40,7 +40,7 @@ class AlertIntakeIntegrationTest {
         kafka.send(Topics.ALERTS, alert.accountId(), payload);
         kafka.send(Topics.ALERTS, alert.accountId(), payload);
 
-        await().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
+        await().pollInSameThread().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
                 assertThat(repository.findRecent("harbour", 50))
                         .extracting(s -> s.alert().alertId())
                         .containsOnlyOnce(alert.alertId()));
@@ -57,7 +57,7 @@ class AlertIntakeIntegrationTest {
         kafka.send(Topics.ALERTS, good.accountId(), "{not json");
         kafka.send(Topics.ALERTS, good.accountId(), json.writeValueAsString(good));
 
-        await().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
+        await().pollInSameThread().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
                 assertThat(repository.findRecent("straits", 50))
                         .extracting(s -> s.alert().alertId())
                         .contains(good.alertId()));

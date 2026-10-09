@@ -1,5 +1,6 @@
 package com.finsentinel.platform;
 
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
@@ -29,6 +30,7 @@ import java.lang.annotation.Target;
         "finsentinel.knowledge.dir=${user.dir}/../knowledge",
         "finsentinel.analysis.mode=SINGLE"})
 @AutoConfigureMockMvc
+@ExtendWith(SystemScopeExtension.class)
 @Import({TestcontainersConfig.class, StubCaseInvestigator.class, StubSpecialistAgents.class, StubReportWriter.class,
         StubCaseReviewer.class, FakeEmbedder.class, FakeExternalSystems.class})
 public @interface PlatformTest {

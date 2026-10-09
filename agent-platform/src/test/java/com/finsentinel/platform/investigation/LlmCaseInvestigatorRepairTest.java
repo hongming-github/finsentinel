@@ -1,5 +1,9 @@
 package com.finsentinel.platform.investigation;
 
+import com.finsentinel.platform.privacy.PiiMasker;
+import com.finsentinel.common.Alert;
+import com.finsentinel.platform.TestData;
+import com.finsentinel.platform.systems.BankSystem;
 import com.finsentinel.common.AlertRule;
 import com.finsentinel.common.Severity;
 import com.finsentinel.platform.PlatformTest;
@@ -26,6 +30,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @PlatformTest
 class LlmCaseInvestigatorRepairTest {
 
+    @Autowired
+    PiiMasker masker;
     @Autowired
     InvestigationToolsFactory toolsFactory;
     @Autowired
@@ -91,13 +97,40 @@ class LlmCaseInvestigatorRepairTest {
     }
 
     @Test
+    void aBankMissingASystemIsToldWhichChecksAreNotAvailable() {
+        ScriptedChatModel model = new ScriptedChatModel(json, CaseReportValidatorTest.report(Disposition.NEEDS_REVIEW, 50, List.of()),
+                CaseReportValidatorTest.report(Disposition.NEEDS_REVIEW, 50, List.of()));
+        Alert alert = alert(uniqueTenant(), "acc-1", AlertRule.VELOCITY, Severity.MEDIUM, List.of("t1"), Instant.now());
+
+        investigator(model).investigate(TestData.context(java.util.Set.of(BankSystem.BANKING), alert));
+        investigator(model).investigate(TestData.context(alert));
+
+        assertThat(model.prompts.get(0)).contains("This bank has not connected [COMPLIANCE]");
+        assertThat(model.prompts.get(1)).as("a fully connected bank's prompt is unchanged").doesNotContain("not connected");
+    }
+
+    @Test
+    void personalDataInTheAnalystsNoteIsPseudonymisedBeforeTheModel() {
+        ScriptedChatModel model = new ScriptedChatModel(json, CaseReportValidatorTest.report(Disposition.NEEDS_REVIEW, 50, List.of()));
+        String tenant = uniqueTenant();
+        CaseContext reanalysis = new CaseContext(UUID.randomUUID().toString(), tenant, "acc-1", "cus-acc-1", List.of(
+                alert(tenant, "acc-1", AlertRule.VELOCITY, Severity.MEDIUM, List.of("t1"), Instant.now())), 2,
+                "Customer (S7654321Z) confirmed by phone on 9876 5432 that the burst was theirs.", BankSystem.ALL);
+
+        investigator(model).investigate(reanalysis);
+
+        assertThat(model.prompts.getFirst()).doesNotContain("S7654321Z", "9876 5432")
+                .contains("[NRIC_", "[PHONE_", "confirmed by phone");
+    }
+
+    @Test
     void caseWithTwoRulesGetsBothPlaybooksAndTheAnalystNote() {
         ScriptedChatModel model = new ScriptedChatModel(json, CaseReportValidatorTest.report(Disposition.NEEDS_REVIEW, 50, List.of()));
         String tenant = uniqueTenant();
         CaseContext twoRules = new CaseContext(UUID.randomUUID().toString(), tenant, "acc-1", "cus-acc-1", List.of(
                 alert(tenant, "acc-1", AlertRule.GEO_JUMP, Severity.HIGH, List.of("t1"), Instant.now()),
                 alert(tenant, "acc-1", AlertRule.VELOCITY, Severity.MEDIUM, List.of("t2"), Instant.now())),
-                2, "Customer says the UK purchase was theirs; check the card-testing burst separately.");
+                2, "Customer says the UK purchase was theirs; check the card-testing burst separately.", BankSystem.ALL);
 
         investigator(model).investigate(twoRules);
 
@@ -126,6 +159,6 @@ class LlmCaseInvestigatorRepairTest {
     }
 
     private AgentModels models(ChatModel model) {
-        return new AgentModels(TestLlm.gateway(model, model, TestLlm.properties(Set.of()), Clock.systemUTC()), router);
+        return new AgentModels(TestLlm.gateway(model, model, TestLlm.properties(Set.of()), Clock.systemUTC()), router, masker);
     }
 }

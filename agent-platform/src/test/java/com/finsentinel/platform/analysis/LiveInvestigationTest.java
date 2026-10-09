@@ -1,5 +1,6 @@
 package com.finsentinel.platform.analysis;
 
+import com.finsentinel.platform.systems.BankSystem;
 import com.finsentinel.common.Alert;
 import com.finsentinel.common.AlertRule;
 import com.finsentinel.common.Channel;
@@ -188,7 +189,9 @@ class LiveInvestigationTest {
         transactions.insertAll(history);
         systems.account(tenant, new AccountDetails("acc-ato", "ACTIVE", "Everyday Savings", LocalDate.parse("2018-11-20"),
                 List.of(new AccountDetails.SecurityEvent("PHONE_NUMBER_CHANGED", now.minus(Duration.ofDays(1)),
-                                "Changed in online banking; OTPs now go to the new number"),
+                                // Real-shaped numbers: they reach the model as two different pseudonyms (ADR 0015).
+                                "Changed in online banking from +65 9123 4567 to +65 8765 4321; OTPs now go to the new "
+                                        + "number"),
                         new AccountDetails.SecurityEvent("NEW_DEVICE_LOGIN", now.minus(Duration.ofHours(3)),
                                 "Android device never seen on this customer"),
                         new AccountDetails.SecurityEvent("TRANSFER_LIMIT_RAISED", now.minus(Duration.ofHours(2)),
@@ -265,7 +268,7 @@ class LiveInvestigationTest {
                 .getFirst();
         assertThat(claim.fraudCase().caseId()).isEqualTo(caseId);
         CaseAnalysisGraph.Outcome outcome = graph().analyse(new CaseContext(caseId, alert.tenantId(), alert.accountId(),
-                alert.customerId(), List.of(alert), 1, null), claim.claimedAt(), mode);
+                alert.customerId(), List.of(alert), 1, null, BankSystem.ALL), claim.claimedAt(), mode);
         InvestigationResult result = outcome.investigation();
         System.out.println(json.writerWithDefaultPrettyPrinter().writeValueAsString(outcome));
         List<ToolCall> searches = result.toolCalls().stream().filter(t -> t.tool().equals("searchRegulations")).toList();

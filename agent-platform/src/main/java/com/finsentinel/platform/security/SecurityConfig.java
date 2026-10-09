@@ -52,6 +52,7 @@ class SecurityConfig {
                         .resourceName("FinSentinel cases and MAS regulations")
                         .jwtDecoder(jwtDecoder)
                         .oauth2ResourceServer(rs -> rs.jwt(jwt -> jwt.jwtAuthenticationConverter(authentication()))))
+                .addFilterAfter(new TenancyFilter(), AuthorizationFilter.class)
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .csrf(AbstractHttpConfigurer::disable)
                 .build();
@@ -71,6 +72,7 @@ class SecurityConfig {
                         .anyRequest().denyAll())
                 .oauth2ResourceServer(rs -> rs.jwt(jwt -> jwt.jwtAuthenticationConverter(authentication())))
                 .addFilterAfter(new TenantPathFilter(), AuthorizationFilter.class)
+                .addFilterAfter(new TenancyFilter(), TenantPathFilter.class)
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 // Bearer tokens in a header, no cookies: there is no ambient credential for CSRF to abuse.
                 .csrf(AbstractHttpConfigurer::disable)
