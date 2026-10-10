@@ -61,10 +61,11 @@
             <groupId>org.apache.kafka</groupId>
             <artifactId>kafka-clients</artifactId>
         </dependency>
-        <!-- Our own Jackson 3; Flink's internal Jackson 2 is shaded and does not clash. -->
+        <!-- Avro contracts and the registry client (Jackson 3; Flink's internal Jackson 2 is shaded and does not
+             clash). -->
         <dependency>
-            <groupId>tools.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
+            <groupId>com.finsentinel</groupId>
+            <artifactId>contracts</artifactId>
         </dependency>
 
         <!-- Flink declares slf4j as provided, so it is not transitive; the cluster supplies it. -->

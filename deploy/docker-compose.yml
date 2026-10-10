@@ -55,13 +55,31 @@ services:
       - |
         set -e
         create() { /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --create --if-not-exists --topic "$$1" --partitions "$$2" --replication-factor 1; }
-        create txn.transactions.v1 6
-        create txn.transactions.dlq.v1 1
-        create risk.alerts.v1 3
-        create risk.alerts.v1.DLT 1
+        create txn.transactions.v2 6
+        create txn.transactions.dlq.v2 1
+        create risk.alerts.v2 3
+        create risk.alerts.v2.DLT 1
         create case.events.v1 3
         echo "topics ready"
     restart: "no"
+
+  # Schema registry (ADR 0018): Avro contracts of the v2 topics, Confluent-compatible API at /apis/ccompat/v7.
+  # kafkasql storage keeps schemas in a Kafka topic, so they survive restarts without another database.
+  # Schemas are registered on purpose: ./mvnw -pl contracts -am compile exec:java
+  schema-registry:
+    image: apicurio/apicurio-registry:3.3.3
+    profiles: [core]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8095:8080"
+    environment:
+      APICURIO_STORAGE_KIND: kafkasql
+      APICURIO_KAFKASQL_BOOTSTRAP_SERVERS: kafka:19092
+      APICURIO_KAFKASQL_TOPIC_AUTO_CREATE: "true"
+      JAVA_OPTS_APPEND: -Xms128m -Xmx384m
+    mem_limit: 512m
 
   postgres:
     image: pgvector/pgvector:0.8.6-pg17

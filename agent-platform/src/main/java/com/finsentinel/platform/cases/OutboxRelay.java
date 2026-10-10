@@ -27,12 +27,12 @@ public class OutboxRelay {
     private static final Logger log = LoggerFactory.getLogger(OutboxRelay.class);
 
     private final OutboxRepository outbox;
-    private final KafkaTemplate<String, String> kafka;
+    private final KafkaTemplate<String, byte[]> kafka;
     private final TransactionTemplate transactions;
     private final JsonMapper json;
     private final OutboxProperties props;
 
-    OutboxRelay(OutboxRepository outbox, KafkaTemplate<String, String> kafka, TransactionTemplate transactions,
+    OutboxRelay(OutboxRepository outbox, KafkaTemplate<String, byte[]> kafka, TransactionTemplate transactions,
                 JsonMapper json, OutboxProperties props) {
         this.outbox = outbox;
         this.kafka = kafka;
@@ -63,7 +63,7 @@ public class OutboxRelay {
                 envelope.put("occurredAt", m.createdAt().toString());
                 envelope.put("payload", json.readTree(m.payload()));
                 try {
-                    kafka.send(Topics.CASE_EVENTS, m.aggregateId(), json.writeValueAsString(envelope))
+                    kafka.send(Topics.CASE_EVENTS, m.aggregateId(), json.writeValueAsBytes(envelope))
                             .get(props.sendTimeout().toMillis(), TimeUnit.MILLISECONDS);
                 } catch (Exception e) {
                     // Roll back: nothing in this batch is marked published, so it is retried as a whole.

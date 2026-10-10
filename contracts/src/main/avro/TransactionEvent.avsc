@@ -1,0 +1,23 @@
+{
+  "type": "record",
+  "name": "TransactionEvent",
+  "namespace": "com.finsentinel.contracts.avro",
+  "doc": "A payment event as published by a tenant's core banking system (topic txn.transactions.v2).",
+  "fields": [
+    { "name": "txnId", "type": "string" },
+    { "name": "tenantId", "type": "string", "doc": "The bank; every downstream read is scoped by it." },
+    { "name": "accountId", "type": "string" },
+    { "name": "customerId", "type": ["null", "string"], "default": null },
+    { "name": "amount", "type": { "type": "bytes", "logicalType": "decimal", "precision": 18, "scale": 2 },
+      "doc": "Two decimal places; a currency with three needs a new schema version." },
+    { "name": "currency", "type": "string", "doc": "ISO 4217." },
+    { "name": "merchantId", "type": ["null", "string"], "default": null,
+      "doc": "The counterparty: the merchant for card payments, the payee for transfers." },
+    { "name": "merchantCategory", "type": ["null", "string"], "default": null },
+    { "name": "channel", "type": { "type": "enum", "name": "Channel",
+      "symbols": ["CARD_PRESENT", "CARD_NOT_PRESENT", "TRANSFER"] } },
+    { "name": "country", "type": ["null", "string"], "default": null, "doc": "ISO 3166-1 alpha-2." },
+    { "name": "eventTime", "type": { "type": "long", "logicalType": "timestamp-micros" },
+      "doc": "When the payment happened (event time)." }
+  ]
+}

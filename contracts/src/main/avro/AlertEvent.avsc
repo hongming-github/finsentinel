@@ -1,0 +1,19 @@
+{
+  "type": "record",
+  "name": "AlertEvent",
+  "namespace": "com.finsentinel.contracts.avro",
+  "doc": "A suspicious-activity signal from the stream job (topic risk.alerts.v2).",
+  "fields": [
+    { "name": "alertId", "type": "string", "doc": "Deterministic (ADR 0003): a redelivery carries the same id." },
+    { "name": "tenantId", "type": "string" },
+    { "name": "accountId", "type": "string" },
+    { "name": "customerId", "type": ["null", "string"], "default": null },
+    { "name": "rule", "type": { "type": "enum", "name": "AlertRule",
+      "symbols": ["VELOCITY", "LARGE_AMOUNT", "GEO_JUMP"] } },
+    { "name": "severity", "type": { "type": "enum", "name": "Severity", "symbols": ["LOW", "MEDIUM", "HIGH"] } },
+    { "name": "reason", "type": "string" },
+    { "name": "txnIds", "type": { "type": "array", "items": "string" }, "doc": "Oldest first." },
+    { "name": "eventTime", "type": { "type": "long", "logicalType": "timestamp-micros" } },
+    { "name": "detectedAt", "type": { "type": "long", "logicalType": "timestamp-micros" } }
+  ]
+}

@@ -69,6 +69,11 @@ spring:
     bootstrap-servers: localhost:9092
     consumer:
       auto-offset-reset: earliest
+      # The platform consumes Avro (ADR 0018) and decodes it itself, so unreadable bytes reach the dead-letter topic.
+      value-deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
+    producer:
+      # Bytes in, bytes out: the outbox sends JSON it has serialised, dead-letter records keep the bytes that arrived.
+      value-serializer: org.apache.kafka.common.serialization.ByteArraySerializer
 
 finsentinel:
   investigation:
@@ -198,6 +203,9 @@ finsentinel:
     poll-interval: 1s
     batch-size: 100
     send-timeout: 5s
+  schema-registry:
+    url: http://localhost:8095/apis/ccompat/v7
+    timeout: 5s
   alerts:
     max-page-size: 200
     retry-interval: 1s

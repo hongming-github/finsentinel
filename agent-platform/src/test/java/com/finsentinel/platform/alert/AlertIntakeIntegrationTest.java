@@ -4,13 +4,19 @@ import com.finsentinel.common.Alert;
 import com.finsentinel.common.AlertRule;
 import com.finsentinel.common.Severity;
 import com.finsentinel.common.Topics;
+import com.finsentinel.contracts.AvroSerde;
+import com.finsentinel.contracts.Contracts;
+import com.finsentinel.contracts.avro.AlertEvent;
 import com.finsentinel.platform.PlatformTest;
 import com.finsentinel.platform.cases.CaseIntake;
+import org.apache.kafka.clients.consumer.Consumer;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
-import tools.jackson.databind.json.JsonMapper;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -24,9 +30,11 @@ import static org.awaitility.Awaitility.await;
 class AlertIntakeIntegrationTest {
 
     @Autowired
-    KafkaTemplate<String, String> kafka;
+    KafkaTemplate<String, byte[]> kafka;
     @Autowired
-    JsonMapper json;
+    ConsumerFactory<String, byte[]> consumers;
+    @Autowired
+    AvroSerde<AlertEvent> serde;
     @Autowired
     AlertRepository repository;
     @Autowired
@@ -35,7 +43,7 @@ class AlertIntakeIntegrationTest {
     @Test
     void redeliveredAlertIsStoredOnce() {
         Alert alert = alert("harbour", "acc-dup");
-        String payload = json.writeValueAsString(alert);
+        byte[] payload = serde.serialize(Contracts.toAvro(alert));
 
         kafka.send(Topics.ALERTS, alert.accountId(), payload);
         kafka.send(Topics.ALERTS, alert.accountId(), payload);
@@ -51,16 +59,19 @@ class AlertIntakeIntegrationTest {
     }
 
     @Test
-    void poisonMessageDoesNotBlockLaterAlerts() {
+    void poisonMessageGoesToTheDeadLetterTopicAsSentAndDoesNotBlockLaterAlerts() {
         Alert good = alert("straits", "acc-after-poison");
+        // A v1-era JSON alert: not the registry's wire format.
+        byte[] poison = ("{\"alertId\":\"" + UUID.randomUUID() + "\"}").getBytes(StandardCharsets.UTF_8);
 
-        kafka.send(Topics.ALERTS, good.accountId(), "{not json");
-        kafka.send(Topics.ALERTS, good.accountId(), json.writeValueAsString(good));
+        kafka.send(Topics.ALERTS, good.accountId(), poison);
+        kafka.send(Topics.ALERTS, good.accountId(), serde.serialize(Contracts.toAvro(good)));
 
         await().pollInSameThread().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
                 assertThat(repository.findRecent("straits", 50))
                         .extracting(s -> s.alert().alertId())
                         .contains(good.alertId()));
+        assertThat(deadLetters()).anySatisfy(bytes -> assertThat(bytes).isEqualTo(poison));
     }
 
     @Test
@@ -70,6 +81,20 @@ class AlertIntakeIntegrationTest {
 
         assertThat(repository.findRecent("harbour", 200))
                 .noneMatch(s -> s.alert().alertId().equals(other.alertId()));
+    }
+
+    private List<byte[]> deadLetters() {
+        List<byte[]> found = new java.util.ArrayList<>();
+        try (Consumer<String, byte[]> consumer = consumers.createConsumer("dlt-test-" + UUID.randomUUID(), null)) {
+            consumer.subscribe(List.of(Topics.ALERTS_DLT));
+            long deadline = System.currentTimeMillis() + 15_000;
+            while (found.isEmpty() && System.currentTimeMillis() < deadline) {
+                for (ConsumerRecord<String, byte[]> r : consumer.poll(Duration.ofMillis(500))) {
+                    found.add(r.value());
+                }
+            }
+        }
+        return found;
     }
 
     private static Alert alert(String tenant, String account) {

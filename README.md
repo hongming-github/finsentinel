@@ -8,10 +8,11 @@ agent orchestration, RAG, MCP integration with enterprise systems, evaluation, s
 
 ```mermaid
 flowchart LR
-    SIM[txn-simulator] --> TX[[txn.transactions.v1]]
+    SIM[txn-simulator] --> TX[[txn.transactions.v2<br/>Avro]]
     TX -->|group finsentinel-stream| F[stream-job<br/>Flink rules]
-    F -.->|unparseable| DLQ[[txn.transactions.dlq.v1]]
-    F --> AL[[risk.alerts.v1]]
+    F -.->|unreadable| DLQ[[txn.transactions.dlq.v2]]
+    F --> AL[[risk.alerts.v2<br/>Avro]]
+    SR[(Apicurio<br/>schema registry)] -.-|schema ids| TX
     subgraph P [agent-platform · Spring Boot 4.1]
         TS[TransactionStore]
         AI[Alert intake<br/>groups alerts into cases]
@@ -39,7 +40,14 @@ The transaction topic has two independent consumers. Flink does not write transa
 down database would back-pressure the detection job, and fraud detection must keep running when the platform's
 database does not. Each consumer group can also be replayed on its own.
 
-**Status:** phases 1–3 of 9 done (data path, investigation agent, regulatory RAG); phases 1–4 done, phase 5 done (model per role, cost per case, provider fallback, caching). Phase 4: case lifecycle, checkpointed and resumable analysis graph, bank systems over MCP, multi-agent analysis with a reviewer, and the platform as an MCP server. See [docs/roadmap.md](docs/roadmap.md).
+Transactions and alerts are Avro, with schemas in an Apicurio registry (Confluent-compatible API and wire format).
+Schemas are registered on purpose, never by producers; every service fails to start if its schema is not registered,
+and the registry refuses a change that cannot read earlier data (BACKWARD_TRANSITIVE). An unreadable message goes to
+the DLQ/DLT as the bytes that arrived; a registry outage is retried, never dead-lettered (ADR 0018).
+
+**Status:** phases 1–6 of 9 done (data path, investigation agent, regulatory RAG, case orchestration and MCP, LLM
+gateway, tenancy and security); phase 7 evaluation harness built (baseline pending); phase 8 in progress (8A Avro
+contracts and schema registry done). See [docs/roadmap.md](docs/roadmap.md).
 
 ## Stack
 
@@ -51,6 +59,7 @@ Redis · Keycloak · OpenTelemetry / Grafana LGTM · Testcontainers
 | Module | What it is |
 |---|---|
 | `common` | Event records (`Transaction`, `Alert`). No dependencies. |
+| `contracts` | Kafka message contracts: Avro schemas, generated classes, mappers to the common records, a small serde for the Confluent wire format, and `SchemaRegistration`. No Spring. |
 | `txn-simulator` | Traffic for two fictional banks (`harbour`, `straits`), with a week of backfill and injected fraud. |
 | `stream-job` | Flink job. Velocity, large-amount (per-account baseline), and geo-jump rules. Pure-Java `RuleEngine`. |
 | `agent-platform` | Spring Boot modular monolith. Idempotent alert intake, transaction store, Postgres work queue, a case lifecycle around a Spring AI Alibaba analysis graph with fenced Postgres checkpoints, an investigator agent with case-scoped tools and per-rule playbooks, validated case reports, and a regulatory knowledge base (MAS documents, hybrid retrieval with rerank). |
@@ -66,11 +75,12 @@ Needs Docker, JDK 21, and `OPENAI_API_KEY` in the environment (the platform star
 investigations fail). Maven comes from the wrapper.
 
 ```bash
-# 1. Kafka, Postgres, Redis, Keycloak on :8094 (~2 GB), and the fake bank systems
+# 1. Kafka, Postgres, Redis, Keycloak on :8094, the schema registry on :8095 (~2.5 GB), and the fake bank systems
 docker compose -f deploy/docker-compose.yml --profile core --profile systems up -d
 
-# 2. Build, and fetch the MAS documents for the knowledge base (indexed on platform start)
+# 2. Build, register the message schemas (once; idempotent), and fetch the MAS documents for the knowledge base
 ./mvnw install -DskipTests
+./mvnw -pl contracts exec:java
 ./scripts/fetch-knowledge.sh
 
 # 3. MCP servers on :8091 and :8092 (optional: without them agents report those checks as not done), platform on :8090
@@ -173,9 +183,11 @@ configuration and add the `--add-opens` flags from `stream-job/pom.xml` (`flink.
 
 | What | Where | Override |
 |---|---|---|
-| Flink rules, state TTL, Kafka, checkpoints | `stream-job/src/main/resources/stream-job.properties` | `--key=value` job arguments (`-Djob.args="..."` for local runs); unknown keys are rejected |
+| Flink rules, state TTL, Kafka, schema registry, checkpoints | `stream-job/src/main/resources/stream-job.properties` | `--key=value` job arguments (`-Djob.args="..."` for local runs); unknown keys are rejected |
 | Investigation queue, budget, tool limits, report rules | `agent-platform/src/main/resources/application.yaml` (`finsentinel.investigation.*`) | Spring Boot property sources (env, `--` args); invalid values fail at startup |
 | Alert API and Kafka retry | same file (`finsentinel.alerts.*`) | same |
+| Schema registry | same file (`finsentinel.schema-registry.*`); simulator `--registry=`; all three also read `SCHEMA_REGISTRY_URL` | same |
+| Message schemas | `contracts/src/main/avro/*.avsc`; compatibility rule in `Contracts` | register with `./mvnw -pl contracts exec:java [-Dexec.args=<url>]` |
 | Model and API key | same file (`spring.ai.openai.*`) | `OPENAI_API_KEY` |
 | Agent instructions | `agent-platform/src/main/resources/prompts/investigator-system.md`, plus one playbook per rule in `prompts/playbooks/` | |
 | Knowledge base: documents, chunking, retrieval, rerank | `knowledge/sources.json`; `finsentinel.knowledge.*` in `application.yaml` | same as above |
@@ -188,7 +200,11 @@ configuration and add the `--add-opens` flags from `stream-job/pom.xml` (`flink.
 | Kafka | 9092 |
 | Postgres | 5432 |
 | Redis | 6380 |
-| agent-platform | 8090 |
+| agent-platform (REST and `/mcp`) | 8090 |
+| mcp-banking, mcp-compliance | 8091, 8092 |
+| Fake bank systems (WireMock) | 8093 |
+| Keycloak | 8094 |
+| Schema registry (Apicurio) | 8095 |
 | Flink UI (local run) | 8082 |
 | Flink UI (`stream` profile) | 8081 |
 | Grafana (`obs` profile) | 3000 |
@@ -217,3 +233,14 @@ Study notes (Chinese): [docs/study-guide.md](docs/study-guide.md)
 - [0005 SQL-first persistence with JdbcClient](docs/adr/0005-sql-first-persistence.md)
 - [0006 Agent tools scoped by construction; validated, repaired output](docs/adr/0006-agent-tools-and-output.md)
 - [0007 Regulatory RAG: chunking, hybrid retrieval, rerank, playbooks](docs/adr/0007-regulatory-rag.md)
+- [0008 Case orchestration in two layers](docs/adr/0008-case-orchestration.md)
+- [0009 Graph runtime: Spring AI Alibaba Graph](docs/adr/0009-graph-runtime-spring-ai-alibaba.md)
+- [0010 Multi-agent analysis, measured against a single agent](docs/adr/0010-multi-agent-analysis.md)
+- [0011 Model per role, escalation, cost per case](docs/adr/0011-model-routing-and-cost.md)
+- [0012 One LLM gateway, provider fallback, circuit breaking](docs/adr/0012-provider-fallback.md)
+- [0013 Caching: exact-match search cache, no semantic cache](docs/adr/0013-caching.md)
+- [0014 Identity and access: Keycloak, tenant from the token](docs/adr/0014-identity-and-access.md)
+- [0015 Row-level security, per-bank tools, pseudonymised prompts](docs/adr/0015-tenant-isolation-and-data-protection.md)
+- [0016 Injection defenses and a tamper-evident audit log](docs/adr/0016-injection-defenses-and-audit-log.md)
+- [0017 Evaluation harness](docs/adr/0017-evaluation-harness.md)
+- [0018 Avro contracts in a schema registry](docs/adr/0018-avro-contracts-and-schema-registry.md)

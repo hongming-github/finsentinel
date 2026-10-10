@@ -2,6 +2,10 @@ package com.finsentinel.simulator;
 
 import com.finsentinel.common.Topics;
 import com.finsentinel.common.Transaction;
+import com.finsentinel.contracts.AvroSerde;
+import com.finsentinel.contracts.Contracts;
+import com.finsentinel.contracts.HttpSchemaRegistry;
+import com.finsentinel.contracts.avro.TransactionEvent;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
@@ -9,9 +13,9 @@ import org.apache.kafka.common.serialization.ByteArraySerializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import tools.jackson.databind.json.JsonMapper;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -24,11 +28,14 @@ public class Simulator {
     private final SimulatorConfig config;
     private final TrafficGenerator generator;
     private final KafkaProducer<String, byte[]> producer;
-    private final JsonMapper json = JsonMapper.builder().build();
+    private final AvroSerde<TransactionEvent> serde;
 
     Simulator(SimulatorConfig config) {
         this.config = config;
         this.generator = new TrafficGenerator(config.accountsPerTenant(), config.seed());
+        // Fails here, before any traffic, when the schema is not registered.
+        this.serde = AvroSerde.forSubject(new HttpSchemaRegistry(config.schemaRegistryUrl(), Duration.ofSeconds(10)),
+                Contracts.TRANSACTIONS_SUBJECT, TransactionEvent.class);
         this.producer = new KafkaProducer<>(Map.of(
                 ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, config.bootstrapServers(),
                 ProducerConfig.ACKS_CONFIG, "all",
@@ -89,6 +96,6 @@ public class Simulator {
     }
 
     private void send(Transaction txn) {
-        producer.send(new ProducerRecord<>(Topics.TRANSACTIONS, txn.accountKey(), json.writeValueAsBytes(txn)));
+        producer.send(new ProducerRecord<>(Topics.TRANSACTIONS, txn.accountKey(), serde.serialize(Contracts.toAvro(txn))));
     }
 }
