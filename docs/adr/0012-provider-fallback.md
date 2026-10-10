@@ -39,6 +39,26 @@ OpenAI-compatible API, with `openai/gpt-oss-120b` at $0.15 / $0.60 per million t
   tokens, so every call waits for the window. Latency in the fallback run (55-166 s per case) is that limit, not Groq:
   a small call took 0.55 s.
 
+## Found later, by the phase 7 evaluation on Groq (2026-10-10)
+
+The one Groq run of this ADR passed by luck. Running the golden cases on Groq with OpenAI blocked failed every
+analysis, for two reasons, both now fixed in the gateway:
+
+- **"format": "int32"**: Spring AI writes it on integer fields of the JSON Schema; Groq's strict schema allows
+  "format" only on strings and rejects the call. Every structured call without tools that has an int field failed
+  (the writer's `riskScore` in MULTI mode, the evaluation judge). New provider setting
+  `schema-formats-on-non-strings: false` strips it (`ProviderOutputConverter`); OpenAI's schema is unchanged.
+- **"call a tool named json"**: with tools and the format described in the prompt, gpt-oss tried to emit its JSON by
+  calling a tool named `json`; Groq rejects calls to tools not in the request (4 of 4 analyses). A sentence in the
+  format instructions did not stop it. Now, for a provider without `structured-output-with-tools`, the gateway calls
+  twice: the tools run in a first call that ends in plain notes, a second call without tools turns the notes into the
+  schema-enforced answer. One extra call per analysis on Groq only; OpenAI still answers in one call.
+
+Still seen after the fixes, both gpt-oss quality on Groq rather than plumbing: a tool call with malformed JSON
+arguments (Groq rejects it), and notes that cite regulations by paragraph instead of chunk id, so the structured
+report has no regulatory notes and validation rejects it. The fallback keeps the platform answering; its reports are
+weaker, and the evaluation can now show by how much.
+
 ## Measurement (live, OpenAI out of credit, everything on groq:openai/gpt-oss-120b, SINGLE mode, one run)
 
 | | gpt-5.4-mini (ADR 0011, config A) | fallback: gpt-oss-120b on Groq |

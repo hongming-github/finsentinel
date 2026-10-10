@@ -1,0 +1,56 @@
+# The evaluation gate (ADR 0017): the golden cases through the real agents, graded and held to
+# agent-platform/src/test/resources/eval/thresholds.json. Costs money, so it runs only when started by hand, with a
+# budget the run cannot pass (it stops starting analyses first). Add a schedule here only with an agreed monthly budget.
+name: eval
+
+on:
+  workflow_dispatch:
+    inputs:
+      repeats:
+        description: "Runs per case"
+        default: "3"
+      cases:
+        description: "Comma-separated case ids (empty: all)"
+        default: ""
+      modes:
+        description: "SINGLE, MULTI or SINGLE,MULTI"
+        default: "SINGLE"
+      max_cost_usd:
+        description: "Budget for the whole evaluation, USD"
+        default: "1.00"
+      judge:
+        description: "Also score reports with the LLM judge (about $0.003 per run)"
+        type: boolean
+        default: false
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - name: Fetch the MAS documents for the knowledge base
+        run: ./scripts/fetch-knowledge.sh
+      - name: Run the evaluation
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: >
+          ./mvnw -B -ntp -pl agent-platform -am test
+          -Dtest=GoldenEvalTest -Dsurefire.failIfNoSpecifiedTests=false
+          -Deval=true
+          -Deval.repeats=${{ inputs.repeats }}
+          -Deval.cases=${{ inputs.cases }}
+          -Deval.modes=${{ inputs.modes }}
+          -Deval.maxCostUsd=${{ inputs.max_cost_usd }}
+          -Deval.judge=${{ inputs.judge }}
+      - name: Keep the evaluation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report
+          path: agent-platform/target/eval/

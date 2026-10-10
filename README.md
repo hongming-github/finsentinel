@@ -137,6 +137,16 @@ semantic cache was measured and rejected, because questions one word apart with 
 "unauthorized" scam) embed at 0.95 cosine. Prompts put text shared by cases first, so the provider's prompt cache
 serves about 80% of each case's first request (it served none when case data came first). See ADR 0013.
 
+### Evaluation
+
+`src/test/resources/eval/golden-cases.json` holds 16 golden cases (fraud, false positives, transfer scams, takeover,
+injection, resilience, tenant permissions, privacy). `GoldenEvalTest` runs them through the real agents several times,
+grades each run deterministically (verdict, risk range, required and forbidden tools, relevant regulations, flags,
+missing checks, leaked personal data), optionally adds an LLM judge, writes `target/eval/report.md`, and fails when a
+threshold in `eval/thresholds.json` is missed. It stops before its budget (`-Deval.maxCostUsd`, default $1). A dry run
+with stub agents validates every case in each build for free. CI: `.github/workflows/ci.yml` on every push (no model
+calls); `eval.yml` by hand. ADR 0017.
+
 ### MCP server
 
 The platform is also an MCP server at `http://localhost:8090/mcp` (streamable HTTP, stateless), read-only:

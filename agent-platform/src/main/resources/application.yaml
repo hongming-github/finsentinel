@@ -99,6 +99,8 @@ finsentinel:
         # Groq enforces a JSON Schema only in requests without tools: tool-using agents get the format in the prompt
         # and the report validator checks the result.
         structured-output-with-tools: false
+        # Groq's strict schema allows "format" only on strings; Spring AI writes "format": "int32" on integers.
+        schema-formats-on-non-strings: false
         # gpt-oss returns its reasoning; Spring AI 2.0.1 echoes it back as reasoning_content in tool-call turns and
         # Groq rejects that field (400). Without reasoning in the response there is nothing to echo.
         extra-body:

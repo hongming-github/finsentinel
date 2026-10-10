@@ -13,9 +13,9 @@ import java.util.Set;
 /** LLM configuration and a gateway over given chat models, for tests that must not reach a provider. */
 public final class TestLlm {
 
-    public static final LlmProperties.Provider OPENAI = new LlmProperties.Provider(null, null, true, Map.of());
+    public static final LlmProperties.Provider OPENAI = new LlmProperties.Provider(null, null, true, Map.of(), true);
     public static final LlmProperties.Provider GROQ = new LlmProperties.Provider("https://groq.test", "key", false,
-            Map.of());
+            Map.of(), false);
 
     private TestLlm() {
     }

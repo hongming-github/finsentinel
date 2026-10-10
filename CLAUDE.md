@@ -16,6 +16,9 @@ committed, and how the user likes to work. Keep it updated at the end of each se
 - Retrieval eval (costs a little): `./mvnw -pl agent-platform test -Dtest=RetrievalEvalTest -Dlive=true -Dsurefire.failIfNoSpecifiedTests=false`
 - Semantic cache evaluation (embeddings only, under $0.001): `./mvnw -pl agent-platform test -Dtest=SemanticCacheEvalTest -Dlive=true -Dsurefire.failIfNoSpecifiedTests=false`
 - Knowledge documents: `./scripts/fetch-knowledge.sh` (PDFs are gitignored, MAS copyright)
+- Evaluation (costs money, stops at its budget; see ADR 0017 for the estimate):
+  `./mvnw -pl agent-platform test -Dtest=GoldenEvalTest -Deval=true -Deval.maxCostUsd=1.00 -Dsurefire.failIfNoSpecifiedTests=false`
+  (`-Deval.repeats`, `-Deval.cases`, `-Deval.modes`, `-Deval.judge=true`; Spring settings as `-D` for comparisons)
 - Live LLM tests (cost money: about $0.10 per run in the default SINGLE mode, prints cost per case; add
   `-Dlive.modes=SINGLE,MULTI` for a mode comparison): `./mvnw -pl agent-platform test -Dtest=LiveInvestigationTest -Dlive=true -Dsurefire.failIfNoSpecifiedTests=false`
 
@@ -96,7 +99,8 @@ committed, and how the user likes to work. Keep it updated at the end of each se
   prompt cache for every case. Watch the cached-token share after prompt changes.
 - Every model call goes through `LlmGateway` (never a ChatClient directly): it prices the call and falls back to
   another provider on provider failure only (OpenAI SDK errors), with a per-instance circuit breaker (ADR 0012).
-  Models are `provider:model`; a new provider needs `structured-output-with-tools` set honestly.
+  Models are `provider:model`; a new provider needs `structured-output-with-tools` and `schema-formats-on-non-strings`
+  set honestly (Groq: both false; without the first, tool calls run in two steps, ADR 0012).
 - Model choice is per agent role and deterministic (`ModelRouter`); escalation to gpt-5.5 is off by default on
   measured data (ADR 0011). Change it only with a new comparison that includes cost.
 - Review is risk-based (`review-dispositions`); a skipped review is recorded as skipped (`Review.skipped`), never as
@@ -104,7 +108,11 @@ committed, and how the user likes to work. Keep it updated at the end of each se
 - `finsentinel.analysis.mode` defaults to SINGLE on measured data (ADR 0010); change it only with a new comparison
   from `LiveInvestigationTest`. Specialists write their own state keys; never let parallel nodes write the same key.
 - Only validated reports are stored (ADR 0006). Repairs are bounded by `report.max-repairs`.
-- After changing the prompt, tools, or model, run the live tests at least 3 times: one pass proves little.
+- After changing the prompt, tools, or model, run the live tests at least 3 times: one pass proves little. Prefer the
+  evaluation (pass rates per case) once a baseline exists; state its estimated cost first.
+- Golden cases live in `src/test/resources/eval/golden-cases.json` (ADR 0017); a new failure mode found live gets a
+  case there. `GoldenEvalDryRunTest` validates them for free; never loosen an expectation to make a run pass without
+  saying why in the ADR.
 - Avoid nested ternaries mixing `Integer` and `int` (silent unboxing NPE).
 - Host ports: Redis 6380, platform 8090 (REST and `/mcp`), mcp-banking 8091, mcp-compliance 8092, fake systems (WireMock) 8093, Keycloak 8094;
   6379 and 8080 are used by other local projects.

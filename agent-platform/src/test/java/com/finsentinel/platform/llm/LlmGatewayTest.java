@@ -74,16 +74,37 @@ class LlmGatewayTest {
     }
 
     @Test
-    void aProviderThatCannotEnforceASchemaWithToolsGetsTheFormatInThePromptInstead() {
-        ScriptedChatModel groq = new ScriptedChatModel(json, new Answer("with tools"), new Answer("without tools"));
+    void aProviderThatCannotEnforceASchemaWithToolsInvestigatesThenStructuresInASecondCall() {
+        ScriptedChatModel groq = new ScriptedChatModel(json, "notes: verdict ok, txn t-1", new Answer("with tools"),
+                new Answer("without tools"));
         ToolCallback tool = FunctionToolCallback.builder("lookup", (String in) -> "x").inputType(String.class).build();
         LlmGateway gateway = gateway(new DownModel(), groq);
         ModelRef oss = ModelRef.parse("groq:openai/gpt-oss-120b");
 
-        gateway.ask(oss, "s", "u", List.of(tool), Answer.class);
-        gateway.ask(oss, "s", "u", List.of(), Answer.class);
+        LlmGateway.Answer<Answer> withTools = gateway.ask(oss, "s", "u", List.of(tool), Answer.class);
+        LlmGateway.Answer<Answer> withoutTools = gateway.ask(oss, "s", "u", List.of(), Answer.class);
 
-        assertThat(groq.schemaEnforced).containsExactly(false, true);
+        assertThat(withTools.value().verdict()).isEqualTo("with tools");
+        assertThat(withoutTools.value().verdict()).isEqualTo("without tools");
+        // Tools without a schema, then the schema without tools; a call without tools needs one step.
+        assertThat(groq.schemaEnforced).containsExactly(false, true, true);
+        assertThat(groq.toolsOffered).containsExactly(Set.of("lookup"), Set.of(), Set.of());
+        assertThat(groq.prompts.get(0)).endsWith(LlmGateway.NOTES_INSTRUCTION);
+        assertThat(groq.prompts.get(1)).contains("notes: verdict ok, txn t-1").endsWith(LlmGateway.STRUCTURE_INSTRUCTION);
+        assertThat(withTools.usage().calls()).isEqualTo(2);
+    }
+
+    @Test
+    void openAiStillAnswersInOneCallWithTheSchemaEnforced() {
+        ScriptedChatModel openai = new ScriptedChatModel(json, new Answer("one call"));
+        ToolCallback tool = FunctionToolCallback.builder("lookup", (String in) -> "x").inputType(String.class).build();
+
+        LlmGateway.Answer<Answer> answer = gateway(openai, new DownModel()).ask(mini, "s", "u", List.of(tool),
+                Answer.class);
+
+        assertThat(answer.value().verdict()).isEqualTo("one call");
+        assertThat(openai.schemaEnforced).containsExactly(true);
+        assertThat(openai.prompts).containsExactly("u");
     }
 
     @Test
