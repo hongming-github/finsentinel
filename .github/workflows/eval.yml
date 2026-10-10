@@ -25,7 +25,9 @@ on:
 
 jobs:
   evaluate:
-    runs-on: ubuntu-latest
+    # A named image, not ubuntu-latest: the next upgrade is a decision with a green run, not a surprise.
+    # 26.04 ships Docker 29, which needs Testcontainers 2.0.2 or later (we use 2.0.5).
+    runs-on: ubuntu-26.04
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7

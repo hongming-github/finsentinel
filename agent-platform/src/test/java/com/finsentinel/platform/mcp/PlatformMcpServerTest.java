@@ -104,12 +104,10 @@ class PlatformMcpServerTest {
         String caseId = analysedCase();
         McpSyncClient other = connect(TestTokens.assistant(uniqueTenant()));
         try {
-            McpSchema.CallToolResult result = other.callTool(new McpSchema.CallToolRequest("getCase",
-                    Map.of("caseId", caseId)));
-            McpSchema.CallToolResult listed = other.callTool(new McpSchema.CallToolRequest("listCases", Map.of()));
+            McpSchema.CallToolResult result = other.callTool(McpSchema.CallToolRequest.builder("getCase").arguments(Map.of("caseId", caseId)).build());
+            McpSchema.CallToolResult listed = other.callTool(McpSchema.CallToolRequest.builder("listCases").arguments(Map.of()).build());
             // Naming the tenant is not possible: the schema has no such parameter and rejects unknown ones.
-            McpSchema.CallToolResult naming = other.callTool(new McpSchema.CallToolRequest("listCases",
-                    Map.of("tenantId", tenant)));
+            McpSchema.CallToolResult naming = other.callTool(McpSchema.CallToolRequest.builder("listCases").arguments(Map.of("tenantId", tenant)).build());
 
             assertThat(result.isError()).isTrue();
             assertThat(text(result)).contains("no case").doesNotContain("GEO_JUMP");
@@ -125,7 +123,7 @@ class PlatformMcpServerTest {
     void aTokenWithoutATenantGetsNoCases() {
         McpSyncClient noTenant = connect(TestTokens.token(null, "someone", "assistant"));
         try {
-            McpSchema.CallToolResult result = noTenant.callTool(new McpSchema.CallToolRequest("listCases", Map.of()));
+            McpSchema.CallToolResult result = noTenant.callTool(McpSchema.CallToolRequest.builder("listCases").arguments(Map.of()).build());
 
             assertThat(result.isError()).isTrue();
             assertThat(text(result)).contains("no tenant");
@@ -176,8 +174,7 @@ class PlatformMcpServerTest {
                 .param("used", props.maxRegulationSearchesPerHour())
                 .update();
 
-        McpSchema.CallToolResult result = client.callTool(new McpSchema.CallToolRequest("searchRegulations",
-                Map.of("question", "cooling off period")));
+        McpSchema.CallToolResult result = client.callTool(McpSchema.CallToolRequest.builder("searchRegulations").arguments(Map.of("question", "cooling off period")).build());
 
         assertThat(result.isError()).isTrue();
         assertThat(text(result)).contains("budget");
@@ -193,7 +190,7 @@ class PlatformMcpServerTest {
     }
 
     private JsonNode call(String tool, Map<String, Object> arguments) {
-        McpSchema.CallToolResult result = client.callTool(new McpSchema.CallToolRequest(tool, arguments));
+        McpSchema.CallToolResult result = client.callTool(McpSchema.CallToolRequest.builder(tool).arguments(arguments).build());
         assertThat(result.isError()).as(text(result)).isNotEqualTo(Boolean.TRUE);
         return json.readTree(text(result));
     }

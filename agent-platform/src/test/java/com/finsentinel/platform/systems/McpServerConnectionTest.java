@@ -54,6 +54,6 @@ class McpServerConnectionTest {
     }
 
     private static McpSchema.CallToolResult result(String text, boolean error) {
-        return McpSchema.CallToolResult.builder().content(List.of(new McpSchema.TextContent(text))).isError(error).build();
+        return McpSchema.CallToolResult.builder().content(List.of(McpSchema.TextContent.builder(text).build())).isError(error).build();
     }
 }

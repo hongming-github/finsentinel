@@ -40,18 +40,10 @@ public class ScriptedChatModel implements ChatModel {
         this.replies = new ArrayDeque<>(List.of(replies));
     }
 
-    /**
-     * Like a real tool-capable model; otherwise ChatClient builds plain options and drops the tool callbacks. Spring AI
-     * 2.0 reads {@code getOptions()}; {@code getDefaultOptions()} is the 1.x name.
-     */
+    /** Like a real tool-capable model; otherwise ChatClient builds plain options and drops the tool callbacks. */
     @Override
     public ChatOptions getOptions() {
         return OpenAiChatOptions.builder().build();
-    }
-
-    @Override
-    public ChatOptions getDefaultOptions() {
-        return getOptions();
     }
 
     @Override

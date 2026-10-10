@@ -123,11 +123,28 @@
                                         <exclude>META-INF/*.SF</exclude>
                                         <exclude>META-INF/*.DSA</exclude>
                                         <exclude>META-INF/*.RSA</exclude>
+                                        <!-- A fat jar is on the classpath, not the module path: module descriptors
+                                             only collide (and warn) there. -->
+                                        <exclude>module-info.class</exclude>
+                                        <exclude>META-INF/versions/*/module-info.class</exclude>
+                                        <!-- Per-dependency build metadata that every jar ships under the same name. -->
+                                        <exclude>META-INF/DEPENDENCIES</exclude>
+                                        <exclude>META-INF/maven/**</exclude>
+                                        <!-- The transformer below writes the one manifest the job jar needs. -->
+                                        <exclude>META-INF/MANIFEST.MF</exclude>
                                     </excludes>
                                 </filter>
                             </filters>
                             <transformers>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                                <!-- Licence and notice texts of all dependencies are merged, not overwritten. -->
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheLicenseResourceTransformer"/>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheNoticeResourceTransformer">
+                                    <addHeader>false</addHeader>
+                                </transformer>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
+                                    <resource>META-INF/FastDoubleParser-LICENSE</resource>
+                                </transformer>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                                     <mainClass>${main.class}</mainClass>
                                 </transformer>
