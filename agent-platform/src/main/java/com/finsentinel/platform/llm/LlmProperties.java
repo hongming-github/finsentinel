@@ -52,12 +52,15 @@ public record LlmProperties(Map<String, Provider> providers, Models models, Esca
      *                                   tools (Groq cannot); without it the format is described in the prompt and the
      *                                   report validator checks the result
      * @param extraBody                  provider-specific request fields sent with every call
+     * @param schemaFormatsOnNonStrings  whether the provider accepts the JSON Schema "format" keyword on numbers
+     *                                   (OpenAI does; Groq rejects "format": "int32" and fails the call). Default true
      */
     public record Provider(String baseUrl, String apiKey, boolean structuredOutputWithTools,
-                           Map<String, Object> extraBody) {
+                           Map<String, Object> extraBody, Boolean schemaFormatsOnNonStrings) {
 
         public Provider {
             extraBody = extraBody == null ? Map.of() : Map.copyOf(extraBody);
+            schemaFormatsOnNonStrings = schemaFormatsOnNonStrings == null || schemaFormatsOnNonStrings;
         }
     }
 

@@ -1,0 +1,10 @@
+{
+  "about": "Provisional thresholds (ADR 0017): set from the phase 3-6 live runs, to be recalibrated from the first baseline evaluation. A null threshold is reported but not gated; the judge is not gated until it is calibrated against human labels.",
+  "overallPassRate": 0.85,
+  "criticalCasePassRate": 0.67,
+  "casePassRate": 0.34,
+  "toolSelectionAccuracy": 0.90,
+  "regulationRelevance": 0.80,
+  "judgeMeanScore": null,
+  "maxMeanCostUsd": 0.03
+}

@@ -84,34 +84,69 @@ public class LlmGateway {
     private <T> Answer<T> call(LlmProviders.Provider provider, ModelRef ref, String system, String user,
                                List<ToolCallback> tools, Class<T> type) {
         long start = System.nanoTime();
-        // Only the model is set per call: ChatClient starts from the provider's configured options and combines this.
-        ChatClient.ChatClientRequestSpec request = provider.chat().prompt()
-                .system(system)
-                .user(user)
-                .options(ChatOptions.builder().model(ref.model()));
-        if (tools.isEmpty() || provider.config().structuredOutputWithTools()) {
-            // Schema enforced by the provider. Otherwise Spring AI describes the format in the prompt, and the
-            // caller's validation checks what comes back.
-            request = request.advisors(AdvisorParams.ENABLE_NATIVE_STRUCTURED_OUTPUT);
-        }
-        if (!tools.isEmpty()) {
-            request = request.toolCallbacks(tools);
-        }
-        ResponseEntity<ChatResponse, T> response;
         try {
-            response = request.call().responseEntity(type);
+            if (!tools.isEmpty() && !provider.config().structuredOutputWithTools()) {
+                return inTwoSteps(provider, ref, system, user, tools, type, start);
+            }
+            // Schema enforced by the provider, with or without tools.
+            ChatClient.ChatClientRequestSpec request = prompt(provider, ref, system, user)
+                    .advisors(AdvisorParams.ENABLE_NATIVE_STRUCTURED_OUTPUT);
+            if (!tools.isEmpty()) {
+                request = request.toolCallbacks(tools);
+            }
+            ResponseEntity<ChatResponse, T> response = request.call()
+                    .responseEntity(ProviderOutputConverter.of(type, provider.config()));
+            return new Answer<>(entity(response, type), LlmUsage.of(response.response(), ref.provider(),
+                    (System.nanoTime() - start) / 1_000_000, pricing), ref);
         } catch (RuntimeException e) {
             if (isProviderFailure(e)) {
                 throw new ProviderFailure(e);
             }
             throw e;
         }
+    }
+
+    static final String NOTES_INSTRUCTION = "\n\nWhen you have finished with the tools, do not answer in JSON. Write "
+            + "your conclusion as plain notes: the disposition and risk score, each finding with the exact transaction "
+            + "ids that support it, the recommended actions, and each regulatory point with the exact chunkIds it "
+            + "relies on.";
+    static final String STRUCTURE_INSTRUCTION = "\n\nTurn your notes into the required answer. Use only the facts, "
+            + "transaction ids and chunkIds that appear in them.";
+
+    /**
+     * For a provider that cannot enforce a schema while offering tools (Groq): the tools run in a first call that ends
+     * in plain notes, and a second call without tools turns the notes into the schema-enforced answer. Describing the
+     * format in the prompt instead made gpt-oss "call a tool named json", which Groq rejects: every analysis failed
+     * (phase 7 evaluation). The caller's validation still checks every id against what the tools returned.
+     */
+    private <T> Answer<T> inTwoSteps(LlmProviders.Provider provider, ModelRef ref, String system, String user,
+                                     List<ToolCallback> tools, Class<T> type, long start) {
+        ChatResponse investigation = prompt(provider, ref, system, user + NOTES_INSTRUCTION)
+                .toolCallbacks(tools).call().chatResponse();
+        String notes = investigation == null || investigation.getResult() == null ? ""
+                : investigation.getResult().getOutput().getText();
+        ResponseEntity<ChatResponse, T> structured = prompt(provider, ref, system,
+                user + "\n\nYour notes:\n" + notes + STRUCTURE_INSTRUCTION)
+                .advisors(AdvisorParams.ENABLE_NATIVE_STRUCTURED_OUTPUT)
+                .call().responseEntity(ProviderOutputConverter.of(type, provider.config()));
+        long latency = (System.nanoTime() - start) / 1_000_000;
+        LlmUsage usage = LlmUsage.of(investigation, ref.provider(), 0, pricing)
+                .plus(LlmUsage.of(structured.response(), ref.provider(), 0, pricing)).withLatency(latency);
+        return new Answer<>(entity(structured, type), usage, ref);
+    }
+
+    /** Only the model is set per call: ChatClient starts from the provider's configured options and combines this. */
+    private static ChatClient.ChatClientRequestSpec prompt(LlmProviders.Provider provider, ModelRef ref, String system,
+                                                           String user) {
+        return provider.chat().prompt().system(system).user(user).options(ChatOptions.builder().model(ref.model()));
+    }
+
+    private static <T> T entity(ResponseEntity<ChatResponse, T> response, Class<T> type) {
         if (response.entity() == null) {
             // Refusal or truncated output: nothing to repair, let the queue retry.
             throw new IllegalStateException("Model returned no parseable " + type.getSimpleName());
         }
-        return new Answer<>(response.entity(),
-                LlmUsage.of(response.response(), ref.provider(), (System.nanoTime() - start) / 1_000_000, pricing), ref);
+        return response.entity();
     }
 
     /** Errors raised by the OpenAI SDK (which also serves the OpenAI-compatible providers) anywhere in the chain. */

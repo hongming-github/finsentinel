@@ -1,0 +1,27 @@
+# Every push and pull request: build and every test that does not call a model (ADR 0017). Testcontainers needs Docker,
+# which GitHub-hosted Ubuntu runners have. Live LLM tests and the evaluation are skipped here (they need -Dlive / -Deval).
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - name: Build and test (no model calls; includes the evaluation dry run)
+        run: ./mvnw -B -ntp verify
+      - name: Keep test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: "**/target/surefire-reports/"
