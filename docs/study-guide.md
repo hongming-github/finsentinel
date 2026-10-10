@@ -1095,3 +1095,66 @@ live 测试是"冒烟测试"：少量场景、一个方向的断言。评估是"
 
 - 新增免费测试 14 个：干跑 3 个、评分器 3 个、门槛 3 个、数据集校验 2 个、网关两步调用 2 个、schema 转换 2 个（其中一个替换了旧的网关测试）。平台测试共 223 个（15 个默认跳过）。
 - OpenAI 调用：0 次。Groq 花费约 $0.02。
+
+## 阶段 8（A）：Avro 消息契约 + Apicurio Schema Registry
+
+决策记录见 [ADR 0018](adr/0018-avro-contracts-and-schema-registry.md)。这一步没有任何模型调用。
+
+### 为什么要做
+
+之前交易和告警在 Kafka 上是 JSON，格式由 `common` 里的 Java record 隐式决定。没有任何东西在上线前检查生产者和消费者是否还兼容：模拟器、某家银行的接入程序或者 Flink 作业改了一个字段名，只会在上线后以 DLQ 里的消息（更糟的是悄悄变成 null）出现。给银行做集成时，对方需要一份能读、能测的契约，以及一个在发布前就拒绝破坏性变更的流程。
+
+### 必读
+
+- `contracts/src/main/avro/TransactionEvent.avsc`、`AlertEvent.avsc`：契约本身。
+- `contracts/.../Contracts.java`（subject 名、兼容性规则、和 common record 的互转）、`AvroSerde.java`（线上格式）、`HttpSchemaRegistry.java`（4 个 REST 调用）、`SchemaRegistration.java`（有意识的注册步骤）。
+- `stream-job/.../ParseTransactions.java`、`RawValue.java`、`AlertRecordSerializer.java`。
+- `agent-platform/.../messaging/MessagingConfig.java`、`alert/KafkaErrorHandling.java`。
+- 测试：`ApicurioCompatibilityTest`（真实 Apicurio）、`AvroSerdeTest`、`AvroWireTest`、`AlertIntakeIntegrationTest`。
+
+### 设计要点（面试可讲）
+
+1. **契约是 Avro schema，不是 Java 类**：金额用 `decimal(18,2)`，多于两位小数直接拒绝而不是四舍五入（钱不能悄悄变）；时间用 `timestamp-micros`，和 Postgres 精度一致；可选字段是 `["null", ...]` 加默认值；渠道、规则、严重度是枚举。业务代码继续用 `common` 的 record，`Contracts` 负责互转，所以规则和平台逻辑一行没改。
+2. **换格式 = 换 topic**：JSON 到 Avro 是破坏性变更，所以开新 topic `*.v2`；之后兼容的变更在同一个 topic 上演进，由 registry 把关。`case.events.v1`（outbox）暂时保持 JSON，是下一个候选。
+3. **Registry 选 Apicurio，但只用 Confluent 兼容 API 和 Confluent 线上格式**（魔数 0 + 4 字节 schema id + Avro 二进制）。同样的字节、同样的客户端可以直接对接 Confluent Schema Registry 或 Karapace，换 registry 不用动任何一条消息。存储用 kafkasql：schema 存在 Kafka topic 里，不需要额外的数据库，重启后还在（实测）。
+4. **自己写了约 250 行的 serde，而不是用 Apicurio 官方 serde**：官方 serde 会带进 Vert.x 4.5 和 Netty 4.1，和 Spring Boot 4 的 Netty 4.2 冲突，还会让 Flink 作业 jar 变大。我们只需要 4 个调用：按 schema 查 id、按 id 取 schema、注册、设置兼容性。
+5. **生产者绝不自动注册**：注册是一个有意识的步骤（`SchemaRegistration`，部署或 CI 里跑）。每个生产者和消费者启动时都会查自己 schema 的 id，没注册就**启动失败**，而不是第一条消息才失败。自动注册会让任何生产者发任何格式，registry 就从"闸门"退化成"日志"。
+6. **兼容性 BACKWARD_TRANSITIVE**：新 schema 必须能读所有历史版本写的数据。所以升级顺序是先消费者、后生产者，而且从头重放 topic 永远可行。
+7. **坏消息和 registry 宕机必须区分**：永远读不了的消息（不是这个格式、registry 里没有这个 id、字节解不出来）是 `InvalidMessageException`，进 DLQ/DLT；registry 连不上不是消息的错，异常往上抛：Flink 让 task 失败、从 checkpoint 重启，平台 listener 重试。**好数据永远不会因为依赖挂了被丢进死信**。按 id 取到的 schema 在进程内永久缓存，所以运行中的服务只有遇到新 id 才需要 registry。
+8. **在哪里解码**：Flink 的 source 只传原始字节（`RawValue`），在 `ParseTransactions` 里解码，这样坏消息能被路由到 DLQ（原样字节，方便排查和重放），而不是让 source 崩掉。平台的 Kafka 消费者和生产者都用字节数组：listener 用 serde 解码，死信保留到达时的字节，outbox 自己把 JSON 序列化成字节发出去（一个 KafkaTemplate 就够）。
+
+### 设计取舍问答
+
+**问：为什么不用 Protobuf 或者 JSON Schema？**
+Avro 在 Kafka 生态里和 schema registry 结合最成熟，二进制紧凑，schema 演进规则（读写 schema 解析）是语言内建的；Flink、Spark 都原生支持，阶段 8B 的 Spark 也能直接读。Protobuf 同样可行，但它的兼容性靠字段编号约定，registry 的检查对它不如 Avro 直观。JSON Schema 不解决体积和解析成本。
+
+**问：为什么不让生产者自动注册？那样不是更方便吗？**
+方便的代价是失去闸门：任何一个生产者带着改过的类上线，就等于注册了新版本。我们要的是"破坏性变更在 CI/部署阶段被拒绝"，所以注册只能是一个有意识的步骤，生产者只查不写。
+
+**问：BACKWARD 和 FORWARD 怎么选？**
+BACKWARD：新的读旧的，先升消费者；FORWARD：旧的读新的，先升生产者。我们的消费者（Flink、平台）是自己控制的，生产者是各家银行的接入程序，节奏不受控，所以先升自己的消费者更现实。加 TRANSITIVE 是为了和所有历史版本兼容，不只是上一个版本，重放整个 topic 时才不会出问题。
+
+**问：registry 成了单点吗？**
+启动时是硬依赖（故意的：没注册就不让跑）。运行中的服务对见过的 id 有缓存，registry 短暂宕机不影响；遇到新 id 时，Flink 会失败重启、平台会重试，都不会丢数据。生产环境 registry 要和 Kafka 同等级别的可用性，至少两个实例；kafkasql 让它和 Kafka 一样持久。
+
+### 踩过的坑
+
+1. **Avro 1.12 的类白名单**：反序列化时只实例化白名单里的类（防止 writer schema 里写一个恶意类名做 gadget 攻击），我们生成的类默认不在里面，第一次跑全部 `SecurityException`。serde 现在只信任自己 schema 里的那几个生成类，不是全局放开整个包。
+2. **Apicurio 3 没有 `/health/ready`**（返回 404），Testcontainers 的等待一直超时。改成等 `/apis/ccompat/v7/subjects` 返回 200：真正重要的就绪是 API 能应答。
+3. **第一版 serde 把 registry 宕机也当成坏消息**（catch 了所有 RuntimeException），这样 registry 一挂，所有合法交易都会被送进 DLQ。改成只有"registry 明确说没有这个 id"才算坏消息，并加了测试（Flink 和 contracts 各一个）。
+4. **反向验证兼容性测试**：把设置兼容性规则那一行删掉，Apicurio 默认就接受了破坏性变更，测试失败。说明测试确实依赖规则本身，而不是碰巧通过。
+5. **平台 DLT 原来只有一个目的地**：交易 listener 的批处理失败会把交易发到告警的 DLT。现在按来源 topic 路由。另外原来 DLT 的 template 用 String 序列化，Avro 字节根本发不出去；现在平台生产者统一用字节数组。
+
+### 不足与改进
+
+- `case.events.v1` 还是 JSON，没有契约。
+- schema 注册现在是手动命令；生产环境应该放进 CI：PR 里先对 registry 做兼容性检查（Confluent API 有 `/compatibility/subjects/...`），合并后再注册。
+- 没有做 schema 引用（多个 schema 共享一个类型），目前两个 schema 很小，用不上。
+- 平台启动强依赖 registry；如果要"registry 挂了也能启动"，需要本地 schema id 缓存文件，目前不值得。
+
+### 实测数据
+
+- 消息体积：一笔典型交易 Avro 113 字节 vs JSON 289 字节（39%）；一条告警 165 vs 343（48%）。
+- 端到端（打包的平台 jar + Flink MiniCluster + 模拟器，不调模型）：topic 上 2,136 条，其中 4 条注入的坏消息 + 1 条手写 JSON；入库 2,131 条，5 条坏消息原样进 `txn.transactions.dlq.v2`；告警 74 条全部入库，DLT 为 0，消费 lag 为 0。
+- registry 停掉后启动模拟器：直接报 "schema registry ... unreachable"，一条消息都没发。
+- 新增测试：contracts 9 个（含 3 个真实 Apicurio）、stream-job 3 个 + 1 个配置用例；平台 Kafka 集成测试改为 Avro，并新增"毒消息原样进 DLT"的断言。全量 `clean verify` 通过，零警告。

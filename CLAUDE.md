@@ -10,7 +10,8 @@ committed, and how the user likes to work. Keep it updated at the end of each se
 
 - Build: `./mvnw install -DskipTests`
 - Test: `./mvnw test` (Docker required; agent-platform uses Testcontainers)
-- Infra: `docker compose -f deploy/docker-compose.yml --profile core --profile systems up -d`
+- Infra: `docker compose -f deploy/docker-compose.yml --profile core --profile systems up -d`, then register schemas
+  once: `./mvnw -pl contracts exec:java`
 - Run: see README "Quick start"
 - Real Keycloak realm test (no LLM): `./mvnw -pl agent-platform test -Dtest=KeycloakRealmTest -Dkeycloak=true -Dsurefire.failIfNoSpecifiedTests=false`
 - Retrieval eval (costs a little): `./mvnw -pl agent-platform test -Dtest=RetrievalEvalTest -Dlive=true -Dsurefire.failIfNoSpecifiedTests=false`
@@ -24,7 +25,8 @@ committed, and how the user likes to work. Keep it updated at the end of each se
 
 ## Rules
 
-- `common` stays dependency-free. `stream-job` and `batch-job` never depend on Spring (ADR 0001).
+- `common` stays dependency-free. `stream-job` and `batch-job` never depend on Spring (ADR 0001). `contracts` (Avro,
+  registry client) stays Spring-free too: the Flink job uses it.
 - Only `agent-platform` and MCP modules import the Spring Boot / Spring AI BOMs. Keep the root POM free of them.
 - Jackson 3 (`tools.jackson`) everywhere in our code.
 - Rule logic lives in `stream-job/.../rules` as pure Java; Flink functions stay thin wrappers.
@@ -114,7 +116,12 @@ committed, and how the user likes to work. Keep it updated at the end of each se
   case there. `GoldenEvalDryRunTest` validates them for free; never loosen an expectation to make a run pass without
   saying why in the ADR.
 - Avoid nested ternaries mixing `Integer` and `int` (silent unboxing NPE).
-- Host ports: Redis 6380, platform 8090 (REST and `/mcp`), mcp-banking 8091, mcp-compliance 8092, fake systems (WireMock) 8093, Keycloak 8094;
+- Transactions and alerts are Avro on v2 topics (ADR 0018): change the `.avsc` in `contracts`, never the wire format
+  by hand. Producers never auto-register; register with `SchemaRegistration`, and a breaking change means a new topic
+  version. Only `AvroSerde.InvalidMessageException` may dead-letter a message: a registry outage must propagate (Flink
+  restarts, listeners retry). Tests use the Apicurio container in `TestcontainersConfig` (or
+  `InMemorySchemaRegistry` outside Spring), never a mocked serde.
+- Host ports: Redis 6380, platform 8090 (REST and `/mcp`), mcp-banking 8091, mcp-compliance 8092, fake systems (WireMock) 8093, Keycloak 8094, schema registry (Apicurio) 8095;
   6379 and 8080 are used by other local projects.
 - Code inside graph nodes runs on pool-spawned threads; never rely on `ServiceLoader` defaults there (pass
   dependencies explicitly). Verify library integrations with the packaged jar, not only tests.

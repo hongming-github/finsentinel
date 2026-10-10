@@ -33,6 +33,14 @@ class JobConfigTest {
     }
 
     @Test
+    void schemaRegistryComesFromTheFileOrTheEnvironment() {
+        assertThat(JobConfig.load(new String[0], Map.of()).schemaRegistryUrl())
+                .isEqualTo("http://localhost:8095/apis/ccompat/v7");
+        assertThat(JobConfig.load(new String[0], Map.of("SCHEMA_REGISTRY_URL", "http://registry:8080/apis/ccompat/v7"))
+                .schemaRegistryUrl()).isEqualTo("http://registry:8080/apis/ccompat/v7");
+    }
+
+    @Test
     void typoInKeyFailsInsteadOfSilentlyUsingDefault() {
         assertThatThrownBy(() -> JobConfig.load(new String[]{"--rules.velocity.treshold=12"}, Map.of()))
                 .hasMessageContaining("Unknown setting: rules.velocity.treshold");

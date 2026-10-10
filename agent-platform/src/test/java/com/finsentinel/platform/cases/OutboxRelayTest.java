@@ -31,7 +31,7 @@ class OutboxRelayTest {
     @Autowired
     CaseWorker worker;
     @Autowired
-    ConsumerFactory<String, String> consumers;
+    ConsumerFactory<String, byte[]> consumers;
     @Autowired
     JsonMapper json;
     @Autowired
@@ -59,18 +59,18 @@ class OutboxRelayTest {
 
     private List<JsonNode> readCaseEvents(String caseId) {
         List<JsonNode> found = new ArrayList<>();
-        try (Consumer<String, String> consumer = consumers.createConsumer("outbox-test-" + UUID.randomUUID(), null)) {
+        try (Consumer<String, byte[]> consumer = consumers.createConsumer("outbox-test-" + UUID.randomUUID(), null)) {
             consumer.subscribe(List.of(Topics.CASE_EVENTS));
             long deadline = System.currentTimeMillis() + 15_000;
             while (found.isEmpty() && System.currentTimeMillis() < deadline) {
-                for (ConsumerRecord<String, String> r : consumer.poll(Duration.ofMillis(500))) {
+                for (ConsumerRecord<String, byte[]> r : consumer.poll(Duration.ofMillis(500))) {
                     if (caseId.equals(r.key())) {
                         found.add(json.readTree(r.value()));
                     }
                 }
             }
             // Drain a little longer to catch an accidental duplicate.
-            for (ConsumerRecord<String, String> r : consumer.poll(Duration.ofSeconds(1))) {
+            for (ConsumerRecord<String, byte[]> r : consumer.poll(Duration.ofSeconds(1))) {
                 if (caseId.equals(r.key())) {
                     found.add(json.readTree(r.value()));
                 }

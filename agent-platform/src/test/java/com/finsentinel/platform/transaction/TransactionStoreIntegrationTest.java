@@ -3,12 +3,15 @@ package com.finsentinel.platform.transaction;
 import com.finsentinel.common.Channel;
 import com.finsentinel.common.Topics;
 import com.finsentinel.common.Transaction;
+import com.finsentinel.contracts.AvroSerde;
+import com.finsentinel.contracts.Contracts;
+import com.finsentinel.contracts.avro.TransactionEvent;
 import com.finsentinel.platform.PlatformTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.core.KafkaTemplate;
-import tools.jackson.databind.json.JsonMapper;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -22,9 +25,9 @@ import static org.awaitility.Awaitility.await;
 class TransactionStoreIntegrationTest {
 
     @Autowired
-    KafkaTemplate<String, String> kafka;
+    KafkaTemplate<String, byte[]> kafka;
     @Autowired
-    JsonMapper json;
+    AvroSerde<TransactionEvent> serde;
     @Autowired
     TransactionRepository repository;
 
@@ -34,10 +37,10 @@ class TransactionStoreIntegrationTest {
         Transaction t1 = txn(tenant, "acc-1", "12.50", Channel.CARD_PRESENT, "SG", Instant.now());
         Transaction t2 = txn(tenant, "acc-1", "99.00", Channel.TRANSFER, "SG", Instant.now());
 
-        kafka.send(Topics.TRANSACTIONS, t1.accountKey(), json.writeValueAsString(t1));
-        kafka.send(Topics.TRANSACTIONS, t1.accountKey(), "{garbage");
-        kafka.send(Topics.TRANSACTIONS, t1.accountKey(), json.writeValueAsString(t1));
-        kafka.send(Topics.TRANSACTIONS, t2.accountKey(), json.writeValueAsString(t2));
+        kafka.send(Topics.TRANSACTIONS, t1.accountKey(), avro(t1));
+        kafka.send(Topics.TRANSACTIONS, t1.accountKey(), "{garbage".getBytes(StandardCharsets.UTF_8));
+        kafka.send(Topics.TRANSACTIONS, t1.accountKey(), avro(t1));
+        kafka.send(Topics.TRANSACTIONS, t2.accountKey(), avro(t2));
 
         await().pollInSameThread().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
                 assertThat(repository.findRecent(tenant, "acc-1", Instant.now().minusSeconds(3600), 100))
@@ -77,5 +80,9 @@ class TransactionStoreIntegrationTest {
         assertThat(profile.amounts().median()).isEqualByComparingTo("20");
         assertThat(profile.channelCounts()).containsEntry("CARD_PRESENT", 2L).containsEntry("CARD_NOT_PRESENT", 1L);
         assertThat(profile.cardPresentCountryCounts()).containsOnlyKeys("SG", "MY");
+    }
+
+    private byte[] avro(Transaction txn) {
+        return serde.serialize(Contracts.toAvro(txn));
     }
 }
