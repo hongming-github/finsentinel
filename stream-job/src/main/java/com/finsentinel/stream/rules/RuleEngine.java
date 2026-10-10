@@ -1,5 +1,6 @@
 package com.finsentinel.stream.rules;
 
+import com.finsentinel.common.AccountBaseline;
 import com.finsentinel.common.Alert;
 import com.finsentinel.common.AlertRule;
 import com.finsentinel.common.Channel;
@@ -9,6 +10,8 @@ import com.finsentinel.common.Transaction;
 import java.io.Serializable;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -51,24 +54,67 @@ public class RuleEngine implements Serializable {
         }
     }
 
+    /**
+     * Keeps the newest batch baseline for the account (ADR 0019). An older one arriving late (a re-run of a past day)
+     * is ignored.
+     */
+    public void applyBaseline(AccountRiskState state, AccountBaseline baseline) {
+        long asOf = LocalDate.ofInstant(baseline.asOf(), ZoneOffset.UTC).toEpochDay();
+        if (asOf < state.baselineAsOfEpochDay) {
+            return;
+        }
+        state.baselineAsOfEpochDay = asOf;
+        state.baselineSampleSize = baseline.sampleSize();
+        state.baselineMedian = baseline.medianAmount();
+        state.baselineRobustStdDev = baseline.robustStdDev();
+    }
+
     private void checkLargeAmount(AccountRiskState state, Transaction txn, Instant now, List<Alert> out) {
         double amount = txn.amount().doubleValue();
         boolean overHardLimit = txn.amount().compareTo(config.hardLimit()) >= 0;
-        boolean outlier = state.amountCount >= config.largeAmountMinHistory()
-                && amount > state.amountMean + config.largeAmountStdDevs() * state.amountStdDev()
-                && amount > state.amountMean * config.largeAmountMeanMultiple();
+        Profile profile = profile(state, txn);
+        boolean outlier = profile != null
+                && amount > profile.centre + config.largeAmountStdDevs() * profile.spread
+                && amount > profile.centre * config.largeAmountMeanMultiple();
 
         if (overHardLimit || outlier) {
             String reason = overHardLimit
                     ? "amount %s %s at or above hard limit %s".formatted(txn.amount(), txn.currency(), config.hardLimit())
-                    : "amount %s %s is %.1fx the account mean of %.2f over %d transactions".formatted(
-                            txn.amount(), txn.currency(), amount / state.amountMean, state.amountMean, state.amountCount);
+                    : "amount %s %s is %.1fx the account %s".formatted(
+                            txn.amount(), txn.currency(), amount / profile.centre, profile.description);
             out.add(alert(txn, AlertRule.LARGE_AMOUNT, overHardLimit ? Severity.HIGH : Severity.MEDIUM,
                     reason, List.of(txn.txnId()), now));
         } else {
             // Flagged amounts stay out of the baseline so one fraud does not make the next look normal.
             state.recordAmount(amount);
         }
+    }
+
+    /**
+     * What "normal" means for this account: its own streaming history once there is enough of it; until then (a new
+     * job without its state, an account idle past the state TTL) a fresh batch baseline; otherwise nothing, and only
+     * the hard limit applies.
+     */
+    private Profile profile(AccountRiskState state, Transaction txn) {
+        if (state.amountCount >= config.largeAmountMinHistory()) {
+            return new Profile(state.amountMean, state.amountStdDev(),
+                    "mean of %.2f over %d transactions".formatted(state.amountMean, state.amountCount));
+        }
+        if (state.baselineAsOfEpochDay == Long.MIN_VALUE
+                || state.baselineSampleSize < config.largeAmountMinHistory()) {
+            return null;
+        }
+        Instant baselineDate = LocalDate.ofEpochDay(state.baselineAsOfEpochDay).atStartOfDay(ZoneOffset.UTC)
+                .toInstant();
+        if (Duration.between(baselineDate, txn.eventTime()).compareTo(config.baselineMaxAge()) > 0) {
+            return null;
+        }
+        return new Profile(state.baselineMedian, state.baselineRobustStdDev,
+                "median of %.2f over %d transactions (batch baseline as of %s)".formatted(state.baselineMedian,
+                        state.baselineSampleSize, LocalDate.ofEpochDay(state.baselineAsOfEpochDay)));
+    }
+
+    private record Profile(double centre, double spread, String description) {
     }
 
     private void checkGeoJump(AccountRiskState state, Transaction txn, Instant now, List<Alert> out) {

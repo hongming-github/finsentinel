@@ -18,6 +18,13 @@ public class AccountRiskState {
     public double amountMean;
     public double amountM2;
 
+    // Large amount, fallback: the latest batch baseline (ADR 0019), used while the streaming history is too short.
+    // Long.MIN_VALUE = none received.
+    public long baselineAsOfEpochDay = Long.MIN_VALUE;
+    public long baselineSampleSize;
+    public double baselineMedian;
+    public double baselineRobustStdDev;
+
     // Geo jump: last card-present location.
     public String lastCardPresentCountry;
     public long lastCardPresentTimeMs;

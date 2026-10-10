@@ -8,7 +8,8 @@
 ADR 0008 put a LangGraph4j graph inside the claimed ANALYSIS stage, behind our own fenced checkpoint saver. Before
 building the multi-agent graph (phase 4 step C2) we asked whether LangGraph4j is the right runtime for a system
 meant to look like enterprise work: it has a small maintainer base, and we had already found a connection leak in
-its savers.
+its savers (our fix, [langgraph4j#484](https://github.com/langgraph4j/langgraph4j/pull/484), was merged on 2026-10-09
+and released in 1.9.4; this project no longer depends on LangGraph4j, so nothing here changes).
 
 | Candidate (Oct 2026) | What it is | Fit |
 |---|---|---|

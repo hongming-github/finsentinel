@@ -57,6 +57,17 @@ class AvroSerdeTest {
     }
 
     @Test
+    void anAccountBaselineRoundTrips() {
+        com.finsentinel.common.AccountBaseline baseline = new com.finsentinel.common.AccountBaseline("straits",
+                "acc-1", Instant.parse("2026-10-10T00:00:00Z"), 90, 42, 120.5, 30.25, 131.0, 260.0, 900.0, WHEN);
+        AvroSerde<com.finsentinel.contracts.avro.AccountBaselineEvent> serde = AvroSerde.forSubject(registry,
+                Contracts.ACCOUNT_BASELINES_SUBJECT, com.finsentinel.contracts.avro.AccountBaselineEvent.class);
+
+        assertThat(Contracts.fromAvro(serde.deserialize(serde.serialize(Contracts.toAvro(baseline)))))
+                .isEqualTo(baseline);
+    }
+
+    @Test
     void anAmountWithMoreThanTwoDecimalsIsRefusedNotRounded() {
         Transaction txn = new Transaction("t-1", "straits", "acc-1", null, new BigDecimal("10.005"), "SGD", null,
                 null, Channel.TRANSFER, null, WHEN);

@@ -1,15 +1,19 @@
 package com.finsentinel.contracts;
 
+import com.finsentinel.common.AccountBaseline;
 import com.finsentinel.common.Alert;
 import com.finsentinel.common.AlertRule;
 import com.finsentinel.common.Channel;
 import com.finsentinel.common.Severity;
 import com.finsentinel.common.Topics;
 import com.finsentinel.common.Transaction;
+import com.finsentinel.contracts.avro.AccountBaselineEvent;
 import com.finsentinel.contracts.avro.AlertEvent;
 import com.finsentinel.contracts.avro.TransactionEvent;
 
 import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 
@@ -21,6 +25,7 @@ public final class Contracts {
 
     public static final String TRANSACTIONS_SUBJECT = Topics.TRANSACTIONS + "-value";
     public static final String ALERTS_SUBJECT = Topics.ALERTS + "-value";
+    public static final String ACCOUNT_BASELINES_SUBJECT = Topics.ACCOUNT_BASELINES + "-value";
 
     /**
      * Every subject and its schema, for registration. Compatibility is BACKWARD_TRANSITIVE: a new version must read
@@ -28,7 +33,8 @@ public final class Contracts {
      */
     public static final List<Subject> SUBJECTS = List.of(
             new Subject(TRANSACTIONS_SUBJECT, TransactionEvent.getClassSchema()),
-            new Subject(ALERTS_SUBJECT, AlertEvent.getClassSchema()));
+            new Subject(ALERTS_SUBJECT, AlertEvent.getClassSchema()),
+            new Subject(ACCOUNT_BASELINES_SUBJECT, AccountBaselineEvent.getClassSchema()));
 
     public static final String COMPATIBILITY = "BACKWARD_TRANSITIVE";
 
@@ -72,5 +78,22 @@ public final class Contracts {
         return new Alert(e.getAlertId(), e.getTenantId(), e.getAccountId(), e.getCustomerId(),
                 AlertRule.valueOf(e.getRule().name()), Severity.valueOf(e.getSeverity().name()), e.getReason(),
                 List.copyOf(e.getTxnIds()), e.getEventTime(), e.getDetectedAt());
+    }
+
+    public static AccountBaselineEvent toAvro(AccountBaseline b) {
+        return AccountBaselineEvent.newBuilder()
+                .setTenantId(b.tenantId()).setAccountId(b.accountId()).setAsOf(LocalDate.ofInstant(b.asOf(), ZoneOffset.UTC))
+                .setWindowDays(b.windowDays()).setSampleSize(b.sampleSize())
+                .setMedianAmount(b.medianAmount()).setRobustStdDev(b.robustStdDev()).setMeanAmount(b.meanAmount())
+                .setP95Amount(b.p95Amount()).setMaxAmount(b.maxAmount())
+                .setComputedAt(b.computedAt().truncatedTo(ChronoUnit.MICROS))
+                .build();
+    }
+
+    public static AccountBaseline fromAvro(AccountBaselineEvent e) {
+        return new AccountBaseline(e.getTenantId(), e.getAccountId(), e.getAsOf().atStartOfDay(ZoneOffset.UTC).toInstant(),
+                e.getWindowDays(),
+                e.getSampleSize(), e.getMedianAmount(), e.getRobustStdDev(), e.getMeanAmount(), e.getP95Amount(),
+                e.getMaxAmount(), e.getComputedAt());
     }
 }

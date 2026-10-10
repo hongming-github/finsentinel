@@ -33,6 +33,13 @@ class JobConfigTest {
     }
 
     @Test
+    void lakeDirComesFromTheFileOrTheEnvironment() {
+        assertThat(JobConfig.load(new String[0], Map.of()).lakeDir()).isEqualTo("/tmp/finsentinel/lake");
+        assertThat(JobConfig.load(new String[0], Map.of("FINSENTINEL_LAKE_DIR", "/data/lake")).lakeDir())
+                .isEqualTo("/data/lake");
+    }
+
+    @Test
     void schemaRegistryComesFromTheFileOrTheEnvironment() {
         assertThat(JobConfig.load(new String[0], Map.of()).schemaRegistryUrl())
                 .isEqualTo("http://localhost:8095/apis/ccompat/v7");

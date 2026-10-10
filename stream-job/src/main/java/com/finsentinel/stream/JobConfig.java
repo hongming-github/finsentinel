@@ -9,17 +9,21 @@ import java.util.Properties;
 
 /**
  * Job settings. Precedence, lowest to highest: bundled stream-job.properties, environment
- * ({@code KAFKA_BOOTSTRAP_SERVERS}, {@code SCHEMA_REGISTRY_URL}), {@code --key=value}
+ * ({@code KAFKA_BOOTSTRAP_SERVERS}, {@code SCHEMA_REGISTRY_URL}, {@code FINSENTINEL_LAKE_DIR}), {@code --key=value}
  * arguments. Unknown keys are rejected so a typo cannot silently fall back to a default threshold.
  */
 record JobConfig(String bootstrapServers, String schemaRegistryUrl, Duration schemaRegistryTimeout, String groupId,
-                 Duration checkpointInterval, int webUiPort, Duration stateTtl, RuleConfig rules) {
+                 Duration checkpointInterval, int webUiPort, Duration stateTtl, String lakeDir, RuleConfig rules) {
 
     static JobConfig load(String[] args, Map<String, String> env) {
         Properties p = Settings.defaults();
         String envBootstrap = env.get("KAFKA_BOOTSTRAP_SERVERS");
         if (envBootstrap != null && !envBootstrap.isBlank()) {
             p.setProperty("kafka.bootstrap-servers", envBootstrap);
+        }
+        String envLake = env.get("FINSENTINEL_LAKE_DIR");
+        if (envLake != null && !envLake.isBlank()) {
+            p.setProperty("lake.dir", envLake);
         }
         String envRegistry = env.get("SCHEMA_REGISTRY_URL");
         if (envRegistry != null && !envRegistry.isBlank()) {
@@ -44,6 +48,7 @@ record JobConfig(String bootstrapServers, String schemaRegistryUrl, Duration sch
                 Settings.duration(p, "checkpoint.interval"),
                 Settings.integer(p, "local.web-ui-port"),
                 Settings.duration(p, "state.ttl"),
+                Settings.string(p, "lake.dir"),
                 RuleConfig.from(p));
     }
 }

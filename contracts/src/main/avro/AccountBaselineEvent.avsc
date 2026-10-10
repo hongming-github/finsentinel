@@ -1,0 +1,19 @@
+{
+  "type": "record",
+  "name": "AccountBaselineEvent",
+  "namespace": "com.finsentinel.contracts.avro",
+  "doc": "An account's spending profile from the daily batch job (ADR 0019). Robust centre and spread (median, 1.4826 x MAD) because the batch cannot see which past amounts were fraud.",
+  "fields": [
+    {"name": "tenantId", "type": "string"},
+    {"name": "accountId", "type": "string"},
+    {"name": "asOf", "type": {"type": "int", "logicalType": "date"}, "doc": "covers complete UTC days before this date"},
+    {"name": "windowDays", "type": "int"},
+    {"name": "sampleSize", "type": "long"},
+    {"name": "medianAmount", "type": "double"},
+    {"name": "robustStdDev", "type": "double"},
+    {"name": "meanAmount", "type": "double"},
+    {"name": "p95Amount", "type": "double"},
+    {"name": "maxAmount", "type": "double"},
+    {"name": "computedAt", "type": {"type": "long", "logicalType": "timestamp-micros"}}
+  ]
+}

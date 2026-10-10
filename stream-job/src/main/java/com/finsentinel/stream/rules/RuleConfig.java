@@ -13,6 +13,7 @@ public record RuleConfig(
         double largeAmountStdDevs,
         double largeAmountMeanMultiple,
         BigDecimal hardLimit,
+        Duration baselineMaxAge,
         Duration geoJumpWindow) implements Serializable {
 
     public RuleConfig {
@@ -21,6 +22,9 @@ public record RuleConfig(
         }
         if (velocityWindow.isNegative() || velocityWindow.isZero() || geoJumpWindow.isNegative() || geoJumpWindow.isZero()) {
             throw new IllegalArgumentException("rule windows must be positive");
+        }
+        if (baselineMaxAge.isNegative() || baselineMaxAge.isZero()) {
+            throw new IllegalArgumentException("rules.large-amount.baseline-max-age must be positive");
         }
     }
 
@@ -32,6 +36,7 @@ public record RuleConfig(
                 Settings.decimal(p, "rules.large-amount.std-devs"),
                 Settings.decimal(p, "rules.large-amount.mean-multiple"),
                 new BigDecimal(Settings.string(p, "rules.large-amount.hard-limit")),
+                Settings.duration(p, "rules.large-amount.baseline-max-age"),
                 Settings.duration(p, "rules.geo-jump.window"));
     }
 
