@@ -1,5 +1,6 @@
 package com.finsentinel.stream.rules;
 
+import com.finsentinel.common.AccountBaseline;
 import com.finsentinel.common.Alert;
 import com.finsentinel.common.AlertRule;
 import com.finsentinel.common.Channel;
@@ -9,6 +10,7 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -83,6 +85,49 @@ class RuleEngineTest {
     }
 
     @Test
+    void aFreshBatchBaselineStandsInForMissingStreamingHistory() {
+        // T0 is 2026-09-01; the baseline covers days before it.
+        engine.applyBaseline(state, baseline("2026-09-01", 40, 50.0, 6.0));
+
+        List<Alert> alerts = run(txn("4000", Channel.TRANSFER, "SG", T0));
+
+        assertThat(alerts).singleElement().satisfies(a -> {
+            assertThat(a.rule()).isEqualTo(AlertRule.LARGE_AMOUNT);
+            assertThat(a.reason()).contains("median of 50.00 over 40 transactions (batch baseline as of 2026-09-01)");
+        });
+        assertThat(run(txn("60", Channel.TRANSFER, "SG", T0.plusSeconds(60)))).isEmpty();
+    }
+
+    @Test
+    void aStaleOrThinBaselineIsNotTrusted() {
+        engine.applyBaseline(state, baseline("2026-08-25", 40, 50.0, 6.0));
+        assertThat(run(txn("4000", Channel.TRANSFER, "SG", T0))).as("7 days old, max age 3d").isEmpty();
+
+        AccountRiskState thin = new AccountRiskState();
+        engine.applyBaseline(thin, baseline("2026-09-01", 5, 50.0, 6.0));
+        assertThat(engine.evaluate(thin, txn("4000", Channel.TRANSFER, "SG", T0), Instant.now()))
+                .as("5 transactions, min history 10").isEmpty();
+    }
+
+    @Test
+    void streamingHistoryWinsOnceThereIsEnoughOfIt() {
+        buildBaseline();
+        // A baseline that would call 4000 normal: the account's own recent history must decide.
+        engine.applyBaseline(state, baseline("2026-09-01", 400, 3000.0, 1000.0));
+
+        assertThat(run(txn("4000", Channel.TRANSFER, "SG", T0.plusSeconds(3600))))
+                .singleElement().satisfies(a -> assertThat(a.reason()).contains("mean of"));
+    }
+
+    @Test
+    void aLateBaselineForAnEarlierDayDoesNotReplaceANewerOne() {
+        engine.applyBaseline(state, baseline("2026-09-01", 40, 50.0, 6.0));
+        engine.applyBaseline(state, baseline("2026-08-30", 40, 5000.0, 600.0));
+
+        assertThat(state.baselineMedian).isEqualTo(50.0);
+    }
+
+    @Test
     void hardLimitAlwaysFiresAsHigh() {
         assertThat(run(txn("50000", Channel.TRANSFER, "SG", T0)))
                 .singleElement()
@@ -125,6 +170,12 @@ class RuleEngineTest {
         for (int i = 0; i < amounts.length; i++) {
             run(txn(amounts[i], Channel.TRANSFER, "SG", T0.plusSeconds(i * 120L)));
         }
+    }
+
+    private static AccountBaseline baseline(String asOf, long sampleSize, double median, double robustStdDev) {
+        return new AccountBaseline("harbour", "acc-1", LocalDate.parse(asOf).atStartOfDay(java.time.ZoneOffset.UTC)
+                .toInstant(), 90, sampleSize, median, robustStdDev,
+                median, median * 2, median * 3, Instant.now());
     }
 
     private List<Alert> run(Transaction txn) {

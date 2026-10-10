@@ -60,6 +60,8 @@ services:
         create risk.alerts.v2 3
         create risk.alerts.v2.DLT 1
         create case.events.v1 3
+        # Latest baseline per account (ADR 0019): compaction keeps one record per tenant|account key.
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --create --if-not-exists --topic account.baselines.v1 --partitions 6 --replication-factor 1 --config cleanup.policy=compact
         echo "topics ready"
     restart: "no"
 

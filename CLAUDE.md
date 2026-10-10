@@ -12,6 +12,7 @@ committed, and how the user likes to work. Keep it updated at the end of each se
 - Test: `./mvnw test` (Docker required; agent-platform uses Testcontainers)
 - Infra: `docker compose -f deploy/docker-compose.yml --profile core --profile systems up -d`, then register schemas
   once: `./mvnw -pl contracts exec:java`
+- Batch baselines (Spark local mode, no LLM): `./mvnw -pl batch-job exec:exec -Djob.args="--as-of=YYYY-MM-DD"`
 - Run: see README "Quick start"
 - Real Keycloak realm test (no LLM): `./mvnw -pl agent-platform test -Dtest=KeycloakRealmTest -Dkeycloak=true -Dsurefire.failIfNoSpecifiedTests=false`
 - Retrieval eval (costs a little): `./mvnw -pl agent-platform test -Dtest=RetrievalEvalTest -Dlive=true -Dsurefire.failIfNoSpecifiedTests=false`
@@ -121,6 +122,12 @@ committed, and how the user likes to work. Keep it updated at the end of each se
   version. Only `AvroSerde.InvalidMessageException` may dead-letter a message: a registry outage must propagate (Flink
   restarts, listeners retry). Tests use the Apicurio container in `TestcontainersConfig` (or
   `InMemorySchemaRegistry` outside Spring), never a mocked serde.
+- The lake (ADR 0019): Flink appends to `landing/` only; `curated/`, `quarantine/` and `gold/` belong to `batch-job`
+  and must stay rebuildable from landing (dynamic partition overwrite, idempotent re-runs). Days are UTC everywhere.
+  Batch statistics are robust (median, MAD) because the batch cannot see which past amounts were fraud. The rule uses
+  streaming history first and a fresh batch baseline only as a fallback; the alert reason names the source.
+- Stateful Flink operators keep their `uid(...)`; never rename one without a savepoint migration plan.
+- Spark runs on Java 21 with the opens in `batch-job/pom.xml` (`spark.jvm.opens`); local runs use the test classpath.
 - Host ports: Redis 6380, platform 8090 (REST and `/mcp`), mcp-banking 8091, mcp-compliance 8092, fake systems (WireMock) 8093, Keycloak 8094, schema registry (Apicurio) 8095;
   6379 and 8080 are used by other local projects.
 - Code inside graph nodes runs on pool-spawned threads; never rely on `ServiceLoader` defaults there (pass

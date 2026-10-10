@@ -13,6 +13,11 @@ flowchart LR
     F -.->|unreadable| DLQ[[txn.transactions.dlq.v2]]
     F --> AL[[risk.alerts.v2<br/>Avro]]
     SR[(Apicurio<br/>schema registry)] -.-|schema ids| TX
+    F -->|JSON Lines, dt=| LZ[(landing zone)]
+    LZ --> SP[batch-job<br/>Spark, daily]
+    SP -->|curated Parquet| LK[(lake)]
+    SP --> BL[[account.baselines.v1<br/>Avro, compacted]]
+    BL -->|keyed by account| F
     subgraph P [agent-platform · Spring Boot 4.1]
         TS[TransactionStore]
         AI[Alert intake<br/>groups alerts into cases]
@@ -45,9 +50,15 @@ Schemas are registered on purpose, never by producers; every service fails to st
 and the registry refuses a change that cannot read earlier data (BACKWARD_TRANSITIVE). An unreadable message goes to
 the DLQ/DLT as the bytes that arrived; a registry outage is retried, never dead-lettered (ADR 0018).
 
+Flink also writes every readable transaction to a landing zone (JSON Lines by UTC event date). A daily Spark job
+curates it into Parquet and computes each account's 90-day baseline with robust statistics (median and MAD, so past
+fraud does not shift it), then publishes the baselines back to Flink. Until an account has enough streaming history
+(a redeployed job, an account idle past the state TTL), the large-amount rule judges it against that baseline, and the
+alert says so (ADR 0019).
+
 **Status:** phases 1–6 of 9 done (data path, investigation agent, regulatory RAG, case orchestration and MCP, LLM
 gateway, tenancy and security); phase 7 evaluation harness built (baseline pending); phase 8 in progress (8A Avro
-contracts and schema registry done). See [docs/roadmap.md](docs/roadmap.md).
+contracts and schema registry, 8B Spark baselines done). See [docs/roadmap.md](docs/roadmap.md).
 
 ## Stack
 
@@ -61,7 +72,8 @@ Redis · Keycloak · OpenTelemetry / Grafana LGTM · Testcontainers
 | `common` | Event records (`Transaction`, `Alert`). No dependencies. |
 | `contracts` | Kafka message contracts: Avro schemas, generated classes, mappers to the common records, a small serde for the Confluent wire format, and `SchemaRegistration`. No Spring. |
 | `txn-simulator` | Traffic for two fictional banks (`harbour`, `straits`), with a week of backfill and injected fraud. |
-| `stream-job` | Flink job. Velocity, large-amount (per-account baseline), and geo-jump rules. Pure-Java `RuleEngine`. |
+| `stream-job` | Flink job. Velocity, large-amount (per-account baseline, streaming or from the batch job), and geo-jump rules. Pure-Java `RuleEngine`. Writes the landing zone. |
+| `batch-job` | Daily Spark job: landing zone to curated Parquet, per-account robust baselines, published to Kafka for the stream job. No Spring. |
 | `agent-platform` | Spring Boot modular monolith. Idempotent alert intake, transaction store, Postgres work queue, a case lifecycle around a Spring AI Alibaba analysis graph with fenced Postgres checkpoints, an investigator agent with case-scoped tools and per-rule playbooks, validated case reports, and a regulatory knowledge base (MAS documents, hybrid retrieval with rerank). |
 | `mcp-banking` | MCP server for the bank's own systems: CRM profile (KYC, travel notices, staff notes) and core-banking security events. Stateless. |
 | `mcp-compliance` | MCP server for the screening vendor: counterparty watchlists, including the inter-bank mule account list. Stateless. |
@@ -94,7 +106,11 @@ java -jar agent-platform/target/agent-platform-0.1.0-SNAPSHOT.jar
 # 5. Traffic: 10 tps, one fraud scenario every 10 s
 ./mvnw -pl txn-simulator exec:java -Dexec.args="--fraud-every=10"
 
-# 6. Sign in as alice (straits analyst; dev-only password grant), see the queue, then one case with its alerts,
+# 6. Once a day (any time; re-running is safe): curate the landing zone and publish account baselines.
+#    The lake is /tmp/finsentinel/lake by default (FINSENTINEL_LAKE_DIR for both jobs).
+./mvnw -pl batch-job exec:exec -Djob.args="--as-of=$(date -u +%F)"
+
+# 7. Sign in as alice (straits analyst; dev-only password grant), see the queue, then one case with its alerts,
 #    analyses and audit trail. Other users: bob (harbour analyst), sam (straits supervisor), password = name.
 TOKEN=$(curl -s localhost:8094/realms/finsentinel/protocol/openid-connect/token \
   -d grant_type=password -d client_id=analyst-cli -d username=alice -d password=alice | jq -r .access_token)
@@ -183,10 +199,11 @@ configuration and add the `--add-opens` flags from `stream-job/pom.xml` (`flink.
 
 | What | Where | Override |
 |---|---|---|
-| Flink rules, state TTL, Kafka, schema registry, checkpoints | `stream-job/src/main/resources/stream-job.properties` | `--key=value` job arguments (`-Djob.args="..."` for local runs); unknown keys are rejected |
+| Flink rules, state TTL, Kafka, schema registry, lake directory, checkpoints | `stream-job/src/main/resources/stream-job.properties` | `--key=value` job arguments (`-Djob.args="..."` for local runs); unknown keys are rejected |
 | Investigation queue, budget, tool limits, report rules | `agent-platform/src/main/resources/application.yaml` (`finsentinel.investigation.*`) | Spring Boot property sources (env, `--` args); invalid values fail at startup |
 | Alert API and Kafka retry | same file (`finsentinel.alerts.*`) | same |
 | Schema registry | same file (`finsentinel.schema-registry.*`); simulator `--registry=`; all three also read `SCHEMA_REGISTRY_URL` | same |
+| Batch job: lake directory, as-of date, curation lookback, baseline window, publishing | `batch-job/src/main/resources/batch-job.properties` | `--key=value` (`-Djob.args="..."`); unknown keys are rejected |
 | Message schemas | `contracts/src/main/avro/*.avsc`; compatibility rule in `Contracts` | register with `./mvnw -pl contracts exec:java [-Dexec.args=<url>]` |
 | Model and API key | same file (`spring.ai.openai.*`) | `OPENAI_API_KEY` |
 | Agent instructions | `agent-platform/src/main/resources/prompts/investigator-system.md`, plus one playbook per rule in `prompts/playbooks/` | |
@@ -244,3 +261,4 @@ Study notes (Chinese): [docs/study-guide.md](docs/study-guide.md)
 - [0016 Injection defenses and a tamper-evident audit log](docs/adr/0016-injection-defenses-and-audit-log.md)
 - [0017 Evaluation harness](docs/adr/0017-evaluation-harness.md)
 - [0018 Avro contracts in a schema registry](docs/adr/0018-avro-contracts-and-schema-registry.md)
+- [0019 Daily Spark baselines over a Flink landing zone](docs/adr/0019-batch-baselines.md)

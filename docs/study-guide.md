@@ -360,7 +360,7 @@
 
 - 先做了技术验证：用 LangGraph4j 1.9.3 跑和真实流程结构相同的图。`interrupt` 和条件边都很好用，但发现官方的 Postgres saver **每次加载 checkpoint 都会泄漏一个连接**，状态还是用 Java 序列化存的，而且它不知道我们的领取机制。
 - 最后定为两层架构：**外层是我们自己的案件生命周期，负责"哪个阶段、谁来处理"；内层是 LangGraph4j 多 Agent 图，负责"这次分析进行到哪一步"**；两层之间用自己写的、带防过期令牌的 saver 连接（第 B 步实现）。
-- 泄漏的根因：2026-09-12 的一次重构引入的回归（1.9.0 到 1.9.3）。默认的非连接池用法下，GC 会回收泄漏的连接，所以一直没人发现。我们向上游提交了修复：[langgraph4j#484](https://github.com/langgraph4j/langgraph4j/pull/484)。
+- 泄漏的根因：2026-09-12 的一次重构引入的回归（1.9.0 到 1.9.3）。默认的非连接池用法下，GC 会回收泄漏的连接，所以一直没人发现。我们向上游提交了修复：[langgraph4j#484](https://github.com/langgraph4j/langgraph4j/pull/484)。2026-10-09 被维护者合并，随 1.9.4 发布。我们此时已经换成 Spring AI Alibaba Graph（ADR 0009），所以项目本身不受影响，也不需要升级。
 
 #### 2. [CaseRepository.java](../agent-platform/src/main/java/com/finsentinel/platform/cases/CaseRepository.java)
 
@@ -1158,3 +1158,66 @@ BACKWARD：新的读旧的，先升消费者；FORWARD：旧的读新的，先�
 - 端到端（打包的平台 jar + Flink MiniCluster + 模拟器，不调模型）：topic 上 2,136 条，其中 4 条注入的坏消息 + 1 条手写 JSON；入库 2,131 条，5 条坏消息原样进 `txn.transactions.dlq.v2`；告警 74 条全部入库，DLT 为 0，消费 lag 为 0。
 - registry 停掉后启动模拟器：直接报 "schema registry ... unreachable"，一条消息都没发。
 - 新增测试：contracts 9 个（含 3 个真实 Apicurio）、stream-job 3 个 + 1 个配置用例；平台 Kafka 集成测试改为 Avro，并新增"毒消息原样进 DLT"的断言。全量 `clean verify` 通过，零警告。
+
+## 阶段 8（B）：Spark 每日账户基线，回流给 Flink
+
+决策记录见 [ADR 0019](adr/0019-batch-baselines.md)。这一步没有任何模型调用。
+
+### 为什么要做
+
+大额规则拿一笔付款和"这个账户平时的金额"比较。这个"平时"存在 Flink 状态里（流式的均值和方差），只在状态还在时才有：作业没带 savepoint 重新部署、checkpoint 丢了，或者账户 30 天没动（超过状态 TTL），就从零开始，前 10 笔交易只有 50,000 的硬上限在起作用。**骗子清空一个休眠账户，恰好是最需要基线的时候**。完整的历史其实都有，只是流处理算子在第一条事件到来时用不上。
+
+### 必读
+
+- `stream-job/.../LandingZone.java`（落地区写入）、`ParseBaselines.java`、`RiskRuleFunction.java`（双输入）、`rules/RuleEngine.java`（`applyBaseline` 和 `profile`）。
+- `batch-job/.../Curation.java`、`Baselines.java`、`BaselinePublisher.java`、`BaselineJob.java`、`batch-job.properties`。
+- `contracts/src/main/avro/AccountBaselineEvent.avsc`。
+- 测试：`BaselineJobTest`、`BaselinePublisherTest`、`RuleEngineTest` 里 4 个基线相关用例、`LandingZoneTest`。
+
+### 设计要点（面试可讲）
+
+1. **Lambda 架构的一个具体用法**：流负责实时判断，批负责"完整、可重算"的历史画像，批的结果再回流给流。这里不是两套逻辑算同一个东西，而是批补上流的冷启动缺口。
+2. **落地区是 Flink 写的原始 JSON Lines**，按 UTC 事件日期分目录（迟到事件进自己那天）。用 Flink 的 `FileSink`，本地路径不需要 Hadoop；checkpoint 时才提交文件，所以 Spark 看到的文件一定是完整的，从 checkpoint 恢复也不会重复写。正在写的文件以点开头，Spark 自动忽略。为什么不直接写 Parquet：落地区是原始、只追加的记录，谁都能读；整理后的格式归批处理负责。
+3. **整理（curation）可重跑**：每次重读最近 3 天的落地区，显式 schema，坏行进 quarantine，按（银行，交易 id）去重，写 Parquet 时只覆盖写到的那几天（dynamic partition overwrite）。同一天跑两次结果一样，3 天内的迟到事件会被补上。curated 和 gold 随时可以从 landing 重建。
+4. **基线用稳健统计（中位数 + MAD）**：批处理不知道历史上哪笔是欺诈。流式状态可以把被标记的金额排除在外，批处理做不到，所以干脆不依赖它：二十笔 100 左右的交易加一笔 50,000，中位数还是 100，稳健标准差 7.4，而均值被拉到 2,476（测试里算过）。1.4826 × MAD 在正态分布下等于标准差，所以规则的阈值含义不变。
+5. **回流用 keyed connect，不用 broadcast**：基线和交易都按"银行|账户"分区，每个 task 只保存自己负责的账户的基线，状态随账户数增长，不随并行度复制。基线写进同一个账户状态；晚到的旧基线（比如重跑了前几天）不会覆盖新的。
+6. **规则怎么选"平时"**：流式历史够 10 笔就用流式（更新、而且排除了被标记的金额）；否则用批基线，前提是样本至少 10 笔、而且不超过 3 天；都没有就只看硬上限。**告警原因里写明用的是哪一个**，分析员和 Agent 都看得到。
+7. **压缩 topic**：`account.baselines.v1` 按账户做 key 并开启 compaction，只保留每个账户最新的一条；新启动的 Flink 从头读一遍就能重建全部基线。重复发布无害。
+8. **算子加了稳定的 uid**：拓扑变了（这次加了一个输入），从 savepoint 恢复时状态还能对上。
+
+### 设计取舍问答
+
+**问：为什么 Spark 不直接读 Postgres 里的交易表？**
+那张表是给 Agent 查询用的，属于平台的数据库；批处理去扫它会和在线查询抢资源，而且把平台数据库变成了数据平台的上游。落地区让流和批只通过文件耦合，Flink 也不依赖任何数据库（阶段 1 的原则：数据库慢或者挂了，检测要继续跑）。
+
+**问：为什么不用 Flink 自己算长窗口统计？**
+90 天窗口的状态很大，而且一旦状态丢了就要从 Kafka 重放 90 天，Kafka 的保留期不一定够。批处理从文件重算便宜、可审计、可以随时改算法重跑，这正是批的长处。
+
+**问：为什么发 Kafka 而不是让 Flink 读 Parquet？**
+Flink 消费 Kafka 是它最擅长的、有 checkpoint 语义的方式；compacted topic 天然是"每个账户最新值"的表。让流作业定时扫文件，要自己处理"读到一半的快照"和重复加载。
+
+**问：一天的延迟有问题吗？**
+今天的交易进明天的基线，这是设计。当天的空缺由流式历史补上，一旦够 10 笔就用流式。基线只是兜底，不是唯一依据。
+
+### 踩过的坑
+
+1. **`LocalDate` 字段会让 Flink 退回 Kryo**：`SerializationTest` 在把 `AccountBaseline` 加进去的第一时间就报了。通用记录里改成 `Instant asOf`（UTC 零点），Avro 契约里仍然是 `date` 类型。这正是那条守卫测试存在的意义。
+2. **shade 警告**：`flink-connector-files` 的 jar 里自带一份 shade 过的 `flink-connector-base`，和我们单独打进去的那份重复了 90 个类。查了 Flink 镜像，`flink-dist` 已经包含 connector-base 但不包含 FileSink，所以 base 改成 provided，files 照常打包。
+3. **本地跑 Spark 缺 lz4**：单元测试能过、`exec:exec` 却报 `NoClassDefFoundError`。原因是 lz4 被 kafka-clients 以 runtime 范围引入，Maven 的 compile classpath 不包含它。本地运行改用 test classpath；用 spark-submit 时 Spark 自己带 lz4。
+4. **100 行写成 82 个文件**：基线结果被 `cache()` 了，Spark 默认不允许 AQE 改缓存计划的分区数，200 个 shuffle 分区没有被合并，还因此开了 82 个 Kafka producer。打开 `spark.sql.optimizer.canChangeCachedPlanOutputPartitioning` 后变成 1 个文件。没有写死 `coalesce(1)`，让数据量自己决定。
+5. **Spark 给的日期类型**：默认是 `java.sql.Date`，开了 java8API 才是 `LocalDate`。发布代码两种都接受，不依赖会话配置。
+
+### 不足与改进
+
+- 没有调度器：需要每天 UTC 零点后跑一次（cron、Airflow、Kubernetes CronJob 都行）。
+- 落地区没有保留策略，会一直增长；生产环境应该放对象存储，按天做生命周期管理。
+- 两种"平时"用的是同一组阈值（标准差倍数、均值倍数）；要按来源分别调参需要标注数据。
+- Agent 还没用上基线：给调查 Agent 一个"90 天画像"工具是最直接的下一步。
+- Flink 双输入函数没有用 Flink 的测试 harness 做单元测试（逻辑都在纯 Java 的 `RuleEngine` 里测了），接线由端到端验证。
+
+### 实测数据
+
+- 端到端（不调模型）：Flink 重放 topic + 模拟器回填，落地区 5,231 行，分 8 个日期目录，和 topic 上的合法交易数完全一致，没有残留的未提交文件。
+- Spark 本地模式 14.6 秒：读 3,929 行（当天按设计排除），0 坏行，0 重复，100 个账户的基线；重跑结果完全一致。同样的行，落地区 1,173,795 字节，Parquet 258,998 字节（22%）。
+- 关键验证：新启动、没有任何状态、交易从最新位置读的 Flink，读完 200 条基线后，账户 `harbour-acc-0042`（42 笔，中位数 200.05）：付 200.05 不告警；付 6,001.50 告警，原因写着"按 2026-10-10 的批处理基线"；同样 6,001.50 打到一个没有基线的新账户不告警（低于硬上限）。**没有这一步，重新部署后的作业会放过这笔付款。**
+- 新增测试：batch-job 6 个（含 Kafka 容器）、规则 4 个、落地区 2 个、配置 1 个、contracts 1 个。全量 `clean verify` 通过，零警告。

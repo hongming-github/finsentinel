@@ -1,5 +1,6 @@
 package com.finsentinel.stream;
 
+import com.finsentinel.common.AccountBaseline;
 import com.finsentinel.common.Alert;
 import com.finsentinel.common.Transaction;
 import com.finsentinel.stream.rules.AccountRiskState;
@@ -18,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class SerializationTest {
 
     @ParameterizedTest
-    @ValueSource(classes = {Transaction.class, Alert.class, AccountRiskState.class})
+    @ValueSource(classes = {Transaction.class, Alert.class, AccountBaseline.class, AccountRiskState.class})
     void typeIsAFlinkPojoWithoutGenericFields(Class<?> type) {
         TypeInformation<?> info = TypeInformation.of(type);
 

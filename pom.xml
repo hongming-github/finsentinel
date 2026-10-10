@@ -21,6 +21,7 @@
         <module>contracts</module>
         <module>txn-simulator</module>
         <module>stream-job</module>
+        <module>batch-job</module>
         <module>agent-platform</module>
         <module>mcp-banking</module>
         <module>mcp-compliance</module>
@@ -35,12 +36,13 @@
         <spring-ai.version>2.0.1</spring-ai.version>
         <flink.version>2.2.1</flink.version>
         <flink-connector-kafka.version>5.0.0-2.2</flink-connector-kafka.version>
+        <spark.version>4.2.0</spark.version>
         <kafka.version>4.2.1</kafka.version>
         <jackson3.version>3.1.5</jackson3.version>
         <avro.version>1.12.2</avro.version>
         <testcontainers.version>2.0.5</testcontainers.version>
         <slf4j.version>2.0.17</slf4j.version>
-        <log4j.version>2.25.2</log4j.version>
+        <log4j.version>2.25.4</log4j.version>
         <junit.version>6.0.3</junit.version>
         <assertj.version>3.27.6</assertj.version>
     </properties>
@@ -83,6 +85,12 @@
                 <groupId>org.slf4j</groupId>
                 <artifactId>slf4j-simple</artifactId>
                 <version>${slf4j.version}</version>
+            </dependency>
+            <!-- Aligned with Spark 4.2.0's log4j (api, core and bridges on one version). -->
+            <dependency>
+                <groupId>org.apache.logging.log4j</groupId>
+                <artifactId>log4j-api</artifactId>
+                <version>${log4j.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.logging.log4j</groupId>

@@ -47,9 +47,18 @@
         </dependency>
 
         <!-- Bundled into the job jar. -->
+        <!-- In flink-dist on the cluster; flink-connector-files below also carries a shaded copy, so bundling it
+             as well would put every class in the job jar twice. -->
         <dependency>
             <groupId>org.apache.flink</groupId>
             <artifactId>flink-connector-base</artifactId>
+            <version>${flink.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <!-- FileSink for the landing zone (local paths need no Hadoop). Not in flink-dist, so bundled. -->
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-connector-files</artifactId>
             <version>${flink.version}</version>
         </dependency>
         <dependency>
