@@ -33,6 +33,9 @@ public class RiskDetectionJob {
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment(flinkConf);
         env.enableCheckpointing(config.checkpointInterval().toMillis());
 
+        // flink-connector-kafka 5.0.0-2.2 (the latest) takes only Kafka's deprecated OffsetResetStrategy here; drop the
+        // suppression when it accepts AutoOffsetResetStrategy.
+        @SuppressWarnings("deprecation")
         KafkaSource<String> source = KafkaSource.<String>builder()
                 .setBootstrapServers(config.bootstrapServers())
                 .setTopics(Topics.TRANSACTIONS)

@@ -92,7 +92,7 @@ public class LlmGateway {
             ChatClient.ChatClientRequestSpec request = prompt(provider, ref, system, user)
                     .advisors(AdvisorParams.ENABLE_NATIVE_STRUCTURED_OUTPUT);
             if (!tools.isEmpty()) {
-                request = request.toolCallbacks(tools);
+                request = request.tools(tools.toArray());
             }
             ResponseEntity<ChatResponse, T> response = request.call()
                     .responseEntity(ProviderOutputConverter.of(type, provider.config()));
@@ -122,7 +122,7 @@ public class LlmGateway {
     private <T> Answer<T> inTwoSteps(LlmProviders.Provider provider, ModelRef ref, String system, String user,
                                      List<ToolCallback> tools, Class<T> type, long start) {
         ChatResponse investigation = prompt(provider, ref, system, user + NOTES_INSTRUCTION)
-                .toolCallbacks(tools).call().chatResponse();
+                .tools(tools.toArray()).call().chatResponse();
         String notes = investigation == null || investigation.getResult() == null ? ""
                 : investigation.getResult().getOutput().getText();
         ResponseEntity<ChatResponse, T> structured = prompt(provider, ref, system,

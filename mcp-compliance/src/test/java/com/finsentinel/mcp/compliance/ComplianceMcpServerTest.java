@@ -86,8 +86,7 @@ class ComplianceMcpServerTest {
                 {"priority": 1, "request": {"method": "GET", "urlPath": "/screening/straits/counterparties/vendor-down"},
                  "response": {"status": 500}}""");
 
-        McpSchema.CallToolResult result = client.callTool(new McpSchema.CallToolRequest("screenCounterparty",
-                Map.of("tenantId", "straits", "counterpartyId", "vendor-down")));
+        McpSchema.CallToolResult result = client.callTool(McpSchema.CallToolRequest.builder("screenCounterparty").arguments(Map.of("tenantId", "straits", "counterpartyId", "vendor-down")).build());
 
         assertThat(result.isError()).isTrue();
     }
@@ -114,8 +113,7 @@ class ComplianceMcpServerTest {
     }
 
     private JsonNode screen(String counterpartyId) {
-        McpSchema.CallToolResult result = client.callTool(new McpSchema.CallToolRequest("screenCounterparty",
-                Map.of("tenantId", "straits", "counterpartyId", counterpartyId)));
+        McpSchema.CallToolResult result = client.callTool(McpSchema.CallToolRequest.builder("screenCounterparty").arguments(Map.of("tenantId", "straits", "counterpartyId", counterpartyId)).build());
         assertThat(result.isError()).isNotEqualTo(Boolean.TRUE);
         return json.readTree(((McpSchema.TextContent) result.content().getFirst()).text());
     }

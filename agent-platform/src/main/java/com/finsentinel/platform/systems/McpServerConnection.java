@@ -43,7 +43,7 @@ class McpServerConnection implements AutoCloseable {
     <T> T call(String tool, Map<String, Object> arguments, Class<T> type) {
         McpSchema.CallToolResult result;
         try {
-            result = client().callTool(new McpSchema.CallToolRequest(tool, arguments));
+            result = client().callTool(McpSchema.CallToolRequest.builder(tool).arguments(arguments).build());
         } catch (RuntimeException e) {
             disconnect();
             throw new SystemUnavailableException(name, tool + ": " + e);
@@ -82,7 +82,7 @@ class McpServerConnection implements AutoCloseable {
                             .jsonMapper(new JacksonMcpJsonMapper(json))
                             .build())
                     .jsonSchemaValidator(new DefaultJsonSchemaValidator(json))
-                    .clientInfo(new McpSchema.Implementation("finsentinel-platform", "0.1.0"))
+                    .clientInfo(McpSchema.Implementation.builder("finsentinel-platform", "0.1.0").build())
                     .requestTimeout(requestTimeout)
                     .initializationTimeout(requestTimeout)
                     .build();

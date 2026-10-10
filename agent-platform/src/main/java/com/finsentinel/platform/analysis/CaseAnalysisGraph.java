@@ -5,6 +5,7 @@ import com.alibaba.cloud.ai.graph.CompiledGraph;
 import com.alibaba.cloud.ai.graph.OverAllState;
 import com.alibaba.cloud.ai.graph.RunnableConfig;
 import com.alibaba.cloud.ai.graph.StateGraph;
+import com.alibaba.cloud.ai.graph.serializer.StateSerializer;
 import com.alibaba.cloud.ai.graph.action.AsyncNodeAction;
 import com.alibaba.cloud.ai.graph.checkpoint.Checkpoint;
 import com.alibaba.cloud.ai.graph.checkpoint.config.SaverConfig;
@@ -118,7 +119,7 @@ public class CaseAnalysisGraph {
     }
 
     private StateGraph single(CaseGraphStateSerializer serializer) throws GraphStateException {
-        return new StateGraph(CaseGraphState.keyStrategies(), serializer)
+        return new StateGraph(CaseGraphState.keyStrategies(), (StateSerializer) serializer)
                 .addNode(INVESTIGATE, node(state -> {
                     InvestigationResult result = investigator.investigate(CaseGraphState.caseContext(state),
                             revision(state));
@@ -132,7 +133,7 @@ public class CaseAnalysisGraph {
     }
 
     private StateGraph multi(CaseGraphStateSerializer serializer) throws GraphStateException {
-        StateGraph graph = new StateGraph(CaseGraphState.keyStrategies(), serializer)
+        StateGraph graph = new StateGraph(CaseGraphState.keyStrategies(), (StateSerializer) serializer)
                 .addNode(PLAN, node(state -> Map.of(CaseGraphState.PLAN,
                         planner.plan(CaseGraphState.caseContext(state)))))
                 .addNode(WRITE, node(state -> {

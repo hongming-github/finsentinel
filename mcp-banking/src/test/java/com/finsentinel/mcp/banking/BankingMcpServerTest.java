@@ -90,8 +90,7 @@ class BankingMcpServerTest {
 
     @Test
     void anIdCannotRedirectTheRequestToAnotherSystem() {
-        McpSchema.CallToolResult result = client.callTool(new McpSchema.CallToolRequest("getCustomerProfile",
-                Map.of("tenantId", "straits", "customerId", "../../../core/straits/accounts/straits-acc-0487")));
+        McpSchema.CallToolResult result = client.callTool(McpSchema.CallToolRequest.builder("getCustomerProfile").arguments(Map.of("tenantId", "straits", "customerId", "../../../core/straits/accounts/straits-acc-0487")).build());
 
         assertThat(text(result)).doesNotContain("recentSecurityEvents");
     }
@@ -102,8 +101,7 @@ class BankingMcpServerTest {
                 {"priority": 1, "request": {"method": "GET", "urlPath": "/crm/straits/customers/crm-down"},
                  "response": {"status": 503}}""");
 
-        McpSchema.CallToolResult result = client.callTool(new McpSchema.CallToolRequest("getCustomerProfile",
-                Map.of("tenantId", "straits", "customerId", "crm-down")));
+        McpSchema.CallToolResult result = client.callTool(McpSchema.CallToolRequest.builder("getCustomerProfile").arguments(Map.of("tenantId", "straits", "customerId", "crm-down")).build());
 
         assertThat(result.isError()).isTrue();
     }
@@ -115,8 +113,7 @@ class BankingMcpServerTest {
                  "response": {"status": 200, "fixedDelayMilliseconds": 5000, "jsonBody": {}}}""");
         long start = System.nanoTime();
 
-        McpSchema.CallToolResult result = client.callTool(new McpSchema.CallToolRequest("getAccountDetails",
-                Map.of("tenantId", "straits", "accountId", "core-slow")));
+        McpSchema.CallToolResult result = client.callTool(McpSchema.CallToolRequest.builder("getAccountDetails").arguments(Map.of("tenantId", "straits", "accountId", "core-slow")).build());
 
         assertThat(result.isError()).isTrue();
         assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(Duration.ofSeconds(3));
@@ -144,7 +141,7 @@ class BankingMcpServerTest {
     }
 
     private JsonNode call(String tool, Map<String, Object> arguments) {
-        McpSchema.CallToolResult result = client.callTool(new McpSchema.CallToolRequest(tool, arguments));
+        McpSchema.CallToolResult result = client.callTool(McpSchema.CallToolRequest.builder(tool).arguments(arguments).build());
         assertThat(result.isError()).as(text(result)).isNotEqualTo(Boolean.TRUE);
         return json.readTree(text(result));
     }

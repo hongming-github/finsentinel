@@ -1,11 +1,12 @@
 package com.finsentinel.platform.llm;
 
+import io.micrometer.observation.ObservationRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -25,7 +26,9 @@ public class LlmProviders {
     private final Map<String, Provider> providers;
 
     @Autowired
-    LlmProviders(LlmProperties props, ChatClient.Builder openAi, ToolCallingManager toolCallingManager) {
+    LlmProviders(LlmProperties props, ChatClient.Builder openAi, ObjectProvider<ObservationRegistry> observations) {
+        // The builder's own tool-calling manager inherits this registry, so tool calls on these providers are traced too.
+        ObservationRegistry registry = observations.getIfAvailable(() -> ObservationRegistry.NOOP);
         Map<String, Provider> built = new HashMap<>();
         props.providers().forEach((name, config) -> {
             if (ModelRef.DEFAULT_PROVIDER.equals(name)) {
@@ -38,7 +41,7 @@ public class LlmProviders {
                         .options(OpenAiChatOptions.builder().baseUrl(config.baseUrl()).apiKey(config.apiKey())
                                 .extraBody(config.extraBody().isEmpty() ? null : config.extraBody())
                                 .build())
-                        .toolCallingManager(toolCallingManager)
+                        .observationRegistry(registry)
                         .build();
                 built.put(name, new Provider(ChatClient.builder(model).build(), config, true));
             }
