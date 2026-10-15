@@ -127,6 +127,9 @@ committed, and how the user likes to work. Keep it updated at the end of each se
   Batch statistics are robust (median, MAD) because the batch cannot see which past amounts were fraud. The rule uses
   streaming history first and a fresh batch baseline only as a fallback; the alert reason names the source.
 - Stateful Flink operators keep their `uid(...)`; never rename one without a savepoint migration plan.
+- Kafka sources that rebuild state from a compacted topic (account baselines) start from `earliest()` on a cold
+  start; event streams (transactions) continue from the group's committed offsets. Test restarts the way they happen
+  in production (same group, no savepoint), not with a fresh group (`StartingOffsetsTest`).
 - Spark runs on Java 21 with the opens in `batch-job/pom.xml` (`spark.jvm.opens`); local runs use the test classpath.
 - Host ports: Redis 6380, platform 8090 (REST and `/mcp`), mcp-banking 8091, mcp-compliance 8092, fake systems (WireMock) 8093, Keycloak 8094, schema registry (Apicurio) 8095;
   6379 and 8080 are used by other local projects.

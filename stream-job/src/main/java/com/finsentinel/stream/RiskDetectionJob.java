@@ -13,6 +13,7 @@ import org.apache.flink.connector.base.DeliveryGuarantee;
 import org.apache.flink.connector.kafka.sink.KafkaRecordSerializationSchema;
 import org.apache.flink.connector.kafka.sink.KafkaSink;
 import org.apache.flink.connector.kafka.source.KafkaSource;
+import org.apache.flink.connector.kafka.source.KafkaSourceBuilder;
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
@@ -45,15 +46,14 @@ public class RiskDetectionJob {
         SerializableSupplier<SchemaRegistry> registry = () -> new HttpSchemaRegistry(registryUrl, registryTimeout);
 
         SingleOutputStreamOperator<Transaction> transactions = env
-                .fromSource(bytesSource(config, Topics.TRANSACTIONS), WatermarkStrategy.noWatermarks(), "transactions")
+                .fromSource(transactionsSource(config).build(), WatermarkStrategy.noWatermarks(), "transactions")
                 .uid("transactions-source")
                 .process(new ParseTransactions(registry))
                 .uid("parse-transactions")
                 .name("parse");
 
         DataStream<AccountBaseline> baselines = env
-                .fromSource(bytesSource(config, Topics.ACCOUNT_BASELINES), WatermarkStrategy.noWatermarks(),
-                        "account-baselines")
+                .fromSource(baselinesSource(config).build(), WatermarkStrategy.noWatermarks(), "account-baselines")
                 .uid("baselines-source")
                 .process(new ParseBaselines(registry))
                 .uid("parse-baselines")
@@ -75,17 +75,34 @@ public class RiskDetectionJob {
         env.execute("finsentinel-risk-detection");
     }
 
+    /**
+     * Transactions continue from the group's committed offsets: a job started without a savepoint (a redeployment)
+     * picks up where the previous one stopped, and a new group starts at the beginning.
+     */
     // flink-connector-kafka 5.0.0-2.2 (the latest) takes only Kafka's deprecated OffsetResetStrategy here; drop the
     // suppression when it accepts AutoOffsetResetStrategy.
     @SuppressWarnings("deprecation")
-    private static KafkaSource<byte[]> bytesSource(JobConfig config, String topic) {
+    static KafkaSourceBuilder<byte[]> transactionsSource(JobConfig config) {
+        return bytesSource(config, Topics.TRANSACTIONS)
+                .setStartingOffsets(OffsetsInitializer.committedOffsets(OffsetResetStrategy.EARLIEST));
+    }
+
+    /**
+     * Baselines are read from the beginning on every start without a savepoint: the compacted topic is the table of
+     * every account's latest baseline, and a job without state needs all of it (ADR 0019). The group's committed
+     * offsets would skip everything the previous job had read, so the new job would have no baselines until the next
+     * batch run. Restoring from a checkpoint or savepoint still resumes from the offsets in the state.
+     */
+    static KafkaSourceBuilder<byte[]> baselinesSource(JobConfig config) {
+        return bytesSource(config, Topics.ACCOUNT_BASELINES).setStartingOffsets(OffsetsInitializer.earliest());
+    }
+
+    private static KafkaSourceBuilder<byte[]> bytesSource(JobConfig config, String topic) {
         return KafkaSource.<byte[]>builder()
                 .setBootstrapServers(config.bootstrapServers())
                 .setTopics(topic)
                 .setGroupId(config.groupId())
-                .setStartingOffsets(OffsetsInitializer.committedOffsets(OffsetResetStrategy.EARLIEST))
-                .setDeserializer(new RawValue())
-                .build();
+                .setDeserializer(new RawValue());
     }
 
     private static KafkaSink<Alert> alertSink(String bootstrapServers, SerializableSupplier<SchemaRegistry> registry) {
