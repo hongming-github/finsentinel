@@ -69,12 +69,13 @@ class LlmCaseInvestigator implements CaseInvestigator {
                 tools.evidence(), tools.untrustedInstructions());
     }
 
-    /** See {@link ReportWriting#caseBrief}: playbooks, then alerts, then the analyst's note. */
+    /** See {@link ReportWriting#caseData}: the alerts, then the analyst's note; the playbooks are in the system prompt. */
     private String brief(CaseContext caseContext) {
-        return "Investigate this case." + ReportWriting.caseBrief(caseContext, playbooks, json);
+        return "Investigate this case." + ReportWriting.caseData(caseContext, json);
     }
 
     private LlmGateway.Answer<CaseReport> ask(CaseContext caseContext, List<ToolCallback> tools, String userMessage) {
-        return models.ask(AgentRole.INVESTIGATOR, caseContext, systemPrompt, userMessage, tools, CaseReport.class);
+        return models.ask(AgentRole.INVESTIGATOR, caseContext,
+                ReportWriting.systemPrompt(systemPrompt, caseContext, playbooks), userMessage, tools, CaseReport.class);
     }
 }

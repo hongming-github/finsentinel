@@ -41,11 +41,11 @@ class LlmCaseReviewer implements CaseReviewer {
                 + json.writerWithDefaultPrettyPrinter().writeValueAsString(investigation.evidence())
                 : "Evidence: the specialist reports the author wrote from:\n" + json.writerWithDefaultPrettyPrinter()
                 .writeValueAsString(evidence.stream().map(LlmReportWriter.SpecialistView::of).toList());
-        String user = "Review this case report." + ReportWriting.caseBrief(caseContext, playbooks, json)
+        String user = "Review this case report." + ReportWriting.caseData(caseContext, json)
                 + "\n\n" + evidenceText
                 + "\n\nReport:\n" + json.writerWithDefaultPrettyPrinter().writeValueAsString(investigation.report());
-        LlmGateway.Answer<Verdict> answer = models.ask(AgentRole.REVIEWER, caseContext, systemPrompt, user, List.of(),
-                Verdict.class);
+        LlmGateway.Answer<Verdict> answer = models.ask(AgentRole.REVIEWER, caseContext,
+                ReportWriting.systemPrompt(systemPrompt, caseContext, playbooks), user, List.of(), Verdict.class);
         Verdict verdict = answer.value();
         if (verdict.approved()) {
             return new Review(true, List.of(), answer.usage());

@@ -54,8 +54,9 @@ class ModelRoutingTest {
 
     @Test
     void escalationIsOffAsShipped() {
+        // A transfer at HIGH severity would escalate if escalation were on; as shipped it stays on the role model.
         assertThat(configured.modelFor(AgentRole.INVESTIGATOR, caseWith(Channel.TRANSFER, Severity.HIGH)))
-                .isEqualTo(ModelRef.parse("gpt-5.4-mini"));
+                .isEqualTo(ModelRef.parse("gpt-6-luna"));
     }
 
     @Test

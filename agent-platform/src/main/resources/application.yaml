@@ -24,10 +24,10 @@ spring:
       # Empty when unset: the client starts in no-auth mode, so tests and builds work without a key.
       api-key: ${OPENAI_API_KEY:}
       chat:
-        model: gpt-5.4-mini
-        # Chat Completions (which Spring AI 2.0 uses) rejects function tools combined with reasoning on
-        # gpt-5.4-mini; that combination needs the Responses API. The agent's work is tool-driven lookups,
-        # so non-reasoning mode is the better latency/cost trade anyway.
+        model: gpt-6-luna
+        # Chat Completions (which Spring AI 2.0 uses) takes function tools only without reasoning (gpt-5.4-mini
+        # rejected the combination; gpt-6-luna documents tools on Chat Completions with reasoning effort none only).
+        # The agent's work is tool-driven lookups, so non-reasoning mode is the better latency/cost trade anyway.
         reasoning-effort: none
       embedding:
         model: text-embedding-3-small
@@ -130,10 +130,11 @@ finsentinel:
           include_reasoning: false
     # The model of each agent role on an ordinary case. "provider:model"; a bare name is OpenAI.
     models:
-      investigator: gpt-5.4-mini
-      specialist: gpt-5.4-mini
-      writer: gpt-5.4-mini
-      reviewer: gpt-5.4-mini
+      # gpt-6-luna since 2026-10-15 (ADR 0023): 51/51 golden runs against gpt-5.4-mini's 44/48, at a ninth of the cost.
+      investigator: gpt-6-luna
+      specialist: gpt-6-luna
+      writer: gpt-6-luna
+      reviewer: gpt-6-luna
     # Escalated cases (a transfer, or an alert of these severities) switch these roles to the stronger model.
     # Off by default: on the live scenarios it cost 5.3x per case with no accuracy gain (ADR 0011). To turn on:
     # roles: [investigator, writer]
@@ -148,10 +149,12 @@ finsentinel:
       model: groq:openai/gpt-oss-120b
       failure-threshold: 3
       open-for: 60s
-    # USD per million tokens. OpenAI: standard tier, developers.openai.com/api/docs/pricing; Groq:
-    # console.groq.com/docs/models (both checked 2026-10-03; Groq lists no cached rate, so input is assumed).
-    # Keys with dots, colons or slashes need brackets.
+    # USD per million tokens. OpenAI: standard tier, short context (<= 272K input tokens; our prompts are a few
+    # thousand), developers.openai.com/api/docs/pricing, checked 2026-10-15; Groq: console.groq.com/docs/models, checked
+    # 2026-10-03 (no cached rate listed, so input is assumed). cache-write only where the provider charges for writes
+    # (OpenAI from GPT-5.6 on); without it writes cost the input rate. Keys with dots, colons or slashes need brackets.
     prices:
+      "[gpt-6-luna]": { input: 0.10, cached-input: 0.01, cache-write: 0.125, output: 0.50 }
       "[gpt-5.5]": { input: 5.00, cached-input: 0.50, output: 30.00 }
       "[gpt-5.4-mini]": { input: 0.75, cached-input: 0.075, output: 4.50 }
       "[gpt-5.4-nano]": { input: 0.20, cached-input: 0.02, output: 1.25 }
@@ -192,7 +195,8 @@ finsentinel:
       agent-passage-chars: 900
       rerank:
         enabled: true
-        model: gpt-5.4-nano
+        # gpt-6-luna since 2026-10-15 (ADR 0023): same hit@5, better MRR than gpt-5.4-nano, which shuts down 2027-04-01.
+        model: gpt-6-luna
         max-passage-chars: 700
       # Exact question match only (normalised case and spacing). A semantic (embedding similarity) cache was measured
       # and rejected: one-word-apart questions with different answers score 0.95 cosine (ADR 0013).

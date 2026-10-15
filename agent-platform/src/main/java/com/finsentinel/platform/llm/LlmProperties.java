@@ -109,11 +109,16 @@ public record LlmProperties(Map<String, Provider> providers, Models models, Esca
         }
     }
 
-    public record Price(BigDecimal input, BigDecimal cachedInput, BigDecimal output) {
+    /**
+     * @param cacheWrite input tokens written to the provider's prompt cache, for models that charge for it (OpenAI
+     *                   from GPT-5.6 on, at 1.25x input); absent means writes cost the input rate
+     */
+    public record Price(BigDecimal input, BigDecimal cachedInput, BigDecimal cacheWrite, BigDecimal output) {
 
         public Price {
             require(input != null && cachedInput != null && output != null
-                    && input.signum() >= 0 && cachedInput.signum() >= 0 && output.signum() >= 0,
+                    && input.signum() >= 0 && cachedInput.signum() >= 0 && output.signum() >= 0
+                    && (cacheWrite == null || cacheWrite.signum() >= 0),
                     "prices must be zero or positive");
         }
     }

@@ -55,7 +55,7 @@ class LlmReportWriter implements ReportWriter {
             toolCalls.addAll(r.toolCalls());
             untrusted.addAll(r.untrustedInstructions());
         }
-        String brief = "Write the report for this case." + ReportWriting.caseBrief(caseContext, playbooks, json)
+        String brief = "Write the report for this case." + ReportWriting.caseData(caseContext, json)
                 + "\n\nSpecialist reports:\n" + json.writerWithDefaultPrettyPrinter().writeValueAsString(
                 reports.stream().map(SpecialistView::of).toList())
                 + flags(untrusted)
@@ -96,7 +96,8 @@ class LlmReportWriter implements ReportWriter {
     }
 
     private LlmGateway.Answer<CaseReport> ask(CaseContext caseContext, String userMessage) {
-        return models.ask(AgentRole.WRITER, caseContext, systemPrompt, userMessage, List.of(), CaseReport.class);
+        return models.ask(AgentRole.WRITER, caseContext, ReportWriting.systemPrompt(systemPrompt, caseContext, playbooks),
+                userMessage, List.of(), CaseReport.class);
     }
 
     /**

@@ -11,7 +11,8 @@ import java.util.Comparator;
 /**
  * Turns token counts into dollars at list price. The provider reports the model that answered, often a dated snapshot
  * ("gpt-5.4-mini-2026-03-17"), priced by the longest configured name at the same provider that it starts with. Cached
- * input is part of the prompt tokens and is billed at the cached rate instead of the input rate.
+ * input and input written to the cache are both part of the prompt tokens, each billed at its own rate instead of the
+ * input rate (a cache write is not a fee on top).
  */
 @Component
 public class LlmPricing {
@@ -43,7 +44,7 @@ public class LlmPricing {
     }
 
     public BigDecimal cost(String provider, String reportedModel, Integer inputTokens, Integer cachedInputTokens,
-                           Integer outputTokens) {
+                           Integer cacheWriteTokens, Integer outputTokens) {
         LlmProperties.Price price = props.prices().get(priceKey(provider, reportedModel));
         if (price == null) {
             log.warn("No price for {}:{}; its calls are counted at zero cost", provider, reportedModel);
@@ -51,9 +52,12 @@ public class LlmPricing {
         }
         long input = inputTokens == null ? 0 : inputTokens;
         long cached = cachedInputTokens == null ? 0 : Math.min(cachedInputTokens, input);
+        long written = cacheWriteTokens == null ? 0 : Math.min(cacheWriteTokens, input - cached);
         long output = outputTokens == null ? 0 : outputTokens;
-        return price.input().multiply(BigDecimal.valueOf(input - cached))
+        BigDecimal writeRate = price.cacheWrite() == null ? price.input() : price.cacheWrite();
+        return price.input().multiply(BigDecimal.valueOf(input - cached - written))
                 .add(price.cachedInput().multiply(BigDecimal.valueOf(cached)))
+                .add(writeRate.multiply(BigDecimal.valueOf(written)))
                 .add(price.output().multiply(BigDecimal.valueOf(output)))
                 .divide(MILLION, 8, RoundingMode.HALF_UP);
     }

@@ -12,7 +12,7 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 
-/** Prompt pieces shared by the agents: the case brief, playbooks, revision and repair notes. */
+/** Prompt pieces shared by the agents: the system prompt with its playbooks, the case data, revision and repair notes. */
 final class ReportWriting {
 
     private ReportWriting() {
@@ -32,28 +32,35 @@ final class ReportWriting {
     }
 
     /**
-     * The playbook of each rule that fired (and only those), the case's alerts, and the analyst's note when the case
-     * was sent back for another look. Text shared by cases comes first and case data last: the provider caches the
-     * longest prompt prefix it has seen, so with the playbooks ahead of the alerts the next case of the same rules
-     * reads most of its prompt from the cache; with the alerts first, no case did (measured, ADR 0013).
+     * The agent's system message: its role prompt, the playbook of each rule that fired (and only those), and what the
+     * bank has not connected. Everything here is shared by many cases and nothing is case data, so the whole message
+     * is a reusable cache prefix. It must be its own message: from GPT-5.6 on, the provider writes the cache only at
+     * message boundaries (the end of the system block, the end of the latest user message), so a playbook at the head
+     * of the user message, ahead of the case data, was rewritten for every case and never read back (ADR 0011: 0 of
+     * 2,600 prompt tokens cached on a second case, 1,490 with the playbook in the system message).
      */
-    static String caseBrief(CaseContext caseContext, Map<AlertRule, String> playbooks, JsonMapper json) {
-        StringBuilder brief = new StringBuilder();
+    static String systemPrompt(String rolePrompt, CaseContext caseContext, Map<AlertRule, String> playbooks) {
+        StringBuilder system = new StringBuilder(rolePrompt);
         for (AlertRule rule : caseContext.rules()) {
-            brief.append("\n\nPlaybook for ").append(rule).append(":\n").append(playbooks.get(rule));
+            system.append("\n\nPlaybook for ").append(rule).append(":\n").append(playbooks.get(rule));
         }
         if (!caseContext.unconnectedSystems().isEmpty()) {
             // Only for banks missing a system, so every other bank's prompt (and its prompt-cache prefix) is unchanged.
-            brief.append("\n\nThis bank has not connected ").append(caseContext.unconnectedSystems())
+            system.append("\n\nThis bank has not connected ").append(caseContext.unconnectedSystems())
                     .append(": their checks are not available. Say in the summary which checks could not be done.");
         }
-        brief.append("\n\nIts alerts:\n")
+        return system.toString();
+    }
+
+    /** The case itself, for the user message: its alerts, and the analyst's note when it was sent back. */
+    static String caseData(CaseContext caseContext, JsonMapper json) {
+        StringBuilder data = new StringBuilder("\n\nIts alerts:\n")
                 .append(json.writerWithDefaultPrettyPrinter().writeValueAsString(caseContext.alerts()));
         if (caseContext.analystNote() != null) {
-            brief.append("\n\nAn analyst reviewed an earlier report and sent the case back with this note. Address it "
+            data.append("\n\nAn analyst reviewed an earlier report and sent the case back with this note. Address it "
                     + "explicitly in your findings:\n").append(caseContext.analystNote());
         }
-        return brief.toString();
+        return data.toString();
     }
 
     /** Empty on a first pass; otherwise the reviewer's objections to the previous report. */

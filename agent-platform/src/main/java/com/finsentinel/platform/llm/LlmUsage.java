@@ -1,5 +1,6 @@
 package com.finsentinel.platform.llm;
 
+import com.openai.models.completions.CompletionUsage;
 import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.model.ChatResponse;
 
@@ -40,9 +41,27 @@ public record LlmUsage(String model, Integer inputTokens, Integer outputTokens, 
         Integer output = usage == null ? null : usage.getCompletionTokens();
         Integer cached = usage == null || usage.getCacheReadInputTokens() == null ? null
                 : Math.toIntExact(usage.getCacheReadInputTokens());
-        BigDecimal cost = pricing.cost(provider, model, input, cached, output);
+        BigDecimal cost = pricing.cost(provider, model, input, cached, cacheWriteTokens(usage), output);
         String key = pricing.priceKey(provider, model);
         return new LlmUsage(key, input, output, cached, 1, latencyMs, cost, Map.of(key, cost));
+    }
+
+    /**
+     * Prompt tokens written to the provider's cache. Spring AI 2.0.1's OpenAI client drops the count (it passes null
+     * as the cache-write tokens), but keeps the SDK's usage, where Chat Completions reports it.
+     */
+    static Integer cacheWriteTokens(Usage usage) {
+        if (usage == null) {
+            return null;
+        }
+        if (usage.getCacheWriteInputTokens() != null) {
+            return Math.toIntExact(usage.getCacheWriteInputTokens());
+        }
+        if (usage.getNativeUsage() instanceof CompletionUsage completion) {
+            return completion.promptTokensDetails().flatMap(CompletionUsage.PromptTokensDetails::cacheWriteTokens)
+                    .map(Math::toIntExact).orElse(null);
+        }
+        return null;
     }
 
     public LlmUsage plus(LlmUsage other) {

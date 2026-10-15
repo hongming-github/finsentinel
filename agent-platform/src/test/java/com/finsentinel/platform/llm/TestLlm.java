@@ -39,6 +39,6 @@ public final class TestLlm {
     }
 
     public static LlmProperties.Price price(String in, String cached, String out) {
-        return new LlmProperties.Price(new BigDecimal(in), new BigDecimal(cached), new BigDecimal(out));
+        return new LlmProperties.Price(new BigDecimal(in), new BigDecimal(cached), null, new BigDecimal(out));
     }
 }
