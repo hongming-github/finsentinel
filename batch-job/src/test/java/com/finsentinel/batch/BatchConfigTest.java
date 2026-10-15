@@ -34,6 +34,12 @@ class BatchConfigTest {
     }
 
     @Test
+    void theLakeDefaultsToAPersistentDirectoryInTheUsersHome() {
+        assertThat(BatchConfig.load(new String[0], Map.of(), CLOCK).lakeDir())
+                .isEqualTo(System.getProperty("user.home") + "/.finsentinel/lake");
+    }
+
+    @Test
     void typosAndNonsenseAreRejected() {
         assertThatThrownBy(() -> BatchConfig.load(new String[]{"--baseline.windowdays=30"}, Map.of(), CLOCK))
                 .hasMessageContaining("Unknown setting");

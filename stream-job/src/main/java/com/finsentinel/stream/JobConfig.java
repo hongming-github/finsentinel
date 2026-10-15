@@ -48,7 +48,7 @@ record JobConfig(String bootstrapServers, String schemaRegistryUrl, Duration sch
                 Settings.duration(p, "checkpoint.interval"),
                 Settings.integer(p, "local.web-ui-port"),
                 Settings.duration(p, "state.ttl"),
-                Settings.string(p, "lake.dir"),
+                Settings.path(p, "lake.dir"),
                 RuleConfig.from(p));
     }
 }

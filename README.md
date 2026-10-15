@@ -109,7 +109,7 @@ java -jar agent-platform/target/agent-platform-0.1.0-SNAPSHOT.jar
 ./mvnw -pl txn-simulator exec:java -Dexec.args="--fraud-every=10"
 
 # 6. Once a day (any time; re-running is safe): curate the landing zone and publish account baselines.
-#    The lake is /tmp/finsentinel/lake by default (FINSENTINEL_LAKE_DIR for both jobs).
+#    The lake is ~/.finsentinel/lake by default (FINSENTINEL_LAKE_DIR for both jobs).
 ./mvnw -pl batch-job exec:exec -Djob.args="--as-of=$(date -u +%F)"
 
 # 7. Sign in as alice (straits analyst; dev-only password grant), see the queue, then one case with its alerts,
