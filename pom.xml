@@ -35,19 +35,19 @@
 
         <spring-boot.version>4.1.1</spring-boot.version>
         <spring-ai.version>2.0.1</spring-ai.version>
-        <flink.version>2.2.1</flink.version>
+        <flink.version>2.3.0</flink.version>
         <flink-connector-kafka.version>5.0.0-2.2</flink-connector-kafka.version>
         <spark.version>4.2.0</spark.version>
         <!-- The version Spring Boot 4.1.1 manages, so the platform and the plain-Java processes run one OpenTelemetry.
              Only the telemetry module uses it: a BOM here would override Boot's management in the platform. -->
-        <opentelemetry.version>1.62.0</opentelemetry.version>
-        <kafka.version>4.2.1</kafka.version>
-        <jackson3.version>3.1.5</jackson3.version>
+        <opentelemetry.version>1.67.0</opentelemetry.version>
+        <kafka.version>4.4.0</kafka.version>
+        <jackson3.version>3.2.3</jackson3.version>
         <avro.version>1.12.2</avro.version>
         <testcontainers.version>2.0.5</testcontainers.version>
-        <slf4j.version>2.0.17</slf4j.version>
-        <log4j.version>2.25.5</log4j.version>
-        <junit.version>6.0.3</junit.version>
+        <slf4j.version>2.0.20</slf4j.version>
+        <log4j.version>2.26.1</log4j.version>
+        <junit.version>6.1.3</junit.version>
         <assertj.version>3.27.7</assertj.version>
         <!-- Compiler warnings fail the build (-Xlint, see the compiler plugin); -Dmaven.compiler.failOnWarning=false lists
              them all at once. -->
@@ -142,7 +142,7 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-compiler-plugin</artifactId>
-                    <version>3.14.1</version>
+                    <version>3.16.0</version>
                     <configuration>
                         <parameters>true</parameters>
                         <showWarnings>true</showWarnings>
@@ -268,17 +268,17 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-surefire-plugin</artifactId>
-                    <version>3.5.4</version>
+                    <version>3.6.0</version>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-failsafe-plugin</artifactId>
-                    <version>3.5.4</version>
+                    <version>3.6.0</version>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-shade-plugin</artifactId>
-                    <version>3.6.1</version>
+                    <version>3.6.2</version>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.avro</groupId>
@@ -288,7 +288,7 @@
                 <plugin>
                     <groupId>org.codehaus.mojo</groupId>
                     <artifactId>exec-maven-plugin</artifactId>
-                    <version>3.6.2</version>
+                    <version>3.6.4</version>
                 </plugin>
                 <plugin>
                     <groupId>org.springframework.boot</groupId>
