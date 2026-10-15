@@ -11,36 +11,49 @@ agent orchestration, RAG, MCP integration with enterprise systems, evaluation, s
 ```mermaid
 flowchart TB
     SIM[txn-simulator] --> TX[[txn.transactions.v2<br/>Avro]]
-    SR[(Apicurio<br/>schema registry)] -.-|schema ids| TX
+    SR[(Apicurio schema registry<br/>for every Avro topic)] -.-|schema ids| TX
     TX -->|group finsentinel-stream| F[stream-job<br/>Flink rules]
-    F -.->|unreadable| DLQ[[txn.transactions.dlq.v2]]
+    F -.->|unreadable, bytes as sent| DLQ[[txn.transactions.dlq.v2]]
     F --> AL[[risk.alerts.v2<br/>Avro]]
     F -->|JSON Lines, one dir per UTC day| LZ[(landing zone<br/>dt=YYYY-MM-DD)]
     LZ --> SP[batch-job<br/>Spark, daily]
-    SP -->|curated Parquet| LK[(lake)]
+    SP -->|curated Parquet, quarantine,<br/>baseline snapshots| LK[(lake)]
     SP --> BL[[account.baselines.v1<br/>Avro, compacted]]
-    BL -->|keyed by account| F
+    BL -->|keyed by account,<br/>read from the start on a cold start| F
     TX -->|group agent-platform-txn-store| P[agent-platform]
     AL -->|group agent-platform-alert-intake| P
 ```
 
-**Agent platform** (Spring Boot 4.1): cases, the analysis graph and the systems it calls.
+**Agent platform** (Spring Boot 4.1): cases, the analysis graph, the systems it calls, and who may call it.
 
 ```mermaid
 flowchart TB
+    KC[(Keycloak<br/>tenant and roles in the token)]
+    AN([analyst, supervisor]) -->|bearer token| API[Case API<br/>decision with If-Match]
+    EXT([MCP clients<br/>Python LangGraph assistant, Claude Code]) -->|bearer token, OAuth 2.1| MS[Platform MCP server /mcp<br/>read-only, bank from the token]
+    KC -.->|tokens| AN
+    KC -.->|tokens| EXT
+
     TX[[txn.transactions.v2]] --> TS[TransactionStore]
     AL[[risk.alerts.v2]] --> AI[Alert intake<br/>groups alerts into cases]
-    API[Case API<br/>analyst decision] -->|If-Match version| PG
-    TS --> PG[(Postgres<br/>txn, alert, case,<br/>graph checkpoints)]
+    AI -.->|unreadable| DLT[[risk.alerts.v2.DLT]]
+
+    TS --> PG[(Postgres, row-level security per bank<br/>txn, alert, case, graph checkpoints,<br/>hash-chained audit log)]
     AI --> PG
-    PG --> Q[Case queue<br/>ANALYSIS stage] --> AG[Analysis graph · Spring AI Alibaba<br/>single agent or plan → specialists → writer<br/>LLM reviewer · fenced checkpoints]
+    API --> PG
+    MS --> PG
+    PG --> Q[Case queue<br/>ANALYSIS stage, budget] --> AG[Analysis graph · Spring AI Alibaba<br/>single agent or plan → specialists → writer<br/>LLM reviewer · fenced checkpoints]
     PG --> OB[Outbox relay] --> K2[[case.events.v1]]
-    AG <-->|case-scoped tools| PG
-    AG <-->|JSON-schema report| LLM[OpenAI]
+
+    AG <-->|case-scoped tools,<br/>untrusted text flagged| PG
+    AG --> GW[LLM gateway<br/>pseudonymised prompts, cost per call,<br/>fallback with circuit breaker]
+    GW --> LLM[OpenAI]
+    GW -.->|provider failure| GQ[Groq]
     AG -->|searchRegulations| SC[(Redis<br/>search cache)]
     SC -.->|miss| KB[(MAS regulations<br/>pgvector + full text)]
-    AG -->|MCP, case-scoped| MB[mcp-banking] --> CRM[(CRM · core banking<br/>WireMock)]
-    AG -->|MCP, case-scoped| MC[mcp-compliance] --> SCR[(mule / watchlist<br/>screening · WireMock)]
+    AG -->|MCP, service token,<br/>per-bank systems| MB[mcp-banking] --> CRM[(CRM · core banking<br/>WireMock)]
+    AG -->|MCP, service token,<br/>per-bank systems| MC[mcp-compliance] --> SCR[(mule / watchlist<br/>screening · WireMock)]
+    KC -.->|client credentials| AG
 ```
 
 The transaction topic has two independent consumers. Flink does not write transactions to Postgres: a slow or
