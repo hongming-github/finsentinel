@@ -1224,3 +1224,63 @@ Flink 消费 Kafka 是它最擅长的、有 checkpoint 语义的方式；compact
 - Spark 本地模式 14.6 秒：读 3,929 行（当天按设计排除），0 坏行，0 重复，100 个账户的基线；重跑结果完全一致。同样的行，落地区 1,173,795 字节，Parquet 258,998 字节（22%）。
 - 关键验证：新启动、没有任何状态、交易从最新位置读的 Flink，读完 200 条基线后，账户 `harbour-acc-0042`（42 笔，中位数 200.05）：付 200.05 不告警；付 6,001.50 告警，原因写着"按 2026-10-10 的批处理基线"；同样 6,001.50 打到一个没有基线的新账户不告警（低于硬上限）。**没有这一步，重新部署后的作业会放过这笔付款。**
 - 新增测试：batch-job 6 个（含 Kafka 容器）、规则 4 个、落地区 2 个、配置 1 个、contracts 1 个。全量 `clean verify` 通过，零警告。
+
+## 阶段 8（C）：一条 trace 从一笔付款贯穿到银行系统（OpenTelemetry）
+
+决策记录见 [ADR 0020](adr/0020-end-to-end-tracing.md)。实时验证只用了 Groq（OpenAI 屏蔽），花费 $0.0255。
+
+### 为什么要做
+
+以前要回答"这笔付款发生了什么"，得在五个进程（模拟器、Flink、平台、两个 MCP 服务器）的日志里拿 id 手工拼。有三个地方会让自动关联断掉：进程之间的 Kafka；案件队列（告警可能等几分钟才被分析，多条告警还会合并成一个案件）；库自己开的线程（图节点、MCP 客户端的传输层）。路线图的完成标准是：一条 trace 贯穿 Kafka → Agent → MCP。
+
+### 必读
+
+- `telemetry/`：`Telemetry`（纯 Java 进程的 SDK）、`TraceContext`（traceparent 和上下文互转）。
+- `txn-simulator/.../Simulator.java` 的 `send`；`stream-job/.../AlertTracing.java`、`RawValue`、`TracedTransaction`、`TracedAlert`。
+- 平台：`observability/Traces.java`、`ObservabilityConfig.java`、`V12__trace_context.sql`、`CaseWorker.analyse`、`CaseAnalysisGraph.node`、`McpServerConnection.call`、`LlmGateway.ask`。
+- MCP 服务器：`TracingConfig.java`。
+- 测试：`TracingIntegrationTest`、`McpTracingTest`、`AlertTracingTest`、两个 MCP 服务器测试里的追踪用例。
+
+### 设计要点（面试可讲）
+
+1. **上下文跟着消息走**：Kafka 消息带 W3C 的 `traceparent` header。Spring 服务用 Spring Boot 4.1 自带的 OpenTelemetry 支持（Micrometer Observation 桥接到 OTel）；纯 Java 进程（模拟器、Flink）用一个小的 `telemetry` 模块。OTel 版本和 Boot 管理的一致（1.62.0），只在这个模块里声明：放进根 POM 的 BOM 会覆盖平台里 Boot 的版本管理。
+2. **Flink 只为告警建 span，不为每笔交易建**：交易里大约千分之一会产生告警，追踪的开销随告警数增长，而不是随吞吐量。span 是触发告警那笔交易的子 span，带"事件时间到检测"的延迟；告警把这个 span 的上下文带给平台。流本身的吞吐和延迟看 Flink 的指标，不靠 trace。
+3. **跨队列：延续告警的 trace**：消费告警时的 span 上下文存进 `alert.trace_parent`，同时作为"启动本轮分析的是什么"存进 `fraud_case.trace_parent`（新告警打开或重开案件、分析师要求重新分析时更新）。worker 的"分析案件"span 以它为父，并把案件的其他告警作为 span link。这样一条 trace 从付款走到报告，每条告警的 trace 也都能找到用到它的那次分析。
+4. **库开的线程**：图节点在库自己的线程上跑，所以图按"本实例正在跑的每一轮"记住上下文，节点在自己的 span 里运行。MCP 客户端的请求可能在传输层的线程上发出，所以用 MCP SDK 的 `transportContextProvider` 在调用线程上抓上下文，再由请求定制器写进 header。
+5. **模型调用一个 span**：网关的 `ask` 整个包一层（包括降级），记录请求的模型、实际回答的模型、是否降级、成本和 token；Spring AI 自己的 chat、工具 span 嵌在里面。
+6. **trace 里没有案件内容**：Spring AI 记录 prompt、回答、工具内容的开关显式关掉（有测试守着）；我们自己的 span 只放 id、模型名、计数和成本；MCP 服务器调用银行系统时只记 URI 模板，不记完整 URL。
+7. **默认安静**：没配 OTLP 端点就不导出、不报错；定时轮询不产生 trace；Boot 默认每分钟往 localhost 推送指标，也关掉了。追踪启动失败只记日志并关闭，绝不能让检测作业反复重启。
+
+### 设计取舍问答
+
+**问：队列这一段为什么不按 OTel 的推荐做法，给每次分析单独开 trace 再用 link 关联？**
+单独开 trace 更"正统"（多个消息触发一次批处理时 OTel 推荐用 link），但排查问题时要在几条 trace 之间跳。我们的分析总是由一件事启动（最新的告警或分析师的请求），所以把它当父节点，其他告警作为 link：一条 trace 看完整条链路，其他告警也不丢。
+
+**问：Flink 为什么不给每笔交易建 span？**
+每秒几千笔交易就是每秒几千个 span，绝大多数没人会看；而且 trace 的价值在于"出了告警之后追查"。没出告警的交易，只有模拟器那一个 producer span。
+
+**问：trace 里放了租户、案件、交易 id，这算不算泄露？**
+这些是内部 id，没有个人信息；但 trace 后端仍然要和案件数据一样做访问控制和保留期管理。真正的个人信息（客户 id 背后的人、收款人名字、prompt 内容）不进 trace，这次实测就抓到了一处漏网的（完整 URL），已修。
+
+### 踩过的坑
+
+1. **新记录类型是 package-private，Flink 不当 POJO**：`SerializationTest` 又抓到一次，改成 public。
+2. **OTel 1.62 的 traceparent 标志位是 `03` 不是 `01`**：W3C Trace Context 第 2 级新增了"trace id 随机"标志。测试一开始写死了 `01`。
+3. **Boot 4.1 默认每分钟往 localhost:4318 推送指标**：没有采集器时每分钟一条错误日志，测试和 CI 里也会。默认关掉。
+4. **本地跑 Flink 找不到 `HttpExporterBuilder`**：OTLP exporter 的内部依赖是 runtime 范围，本地运行的 compile classpath 不包含（和 Spark 的 lz4 一样），打包的 jar 没问题。顺带把"追踪启动失败"改成记日志并关闭：一开始它会让作业无限重启，检测完全停掉。
+5. **实测发现 MCP 服务器的 span 里有完整 URL**：里面有账号和收款人名字。测试只查了"没有 prompt 内容"，没查"没有标识符"。现在两个服务器只记 URI 模板，并各有一个测试（修之前失败）。
+6. **成本估算又偏低**：估计"一次分析远低于 $0.01"，实际 $0.0255，因为这个案件走了"复核退回、重写、修复"的路径。经验已经记在记忆里：要按场景会走的路径估，不能按平均值估。
+
+### 不足与改进
+
+- outbox 发出的 `case.events.v1` 还没带 trace 上下文：下一步把上下文和 outbox 行一起存，让下游系统接着这条 trace。
+- 没有按 trace 采样做尾部采样（只保留出错或慢的 trace），开发环境全采样。
+- Flink 的吞吐、反压等指标没有接到 Grafana（Flink 有自己的 OTel 指标 reporter，可以接）。
+- 没有用 trace 做告警（比如 MCP 延迟超过阈值）。
+
+### 实测数据
+
+- 一条 trace，232 个 span，5 个服务：模拟器发布 → Flink "detect LARGE_AMOUNT"（检测延迟 346 ms）→ 平台消费告警 → 4.7 秒后"分析案件"（跨过队列）→ 图节点 → "llm groq:openai/gpt-oss-120b" → chat → "mcp tools/call getAccountDetails" → mcp-banking 的 `http post /mcp` → 调用核心银行系统；`screenCounterparty` 经过 mcp-compliance 也一样。
+- trace 一眼看出的事：发给 Groq 的 79 个请求里 41 个是 429，十分钟的分析大部分时间在等限流；第一次调用 MCP 服务器要 4 个 HTTP 请求（初始化、开流、确认、调用），首次校验 token 约 0.6 秒；被屏蔽的 OpenAI 嵌入请求每次检索重试 4 次、浪费约 3 秒。
+- 分析本身没通过校验（Groq 写转账报告时不引用法规，ADR 0017 里记过的问题），失败也完整地留在 trace 里。
+- 新增测试：telemetry 3 个、stream-job 6 个（38 个）、平台 3 个（226 个）、两个 MCP 服务器各 1 个。全量 `clean verify` 通过，零警告。

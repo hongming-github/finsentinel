@@ -90,7 +90,7 @@ class ConcurrentCaseClaimTest {
         }));
         locked.await();
         CaseWorker worker = new CaseWorker(cases, alerts, analysis,
-                CaseWorkerTest.props(1_000, Duration.ofMillis(300)), systems);
+                CaseWorkerTest.props(1_000, Duration.ofMillis(300)), systems, io.opentelemetry.api.OpenTelemetry.noop().getTracer("test"));
 
         int claimed;
         long waitedMs;

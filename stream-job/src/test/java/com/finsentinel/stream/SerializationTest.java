@@ -19,7 +19,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class SerializationTest {
 
     @ParameterizedTest
-    @ValueSource(classes = {Transaction.class, Alert.class, AccountBaseline.class, AccountRiskState.class})
+    @ValueSource(classes = {Transaction.class, Alert.class, AccountBaseline.class, AccountRiskState.class,
+            RawMessage.class, TracedTransaction.class, TracedAlert.class})
     void typeIsAFlinkPojoWithoutGenericFields(Class<?> type) {
         TypeInformation<?> info = TypeInformation.of(type);
 

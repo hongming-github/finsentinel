@@ -34,7 +34,7 @@ class AvroWireTest {
     private static final InMemorySchemaRegistry REGISTRY = InMemorySchemaRegistry.withContracts();
     private static final SerializableSupplier<SchemaRegistry> SUPPLIER = () -> REGISTRY;
 
-    private final List<Transaction> parsed = new ArrayList<>();
+    private final List<TracedTransaction> parsed = new ArrayList<>();
     private final List<byte[]> invalid = new ArrayList<>();
 
     @Test
@@ -47,11 +47,14 @@ class AvroWireTest {
         byte[] unknownSchema = {0, 0, 0, 1, 0, 2, 4};
 
         ParseTransactions parse = open(new ParseTransactions(SUPPLIER));
-        for (byte[] raw : List.of(good, json, unknownSchema, new byte[0])) {
-            parse.processElement(raw, context(parse), collector());
+        String traceparent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
+        parse.processElement(new RawMessage(good, traceparent), context(parse), collector());
+        for (byte[] raw : List.of(json, unknownSchema, new byte[0])) {
+            parse.processElement(new RawMessage(raw, null), context(parse), collector());
         }
 
-        assertThat(parsed).singleElement().satisfies(t -> {
+        assertThat(parsed).singleElement().satisfies(traced -> assertThat(traced.traceparent()).isEqualTo(traceparent));
+        assertThat(parsed).extracting(TracedTransaction::txn).singleElement().satisfies(t -> {
             assertThat(t.txnId()).isEqualTo("t-1");
             assertThat(t.amount()).isEqualByComparingTo("99.90");
             assertThat(t.eventTime()).isEqualTo(WHEN);
@@ -66,21 +69,26 @@ class AvroWireTest {
                         null, null, Channel.TRANSFER, null, WHEN)));
         ParseTransactions parse = open(new ParseTransactions(() -> new OutageAfterStartup(REGISTRY)));
 
-        assertThatThrownBy(() -> parse.processElement(good, context(parse), collector()))
+        assertThatThrownBy(() -> parse.processElement(new RawMessage(good, null), context(parse), collector()))
                 .isInstanceOf(IllegalStateException.class);
         assertThat(invalid).isEmpty();
     }
 
     @Test
-    void alertsAreWrittenAsRegistryAvroKeyedByAccount() {
+    void alertsAreWrittenAsRegistryAvroKeyedByAccountWithTheirTraceContext() {
         Alert alert = new Alert("a-1", "straits", "acc-1", "c-1", AlertRule.GEO_JUMP, Severity.MEDIUM, "SG then GB",
                 List.of("t-1", "t-2"), WHEN, WHEN.plusSeconds(1));
         AlertRecordSerializer serializer = new AlertRecordSerializer("alerts", SUPPLIER);
         serializer.open(null, null);
 
-        ProducerRecord<byte[], byte[]> record = serializer.serialize(alert, null, 1L);
+        String traceparent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
+        ProducerRecord<byte[], byte[]> record = serializer.serialize(new TracedAlert(alert, traceparent), null, 1L);
 
         assertThat(new String(record.key(), StandardCharsets.UTF_8)).isEqualTo("straits|acc-1");
+        assertThat(new String(record.headers().lastHeader("traceparent").value(), StandardCharsets.UTF_8))
+                .isEqualTo(traceparent);
+        assertThat(serializer.serialize(new TracedAlert(alert, null), null, 1L).headers().lastHeader("traceparent"))
+                .as("no trace, no header").isNull();
         AlertEvent back = AvroSerde.forSubject(REGISTRY, Contracts.ALERTS_SUBJECT, AlertEvent.class)
                 .deserialize(record.value());
         assertThat(Contracts.fromAvro(back)).isEqualTo(alert);
@@ -91,10 +99,10 @@ class AvroWireTest {
         return parse;
     }
 
-    private Collector<Transaction> collector() {
+    private Collector<TracedTransaction> collector() {
         return new Collector<>() {
             @Override
-            public void collect(Transaction record) {
+            public void collect(TracedTransaction record) {
                 parsed.add(record);
             }
 

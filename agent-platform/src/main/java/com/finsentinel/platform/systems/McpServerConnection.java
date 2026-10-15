@@ -2,10 +2,17 @@ package com.finsentinel.platform.systems;
 
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
+import com.finsentinel.platform.observability.Traces;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
+import io.modelcontextprotocol.common.McpTransportContext;
 import io.modelcontextprotocol.json.jackson3.JacksonMcpJsonMapper;
 import io.modelcontextprotocol.json.schema.jackson3.DefaultJsonSchemaValidator;
 import io.modelcontextprotocol.spec.McpSchema;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.api.trace.StatusCode;
+import io.opentelemetry.api.trace.Tracer;
+import io.opentelemetry.context.Scope;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -18,7 +25,8 @@ import java.util.function.Supplier;
 /**
  * One MCP server, connected on first use. The platform starts and keeps working when a server is down: a failed call
  * drops the connection, and the next call connects again. Thread-safe. Every request carries the platform's own
- * access token; no token (identity provider down) fails the call like a server that is down.
+ * access token; no token (identity provider down) fails the call like a server that is down. Every call is a client
+ * span whose context goes to the server in the {@code traceparent} header (ADR 0020).
  */
 class McpServerConnection implements AutoCloseable {
 
@@ -28,10 +36,12 @@ class McpServerConnection implements AutoCloseable {
     private final Duration requestTimeout;
     private final JsonMapper json;
     private final Supplier<String> bearerToken;
+    private final Tracer tracer;
     private McpSyncClient client;
 
     McpServerConnection(String name, URI url, Duration connectTimeout, Duration requestTimeout, JsonMapper json,
-                        Supplier<String> bearerToken) {
+                        Supplier<String> bearerToken, Tracer tracer) {
+        this.tracer = tracer;
         this.name = name;
         this.url = url;
         this.connectTimeout = connectTimeout;
@@ -41,14 +51,28 @@ class McpServerConnection implements AutoCloseable {
     }
 
     <T> T call(String tool, Map<String, Object> arguments, Class<T> type) {
-        McpSchema.CallToolResult result;
-        try {
-            result = client().callTool(McpSchema.CallToolRequest.builder(tool).arguments(arguments).build());
-        } catch (RuntimeException e) {
-            disconnect();
-            throw new SystemUnavailableException(name, tool + ": " + e);
+        // Only the tool's name: its arguments are customer identifiers, which stay out of traces.
+        Span span = tracer.spanBuilder("mcp tools/call " + tool).setSpanKind(SpanKind.CLIENT)
+                .setAttribute("mcp.method.name", "tools/call")
+                .setAttribute("gen_ai.tool.name", tool)
+                .setAttribute("server.address", url.getHost())
+                .setAttribute("finsentinel.system", name)
+                .startSpan();
+        try (Scope ignored = span.makeCurrent()) {
+            McpSchema.CallToolResult result;
+            try {
+                result = client().callTool(McpSchema.CallToolRequest.builder(tool).arguments(arguments).build());
+            } catch (RuntimeException e) {
+                disconnect();
+                throw new SystemUnavailableException(name, tool + ": " + e);
+            }
+            return parse(name, tool, result, type, json);
+        } catch (SystemUnavailableException e) {
+            span.setStatus(StatusCode.ERROR, e.getMessage());
+            throw e;
+        } finally {
+            span.end();
         }
-        return parse(name, tool, result, type, json);
     }
 
     /** A tool error (the server reached its backend and failed) is reported, but the connection is fine. */
@@ -68,6 +92,12 @@ class McpServerConnection implements AutoCloseable {
         }
     }
 
+    private static McpTransportContext traceContext() {
+        String traceparent = Traces.current();
+        return traceparent == null ? McpTransportContext.EMPTY
+                : McpTransportContext.create(Map.of(Traces.HEADER, traceparent));
+    }
+
     /**
      * The JSON mapper and schema validator are passed in, never looked up: the SDK's default lookup is a
      * {@code ServiceLoader} on the thread's context class loader, which inside the packaged jar cannot see the
@@ -77,11 +107,17 @@ class McpServerConnection implements AutoCloseable {
         if (client == null) {
             McpSyncClient fresh = McpClient.sync(HttpClientStreamableHttpTransport.builder(url.toString())
                             .clientBuilder(HttpClient.newBuilder().connectTimeout(connectTimeout))
-                            .httpRequestCustomizer((request, method, endpoint, body, context) ->
-                                    request.header("Authorization", "Bearer " + bearerToken.get()))
+                            .httpRequestCustomizer((request, method, endpoint, body, context) -> {
+                                request.header("Authorization", "Bearer " + bearerToken.get());
+                                // Captured on the calling thread (below): the request may go out on another one.
+                                if (context.get(Traces.HEADER) instanceof String traceparent) {
+                                    request.header(Traces.HEADER, traceparent);
+                                }
+                            })
                             .jsonMapper(new JacksonMcpJsonMapper(json))
                             .build())
                     .jsonSchemaValidator(new DefaultJsonSchemaValidator(json))
+                    .transportContextProvider(McpServerConnection::traceContext)
                     .clientInfo(McpSchema.Implementation.builder("finsentinel-platform", "0.1.0").build())
                     .requestTimeout(requestTimeout)
                     .initializationTimeout(requestTimeout)

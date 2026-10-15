@@ -17,7 +17,7 @@ import org.apache.flink.util.function.SerializableSupplier;
  * registry that cannot answer is different: the exception fails the task, Flink restarts it from the last checkpoint,
  * and no good transaction is discarded.
  */
-class ParseTransactions extends ProcessFunction<byte[], Transaction> {
+class ParseTransactions extends ProcessFunction<RawMessage, TracedTransaction> {
 
     static final OutputTag<byte[]> INVALID = new OutputTag<>("invalid-transactions") {
     };
@@ -35,14 +35,14 @@ class ParseTransactions extends ProcessFunction<byte[], Transaction> {
     }
 
     @Override
-    public void processElement(byte[] raw, Context ctx, Collector<Transaction> out) {
+    public void processElement(RawMessage raw, Context ctx, Collector<TracedTransaction> out) {
         Transaction txn;
         try {
-            txn = Contracts.fromAvro(serde.deserialize(raw));
+            txn = Contracts.fromAvro(serde.deserialize(raw.value()));
         } catch (AvroSerde.InvalidMessageException e) {
-            ctx.output(INVALID, raw);
+            ctx.output(INVALID, raw.value());
             return;
         }
-        out.collect(txn);
+        out.collect(new TracedTransaction(txn, raw.traceparent()));
     }
 }

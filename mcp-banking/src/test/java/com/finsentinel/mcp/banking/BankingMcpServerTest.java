@@ -7,7 +7,14 @@ import io.modelcontextprotocol.spec.McpSchema;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.sdk.testing.exporter.InMemorySpanExporter;
+import io.opentelemetry.sdk.trace.SdkTracerProvider;
+import io.opentelemetry.sdk.trace.data.SpanData;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -22,13 +29,16 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** A real MCP client against this server, backed by the WireMock fake systems. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = "finsentinel.banking.read-timeout=1s")
+        properties = "finsentinel.banking.read-timeout=1s", classes = {BankingMcpApplication.class,
+        BankingMcpServerTest.Spans.class})
 @Testcontainers
 class BankingMcpServerTest {
 
@@ -44,6 +54,18 @@ class BankingMcpServerTest {
 
     @LocalServerPort
     int port;
+    @Autowired
+    InMemorySpanExporter spans;
+    @Autowired
+    SdkTracerProvider tracerProvider;
+
+    @TestConfiguration(proxyBeanMethods = false)
+    static class Spans {
+        @Bean
+        InMemorySpanExporter spans() {
+            return InMemorySpanExporter.create();
+        }
+    }
 
     private final JsonMapper json = JsonMapper.builder().build();
     private McpSyncClient client;
@@ -63,6 +85,20 @@ class BankingMcpServerTest {
     @AfterEach
     void close() {
         client.closeGracefully();
+    }
+
+    @Test
+    void callsToTheBanksSystemsAreTracedByUriTemplateWithoutCustomerIdentifiers() {
+        call("getAccountDetails", Map.of("tenantId", "straits", "accountId", "straits-acc-0007"));
+        tracerProvider.forceFlush().join(10, TimeUnit.SECONDS);
+
+        List<SpanData> outbound = spans.getFinishedSpanItems().stream()
+                .filter(s -> s.getKind() == SpanKind.CLIENT).toList();
+        assertThat(outbound).isNotEmpty();
+        assertThat(outbound).allSatisfy(span -> assertThat(span.getAttributes().asMap().values())
+                .noneMatch(value -> value.toString().contains("straits-acc-0007")));
+        assertThat(outbound).anySatisfy(span -> assertThat(span.getAttributes().asMap().values())
+                .anyMatch(value -> value.toString().equals("/core/{tenant}/accounts/{account}")));
     }
 
     @Test

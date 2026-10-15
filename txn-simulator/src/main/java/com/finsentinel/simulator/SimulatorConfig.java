@@ -7,12 +7,14 @@ import java.util.Map;
  * Settings from {@code --key=value} arguments.
  *
  * @param schemaRegistryUrl Confluent-compatible schema registry API; the transaction schema must be registered there
+ * @param otlpEndpoint      OTLP/HTTP receiver for traces (ADR 0020); empty = no tracing
  * @param fraudEverySeconds how often one fraud scenario is injected; 0 disables injection
  * @param durationSeconds   stop after this long; 0 runs until interrupted
  */
 record SimulatorConfig(
         String bootstrapServers,
         String schemaRegistryUrl,
+        String otlpEndpoint,
         int tps,
         int accountsPerTenant,
         int backfillPerAccount,
@@ -33,6 +35,7 @@ record SimulatorConfig(
                 kv.getOrDefault("bootstrap", System.getenv().getOrDefault("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")),
                 kv.getOrDefault("registry", System.getenv().getOrDefault("SCHEMA_REGISTRY_URL",
                         "http://localhost:8095/apis/ccompat/v7")),
+                kv.getOrDefault("otlp", System.getenv().getOrDefault("OTEL_EXPORTER_OTLP_ENDPOINT", "")),
                 Integer.parseInt(kv.getOrDefault("tps", "10")),
                 Integer.parseInt(kv.getOrDefault("accounts", "500")),
                 Integer.parseInt(kv.getOrDefault("backfill", "20")),

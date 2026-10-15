@@ -79,15 +79,15 @@ class StartingOffsetsTest {
     }
 
     /** Runs the source in a local Flink job until the end offsets of now, and returns what it emitted. */
-    private static List<String> readUpToNow(KafkaSourceBuilder<byte[]> source) throws Exception {
+    private static List<String> readUpToNow(KafkaSourceBuilder<RawMessage> source) throws Exception {
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.setParallelism(1);
         List<String> read = new ArrayList<>();
-        try (CloseableIterator<byte[]> records = env
+        try (CloseableIterator<RawMessage> records = env
                 .fromSource(source.setBounded(OffsetsInitializer.latest()).build(), WatermarkStrategy.noWatermarks(),
                         "source")
                 .executeAndCollect()) {
-            records.forEachRemaining(r -> read.add(new String(r, StandardCharsets.UTF_8)));
+            records.forEachRemaining(r -> read.add(new String(r.value(), StandardCharsets.UTF_8)));
         }
         return read;
     }

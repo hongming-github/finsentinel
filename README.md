@@ -72,8 +72,8 @@ fraud does not shift it), then publishes the baselines back to Flink. Until an a
 alert says so (ADR 0019).
 
 **Status:** phases 1–6 of 9 done (data path, investigation agent, regulatory RAG, case orchestration and MCP, LLM
-gateway, tenancy and security); phase 7 evaluation harness built (baseline pending); phase 8 in progress (8A Avro
-contracts and schema registry, 8B Spark baselines done). See [docs/roadmap.md](docs/roadmap.md).
+gateway, tenancy and security); phase 7 evaluation harness built (baseline pending); phase 8 done (Avro contracts and
+schema registry, Spark baselines, end-to-end tracing). See [docs/roadmap.md](docs/roadmap.md).
 
 ## Stack
 
@@ -85,6 +85,7 @@ Redis · Keycloak · OpenTelemetry / Grafana LGTM · Testcontainers
 | Module | What it is |
 |---|---|
 | `common` | Event records (`Transaction`, `Alert`). No dependencies. |
+| `telemetry` | OpenTelemetry for the plain-Java processes (simulator, Flink): OTLP/HTTP export and the `traceparent` Kafka header. No Spring. |
 | `contracts` | Kafka message contracts: Avro schemas, generated classes, mappers to the common records, a small serde for the Confluent wire format, and `SchemaRegistration`. No Spring. |
 | `txn-simulator` | Traffic for two fictional banks (`harbour`, `straits`), with a week of backfill and injected fraud. |
 | `stream-job` | Flink job. Velocity, large-amount (per-account baseline, streaming or from the batch job), and geo-jump rules. Pure-Java `RuleEngine`. Writes the landing zone. |
@@ -163,6 +164,25 @@ analysis. The graph checkpoints after every node to `graph_checkpoint` (plain
 JSON). If the platform dies mid-analysis, the next worker to claim the case (after `claim-timeout`) resumes after the
 last finished node; a worker whose claim has timed out can no longer write checkpoints.
 
+### Tracing
+
+One trace follows a payment from the simulator through Flink's detection, the alert's wait in the case queue, every
+graph node, model call and tool call, into the MCP servers and the bank's systems they call (ADR 0020). Trace context
+travels in a `traceparent` Kafka header, is stored with the alert and the case across the queue, and is passed to MCP
+servers in the request header. Flink makes one span per alert, not per transaction. Traces carry ids, model names,
+token counts and cost, never prompts, answers, tool arguments or customer identifiers.
+
+```bash
+docker compose -f deploy/docker-compose.yml --profile obs up -d     # Grafana (Tempo, Prometheus, Loki) on :3000
+# Then start each process with the OTLP endpoint:
+#   platform and MCP servers: --management.opentelemetry.tracing.export.otlp.endpoint=http://localhost:4318/v1/traces
+#   Flink job:                -Djob.args="--tracing.otlp-endpoint=http://localhost:4318"
+#   simulator:                --otlp=http://localhost:4318      (or OTEL_EXPORTER_OTLP_ENDPOINT for the last two)
+```
+
+Without an endpoint nothing is exported and nothing is logged; trace context is still passed on, so a traced
+producer's trace continues downstream.
+
 ### LLM cost
 
 Every analysis records its cost at list prices (all model calls, reranking included), in total and by model.
@@ -237,9 +257,9 @@ configuration and add the `--add-opens` flags from `stream-job/pom.xml` (`flink.
 | Fake bank systems (WireMock) | 8093 |
 | Keycloak | 8094 |
 | Schema registry (Apicurio) | 8095 |
+| Grafana (`obs` profile), OTLP gRPC / HTTP | 3000, 4317 / 4318 |
 | Flink UI (local run) | 8082 |
 | Flink UI (`stream` profile) | 8081 |
-| Grafana (`obs` profile) | 3000 |
 
 ## Tests
 
@@ -277,3 +297,4 @@ Study notes (Chinese): [docs/study-guide.md](docs/study-guide.md)
 - [0017 Evaluation harness](docs/adr/0017-evaluation-harness.md)
 - [0018 Avro contracts in a schema registry](docs/adr/0018-avro-contracts-and-schema-registry.md)
 - [0019 Daily Spark baselines over a Flink landing zone](docs/adr/0019-batch-baselines.md)
+- [0020 One trace from the payment to the bank's systems](docs/adr/0020-end-to-end-tracing.md)

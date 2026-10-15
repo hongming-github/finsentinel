@@ -1,5 +1,7 @@
 package com.finsentinel.platform.llm;
 
+import io.micrometer.observation.Observation;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.AdvisorParams;
@@ -53,6 +55,29 @@ public class LlmGateway {
      * @return the answer, its cost, and the model that actually answered
      */
     public <T> Answer<T> ask(ModelRef model, String system, String user, List<ToolCallback> tools, Class<T> type) {
+        // One span per call (ADR 0020), around the fallback too: the provider's own chat and tool spans nest inside.
+        // Model names and cost only: prompts and answers are case material and stay out of traces.
+        Observation observation = Observation.createNotStarted("finsentinel.llm.ask", providers.observations())
+                .contextualName("llm " + model)
+                .lowCardinalityKeyValue("finsentinel.model.requested", model.toString())
+                .start();
+        try (Observation.Scope ignored = observation.openScope()) {
+            Answer<T> answer = route(model, system, user, tools, type);
+            observation.lowCardinalityKeyValue("finsentinel.model.answered_by", answer.answeredBy().toString());
+            observation.lowCardinalityKeyValue("finsentinel.fallback", String.valueOf(!answer.answeredBy().equals(model)));
+            observation.highCardinalityKeyValue("finsentinel.cost_usd", answer.usage().costUsd().toPlainString());
+            observation.highCardinalityKeyValue("finsentinel.tokens", answer.usage().inputTokens() + "/"
+                    + answer.usage().outputTokens() + " cached " + answer.usage().cachedInputTokens());
+            return answer;
+        } catch (RuntimeException e) {
+            observation.error(e);
+            throw e;
+        } finally {
+            observation.stop();
+        }
+    }
+
+    private <T> Answer<T> route(ModelRef model, String system, String user, List<ToolCallback> tools, Class<T> type) {
         List<ModelRef> route = model.provider().equals(fallback.provider()) ? List.of(model) : List.of(model, fallback);
         RuntimeException lastFailure = null;
         for (ModelRef ref : route) {

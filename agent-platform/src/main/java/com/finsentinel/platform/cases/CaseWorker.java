@@ -1,7 +1,14 @@
 package com.finsentinel.platform.cases;
 
 import com.finsentinel.platform.systems.SystemsProperties;
+import com.finsentinel.platform.observability.Traces;
 import com.finsentinel.platform.security.Tenancy;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.SpanBuilder;
+import io.opentelemetry.api.trace.SpanContext;
+import io.opentelemetry.api.trace.StatusCode;
+import io.opentelemetry.api.trace.Tracer;
+import io.opentelemetry.context.Scope;
 import com.finsentinel.common.Alert;
 import com.finsentinel.platform.alert.AlertRepository;
 import com.finsentinel.platform.alert.StoredAlert;
@@ -39,9 +46,11 @@ public class CaseWorker {
     private final InvestigationProperties props;
     private final SystemsProperties systems;
     private final AtomicLong lastBudgetWarning = new AtomicLong();
+    private final Tracer tracer;
 
     CaseWorker(CaseRepository cases, AlertRepository alerts, CaseAnalysisGraph analysis,
-               InvestigationProperties props, SystemsProperties systems) {
+               InvestigationProperties props, SystemsProperties systems, Tracer tracer) {
+        this.tracer = tracer;
         this.systems = systems;
         this.cases = cases;
         this.alerts = alerts;
@@ -91,7 +100,32 @@ public class CaseWorker {
         Tenancy.run(claim.fraudCase().tenantId(), () -> analyse(claim));
     }
 
+    /**
+     * The analysis continues the trace of whatever started this run (ADR 0020): the alert that opened or reopened the
+     * case, or the analyst's request. The case's other alerts are linked, so each alert's trace leads here too.
+     */
     private void analyse(CaseClaim claim) {
+        FraudCase c = claim.fraudCase();
+        CaseRepository.RunTrace trace = cases.runTrace(c.tenantId(), c.caseId());
+        SpanBuilder builder = tracer.spanBuilder("analyse case")
+                .setParent(Traces.context(trace.parent()))
+                .setAttribute("finsentinel.tenant", c.tenantId())
+                .setAttribute("finsentinel.case_id", c.caseId())
+                .setAttribute("finsentinel.run", c.analysisRun())
+                .setAttribute("finsentinel.attempt", c.attempts());
+        trace.alerts().stream().filter(alert -> !alert.equals(trace.parent()))
+                .map(alert -> Span.fromContext(Traces.context(alert)).getSpanContext())
+                .filter(SpanContext::isValid)
+                .forEach(builder::addLink);
+        Span span = builder.startSpan();
+        try (Scope ignored = span.makeCurrent()) {
+            analyseInSpan(claim, span);
+        } finally {
+            span.end();
+        }
+    }
+
+    private void analyseInSpan(CaseClaim claim, Span span) {
         FraudCase c = claim.fraudCase();
         try {
             List<Alert> caseAlerts = alerts.findByCase(c.tenantId(), c.caseId()).stream().map(StoredAlert::alert).toList();
@@ -109,11 +143,21 @@ public class CaseWorker {
                     result.llmCalls(), result.inputTokens(), result.outputTokens(), result.cachedInputTokens(),
                     result.costUsd(), result.latencyMs(),
                     outcome.resumedAfter() == null ? "" : " resumed after " + outcome.resumedAfter());
+            span.setAttribute("finsentinel.mode", outcome.mode().name());
+            span.setAttribute("finsentinel.disposition", result.report().disposition().name());
+            span.setAttribute("finsentinel.completion", completion.toString());
+            span.setAttribute("finsentinel.cost_usd", result.costUsd().doubleValue());
+            if (outcome.resumedAfter() != null) {
+                span.setAttribute("finsentinel.resumed_after", outcome.resumedAfter());
+            }
         } catch (LostClaimException e) {
             // Our claim timed out and another worker owns the case now: its result counts, ours must not.
             log.warn("Abandoning analysis of case {}: {}", c.caseId(), e.getMessage());
+            span.setAttribute("finsentinel.completion", "LOST_CLAIM");
         } catch (RuntimeException e) {
             log.warn("Analysis of case {} failed: {}", c.caseId(), e.toString());
+            span.recordException(e);
+            span.setStatus(StatusCode.ERROR, e.toString());
             cases.fail(claim, props.maxAttempts(), e.toString());
         }
     }

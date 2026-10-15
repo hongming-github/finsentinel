@@ -27,14 +27,15 @@ public class AlertRepository {
     /**
      * Inserts the alert into the given case unless an alert with the same id exists.
      *
+     * @param traceParent the trace the alert arrived in, or null
      * @return true if this call stored it, false if it was a redelivery
      */
-    public boolean insertIfAbsent(Alert alert, String caseId) {
+    public boolean insertIfAbsent(Alert alert, String caseId, String traceParent) {
         int rows = jdbc.sql("""
                         insert into alert (alert_id, case_id, tenant_id, account_id, customer_id, rule, severity, reason,
-                                           txn_ids, event_time, detected_at)
+                                           txn_ids, event_time, detected_at, trace_parent)
                         values (:alertId, :caseId, :tenantId, :accountId, :customerId, :rule, :severity, :reason,
-                                :txnIds, :eventTime, :detectedAt)
+                                :txnIds, :eventTime, :detectedAt, :traceParent)
                         on conflict (alert_id) do nothing
                         """)
                 .param("alertId", UUID.fromString(alert.alertId()))
@@ -48,6 +49,7 @@ public class AlertRepository {
                 .param("txnIds", alert.txnIds().toArray(String[]::new))
                 .param("eventTime", Timestamp.from(alert.eventTime()))
                 .param("detectedAt", Timestamp.from(alert.detectedAt()))
+                .param("traceParent", traceParent)
                 .update();
         return rows == 1;
     }

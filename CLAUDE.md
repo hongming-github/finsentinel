@@ -11,7 +11,7 @@ committed, and how the user likes to work. Keep it updated at the end of each se
 - Build: `./mvnw install -DskipTests`
 - Test: `./mvnw test` (Docker required; agent-platform uses Testcontainers)
 - Infra: `docker compose -f deploy/docker-compose.yml --profile core --profile systems up -d`, then register schemas
-  once: `./mvnw -pl contracts exec:java`
+  once: `./mvnw -pl contracts exec:java`. Traces: add `--profile obs` (Grafana :3000) and see README "Tracing"
 - Batch baselines (Spark local mode, no LLM): `./mvnw -pl batch-job exec:exec -Djob.args="--as-of=YYYY-MM-DD"`
 - Run: see README "Quick start"
 - Real Keycloak realm test (no LLM): `./mvnw -pl agent-platform test -Dtest=KeycloakRealmTest -Dkeycloak=true -Dsurefire.failIfNoSpecifiedTests=false`
@@ -131,7 +131,14 @@ committed, and how the user likes to work. Keep it updated at the end of each se
   start; event streams (transactions) continue from the group's committed offsets. Test restarts the way they happen
   in production (same group, no savepoint), not with a fresh group (`StartingOffsetsTest`).
 - Spark runs on Java 21 with the opens in `batch-job/pom.xml` (`spark.jvm.opens`); local runs use the test classpath.
-- Host ports: Redis 6380, platform 8090 (REST and `/mcp`), mcp-banking 8091, mcp-compliance 8092, fake systems (WireMock) 8093, Keycloak 8094, schema registry (Apicurio) 8095;
+- Tracing (ADR 0020): trace context crosses every gap the instrumentation cannot see (Kafka `traceparent` header,
+  `trace_parent` columns across the queue, the graph's per-run context on node threads, the MCP
+  `transportContextProvider`); a new async boundary must carry it, with a test in the style of
+  `TracingIntegrationTest`. Spans carry ids, model names, counts and cost, never prompts, answers, tool arguments or
+  customer identifiers (no full URLs of bank systems). Tracing failures must never stop detection or analysis.
+  The plain-Java processes use the `telemetry` module (OpenTelemetry at Boot's managed version); never put an
+  OpenTelemetry BOM in the root POM.
+- Host ports: Redis 6380, platform 8090 (REST and `/mcp`), mcp-banking 8091, mcp-compliance 8092, fake systems (WireMock) 8093, Keycloak 8094, schema registry (Apicurio) 8095, Grafana 3000 and OTLP 4317/4318 (`obs` profile);
   6379 and 8080 are used by other local projects.
 - Code inside graph nodes runs on pool-spawned threads; never rely on `ServiceLoader` defaults there (pass
   dependencies explicitly). Verify library integrations with the packaged jar, not only tests.

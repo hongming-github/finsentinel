@@ -1,5 +1,11 @@
 package com.finsentinel.platform.analysis;
 
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.StatusCode;
+import io.opentelemetry.api.trace.Tracer;
+import io.opentelemetry.context.Context;
+import io.opentelemetry.context.Scope;
+
 import com.alibaba.cloud.ai.graph.CompileConfig;
 import com.alibaba.cloud.ai.graph.CompiledGraph;
 import com.alibaba.cloud.ai.graph.OverAllState;
@@ -40,6 +46,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.function.Function;
 
@@ -99,10 +106,18 @@ public class CaseAnalysisGraph {
     private final FencedPostgresCheckpointSaver saver;
     private final AnalysisProperties props;
     private final Map<AnalysisMode, CompiledGraph> graphs = new EnumMap<>(AnalysisMode.class);
+    private final Tracer tracer;
+    /**
+     * The trace context of each run in progress on this instance (the worker's analysis span), so nodes, which run on
+     * threads the graph library starts, continue it (ADR 0020). Only ever read for runs this instance is executing.
+     */
+    private final Map<String, Context> runs = new ConcurrentHashMap<>();
 
     CaseAnalysisGraph(CaseInvestigator investigator, SpecialistAgents specialists, ReportWriter writer,
                       CaseReviewer reviewer, CasePlanner planner, FencedPostgresCheckpointSaver saver,
-                      CaseGraphStateSerializer serializer, AnalysisProperties props) throws GraphStateException {
+                      CaseGraphStateSerializer serializer, AnalysisProperties props, Tracer tracer)
+            throws GraphStateException {
+        this.tracer = tracer;
         this.investigator = investigator;
         this.specialists = specialists;
         this.writer = writer;
@@ -120,13 +135,13 @@ public class CaseAnalysisGraph {
 
     private StateGraph single(CaseGraphStateSerializer serializer) throws GraphStateException {
         return new StateGraph(CaseGraphState.keyStrategies(), (StateSerializer) serializer)
-                .addNode(INVESTIGATE, node(state -> {
+                .addNode(INVESTIGATE, node(INVESTIGATE, state -> {
                     InvestigationResult result = investigator.investigate(CaseGraphState.caseContext(state),
                             revision(state));
                     return Map.of(CaseGraphState.INVESTIGATION, result,
                             CaseGraphState.SPENT, CaseGraphState.spent(state).plus(result.usage()));
                 }))
-                .addNode(REVIEW, node(state -> review(state, List.of())))
+                .addNode(REVIEW, node(REVIEW, state -> review(state, List.of())))
                 .addEdge(START, INVESTIGATE)
                 .addEdge(INVESTIGATE, REVIEW)
                 .addConditionalEdges(REVIEW, edge_async(this::afterReview), Map.of(REVISE, INVESTIGATE, DONE, END));
@@ -134,18 +149,19 @@ public class CaseAnalysisGraph {
 
     private StateGraph multi(CaseGraphStateSerializer serializer) throws GraphStateException {
         StateGraph graph = new StateGraph(CaseGraphState.keyStrategies(), (StateSerializer) serializer)
-                .addNode(PLAN, node(state -> Map.of(CaseGraphState.PLAN,
+                .addNode(PLAN, node(PLAN, state -> Map.of(CaseGraphState.PLAN,
                         planner.plan(CaseGraphState.caseContext(state)))))
-                .addNode(WRITE, node(state -> {
+                .addNode(WRITE, node(WRITE, state -> {
                     InvestigationResult result = writer.write(CaseGraphState.caseContext(state),
                             CaseGraphState.plan(state), reports(state), revision(state));
                     return Map.of(CaseGraphState.INVESTIGATION, result,
                             CaseGraphState.SPENT, CaseGraphState.spent(state).plus(result.usage()));
                 }))
-                .addNode(REVIEW, node(state -> review(state, reports(state))))
+                .addNode(REVIEW, node(REVIEW, state -> review(state, reports(state))))
                 .addEdge(START, PLAN);
         for (Specialist specialist : Specialist.values()) {
-            graph.addNode(CaseGraphState.key(specialist), node(state -> Map.of(CaseGraphState.key(specialist),
+            graph.addNode(CaseGraphState.key(specialist), node(CaseGraphState.key(specialist),
+                            state -> Map.of(CaseGraphState.key(specialist),
                             runSpecialist(specialist, state))))
                     .addEdge(PLAN, CaseGraphState.key(specialist))
                     .addEdge(CaseGraphState.key(specialist), WRITE);
@@ -216,6 +232,8 @@ public class CaseAnalysisGraph {
         CompiledGraph graph = graphs.get(runMode);
         long start = System.nanoTime();
         OverAllState end;
+        String runKey = runKey(context);
+        runs.put(runKey, Context.current());
         try {
             if (last.isPresent()) {
                 // The library resumes only when the config names the checkpoint to resume from.
@@ -229,6 +247,8 @@ public class CaseAnalysisGraph {
             }
         } catch (RuntimeException e) {
             throw unwrap(e);
+        } finally {
+            runs.remove(runKey);
         }
         LlmUsage total = CaseGraphState.spent(end);
         for (Specialist specialist : Specialist.values()) {
@@ -249,8 +269,31 @@ public class CaseAnalysisGraph {
     public record Outcome(AnalysisMode mode, InvestigationResult investigation, Review review, String resumedAfter) {
     }
 
-    private static AsyncNodeAction node(Function<OverAllState, Map<String, Object>> action) {
-        return state -> CompletableFuture.supplyAsync(() -> action.apply(state), NODE_EXECUTOR);
+    private static String runKey(CaseContext context) {
+        return context.caseId() + ":" + context.run();
+    }
+
+    /** A node runs in a span of its own, a child of the run's analysis span; failures are recorded on it. */
+    private AsyncNodeAction node(String name, Function<OverAllState, Map<String, Object>> action) {
+        return state -> {
+            CaseContext caseContext = CaseGraphState.caseContext(state);
+            Context parent = runs.getOrDefault(runKey(caseContext), Context.root());
+            return CompletableFuture.supplyAsync(() -> {
+                Span span = tracer.spanBuilder("graph node " + name).setParent(parent)
+                        .setAttribute("finsentinel.case_id", caseContext.caseId())
+                        .setAttribute("finsentinel.run", caseContext.run())
+                        .startSpan();
+                try (Scope ignored = span.makeCurrent()) {
+                    return action.apply(state);
+                } catch (RuntimeException e) {
+                    span.recordException(e);
+                    span.setStatus(StatusCode.ERROR, e.toString());
+                    throw e;
+                } finally {
+                    span.end();
+                }
+            }, NODE_EXECUTOR);
+        };
     }
 
     /**

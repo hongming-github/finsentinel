@@ -76,6 +76,11 @@
             <groupId>com.finsentinel</groupId>
             <artifactId>contracts</artifactId>
         </dependency>
+        <!-- One span per alert (ADR 0020). -->
+        <dependency>
+            <groupId>com.finsentinel</groupId>
+            <artifactId>telemetry</artifactId>
+        </dependency>
 
         <!-- Flink declares slf4j as provided, so it is not transitive; the cluster supplies it. -->
         <dependency>
@@ -118,6 +123,12 @@
         </dependency>
         <!-- Testcontainers copies files with commons-compress, which needs commons-codec; Flink's dependency tree
              brings commons-compress without it. Tests only. -->
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-sdk-testing</artifactId>
+            <version>${opentelemetry.version}</version>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>commons-codec</groupId>
             <artifactId>commons-codec</artifactId>
@@ -189,7 +200,9 @@
                 <artifactId>exec-maven-plugin</artifactId>
                 <configuration>
                     <executable>java</executable>
-                    <classpathScope>compile</classpathScope>
+                    <!-- test = compile + provided + runtime: the OTLP exporter's internals (opentelemetry-exporter-common)
+                         come at runtime scope, which the compile classpath leaves out. The shaded jar has them. -->
+                    <classpathScope>test</classpathScope>
                     <commandlineArgs>${flink.jvm.opens} -classpath %classpath ${main.class} ${job.args}</commandlineArgs>
                 </configuration>
             </plugin>
