@@ -1207,6 +1207,7 @@ Flink 消费 Kafka 是它最擅长的、有 checkpoint 语义的方式；compact
 4. **100 行写成 82 个文件**：基线结果被 `cache()` 了，Spark 默认不允许 AQE 改缓存计划的分区数，200 个 shuffle 分区没有被合并，还因此开了 82 个 Kafka producer。打开 `spark.sql.optimizer.canChangeCachedPlanOutputPartitioning` 后变成 1 个文件。没有写死 `coalesce(1)`，让数据量自己决定。
 5. **Spark 给的日期类型**：默认是 `java.sql.Date`，开了 java8API 才是 `LocalDate`。发布代码两种都接受，不依赖会话配置。
 6. **（2026-10-15 补）冷启动读不到基线**：一开始两个 Kafka source 共用 group id，起始位置都是"已提交的 offset"。作业不带 savepoint 重新部署、沿用原 group 时，基线 source 从上次提交的位置往后读，compacted topic 里已有的基线全被跳过，要等下一次 Spark 发布，而这恰恰是 8B 要解决的冷启动场景。第一次端到端没发现，是因为"重启"时我用了一个新 group，新 group 本来就从头读。修法：基线 source 每次冷启动都从头读（`earliest()`），交易 source 继续用已提交的 offset；从 checkpoint 恢复时 offset 本来就取自状态。`StartingOffsetsTest` 用 Kafka 容器复现"group 已经读到末尾"的情况，去掉修复就失败；开发环境上修复前对中位数 30 倍的付款不告警，修复后告警。**经验：测试"重启"要模拟真实的重启方式，换一个新 group 等于没测。**
+7. **（2026-10-15 补）空数据湖让批处理直接失败**：还没有任何整理好的数据时（第一次运行、落地区为空），Spark 读不存在的 Parquet 目录会抛 `PATH_NOT_FOUND`。单元测试都先写了数据，所以没测到"什么都没有"这种情况。现在没有历史就记一行日志、不算基线、正常结束；`BaselineJobTest` 加了空数据湖的用例，去掉判断就失败。
 
 ### 不足与改进
 

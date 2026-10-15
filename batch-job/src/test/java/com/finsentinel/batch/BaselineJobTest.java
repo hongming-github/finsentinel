@@ -81,6 +81,14 @@ class BaselineJobTest {
         assertThat(baseline.<Double>getAs("maxAmount")).isEqualTo(50000.0);
     }
 
+    @Test
+    void aLakeWithNothingInItYieldsNoBaselinesRatherThanAFailedRun() {
+        BaselineJob.Summary summary = run(Map.of());
+
+        assertThat(summary.curation()).isEqualTo(new Curation.Result(0, 0, 0, 0));
+        assertThat(summary.accounts()).isZero();
+    }
+
     private BaselineJob.Summary run(Map<String, String> overrides) {
         List<String> args = new java.util.ArrayList<>(List.of("--lake.dir=" + lake, "--as-of=" + AS_OF,
                 "--baseline.window-days=30", "--publish.enabled=false"));
