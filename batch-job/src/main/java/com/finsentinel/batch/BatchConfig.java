@@ -53,7 +53,7 @@ record BatchConfig(String lakeDir, LocalDate asOf, int curateLookbackDays, int w
         }
         String asOf = p.getProperty("as-of").trim();
         return new BatchConfig(
-                required(p, "lake.dir"),
+                required(p, "lake.dir").replace("${user.home}", System.getProperty("user.home")),
                 asOf.isEmpty() ? LocalDate.now(clock.withZone(ZoneOffset.UTC)) : LocalDate.parse(asOf),
                 Integer.parseInt(required(p, "curate.lookback-days")),
                 Integer.parseInt(required(p, "baseline.window-days")),

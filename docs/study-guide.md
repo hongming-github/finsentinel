@@ -1208,6 +1208,7 @@ Flink 消费 Kafka 是它最擅长的、有 checkpoint 语义的方式；compact
 5. **Spark 给的日期类型**：默认是 `java.sql.Date`，开了 java8API 才是 `LocalDate`。发布代码两种都接受，不依赖会话配置。
 6. **（2026-10-15 补）冷启动读不到基线**：一开始两个 Kafka source 共用 group id，起始位置都是"已提交的 offset"。作业不带 savepoint 重新部署、沿用原 group 时，基线 source 从上次提交的位置往后读，compacted topic 里已有的基线全被跳过，要等下一次 Spark 发布，而这恰恰是 8B 要解决的冷启动场景。第一次端到端没发现，是因为"重启"时我用了一个新 group，新 group 本来就从头读。修法：基线 source 每次冷启动都从头读（`earliest()`），交易 source 继续用已提交的 offset；从 checkpoint 恢复时 offset 本来就取自状态。`StartingOffsetsTest` 用 Kafka 容器复现"group 已经读到末尾"的情况，去掉修复就失败；开发环境上修复前对中位数 30 倍的付款不告警，修复后告警。**经验：测试"重启"要模拟真实的重启方式，换一个新 group 等于没测。**
 7. **（2026-10-15 补）空数据湖让批处理直接失败**：还没有任何整理好的数据时（第一次运行、落地区为空），Spark 读不存在的 Parquet 目录会抛 `PATH_NOT_FOUND`。单元测试都先写了数据，所以没测到"什么都没有"这种情况。现在没有历史就记一行日志、不算基线、正常结束；`BaselineJobTest` 加了空数据湖的用例，去掉判断就失败。
+8. **（2026-10-15 补）数据湖默认放在 `/tmp`，被系统删了**：两个作业的默认 `lake.dir` 原来是 `/tmp/finsentinel/lake`。5 天后再跑端到端，落地区的文件全没了，目录还在：macOS 每天的清理任务会删除 `/tmp` 里 3 天没被访问的文件。落地区是原始历史数据唯一的一份（curated 和 gold 都能从它重建），放在会被自动清理的地方等于没有备份。默认改成 `${user.home}/.finsentinel/lake`，两个作业的配置加载都支持 `${user.home}` 展开。**经验：默认值也是设计的一部分，"能跑"和"能放几天"是两回事。**
 
 ### 不足与改进
 

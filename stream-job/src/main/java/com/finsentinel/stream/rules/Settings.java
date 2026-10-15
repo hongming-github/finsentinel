@@ -39,6 +39,14 @@ public final class Settings {
         return value.trim();
     }
 
+    /**
+     * A file system location; {@code ${user.home}} is replaced with the user's home directory, so a default can be
+     * persistent without naming a machine-specific path.
+     */
+    public static String path(Properties p, String key) {
+        return string(p, key).replace("${user.home}", System.getProperty("user.home"));
+    }
+
     public static int integer(Properties p, String key) {
         return Integer.parseInt(string(p, key));
     }

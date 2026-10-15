@@ -95,6 +95,9 @@ streaming operator can use on its first event.
   labelled data.
 - The landing zone grows without bound; retention (and moving it to object storage) is an operational decision left
   for deployment. Curated and gold data can always be rebuilt from it.
+- The lake defaults to `${user.home}/.finsentinel/lake` for both jobs (changed 2026-10-15 from
+  `/tmp/finsentinel/lake`: macOS deletes files in `/tmp` not accessed for 3 days, and five days after the first e2e
+  every landing file was gone; landing is the only raw copy). Production points `lake.dir` at durable storage.
 - A run with nothing curated yet (a first run, an empty landing zone) ends normally with no baselines (fixed
   2026-10-15: it used to fail on the missing Parquet path).
 - The agents do not read the baselines yet; an investigation tool that shows the 90-day profile is the obvious next

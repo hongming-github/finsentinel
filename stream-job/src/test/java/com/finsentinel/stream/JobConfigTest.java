@@ -34,7 +34,10 @@ class JobConfigTest {
 
     @Test
     void lakeDirComesFromTheFileOrTheEnvironment() {
-        assertThat(JobConfig.load(new String[0], Map.of()).lakeDir()).isEqualTo("/tmp/finsentinel/lake");
+        assertThat(JobConfig.load(new String[0], Map.of()).lakeDir())
+                .isEqualTo(System.getProperty("user.home") + "/.finsentinel/lake");
+        assertThat(JobConfig.load(new String[]{"--lake.dir=${user.home}/elsewhere"}, Map.of()).lakeDir())
+                .isEqualTo(System.getProperty("user.home") + "/elsewhere");
         assertThat(JobConfig.load(new String[0], Map.of("FINSENTINEL_LAKE_DIR", "/data/lake")).lakeDir())
                 .isEqualTo("/data/lake");
     }
