@@ -23,9 +23,11 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -89,8 +91,17 @@ public class CaseWorker {
             return 0;
         }
         List<CaseClaim> claims = batch.claims();
+        List<Future<?>> runs = new ArrayList<>(claims.size());
         try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            claims.forEach(claim -> executor.submit(() -> process(claim)));
+            claims.forEach(claim -> runs.add(executor.submit(() -> process(claim))));
+        }
+        // Closing the executor waited for every run. A failure outside the analysis's own handling (the database gone
+        // while recording a failure) would otherwise vanish with its future; the claim times out and is retried.
+        for (int i = 0; i < runs.size(); i++) {
+            if (runs.get(i).state() == Future.State.FAILED) {
+                log.error("Processing case {} failed outside its analysis; the claim will time out and be retried",
+                        claims.get(i).fraudCase().caseId(), runs.get(i).exceptionNow());
+            }
         }
         return claims.size();
     }

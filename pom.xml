@@ -49,6 +49,11 @@
         <log4j.version>2.25.4</log4j.version>
         <junit.version>6.0.3</junit.version>
         <assertj.version>3.27.6</assertj.version>
+        <!-- Compiler warnings fail the build (-Xlint, see the compiler plugin); -Dmaven.compiler.failOnWarning=false lists
+             them all at once. -->
+        <maven.compiler.failOnWarning>true</maven.compiler.failOnWarning>
+        <errorprone.version>2.50.0</errorprone.version>
+        <archunit.version>1.5.1</archunit.version>
     </properties>
 
     <dependencyManagement>
@@ -123,6 +128,11 @@
                 <artifactId>assertj-core</artifactId>
                 <version>${assertj.version}</version>
             </dependency>
+            <dependency>
+                <groupId>com.tngtech.archunit</groupId>
+                <artifactId>archunit</artifactId>
+                <version>${archunit.version}</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
@@ -135,7 +145,125 @@
                     <version>3.14.1</version>
                     <configuration>
                         <parameters>true</parameters>
+                        <showWarnings>true</showWarnings>
+                        <compilerArgs>
+                            <!-- Every lint category except three that only flag idioms or the classpath here: serial
+                                 (Java serialization only ships Flink functions within one build and is never used for
+                                 stored data; Flink state has its own serializers, see SerializationTest), try
+                                 (scope-style try-with-resources such as tracing and tenancy scopes never reference the
+                                 resource) and processing (a test dependency ships an annotation processor that claims
+                                 none of our annotations). -->
+                            <arg>-Xlint:all,-serial,-try,-processing</arg>
+                            <!-- Error Prone: compile-time bug patterns, warnings fail the build like javac's. Runs
+                                 inside javac, which needs the exports in .mvn/jvm.config. Generated Avro code is not
+                                 ours to fix. Off: MissingSummary (records document themselves with @param only) and
+                                 StringSplitter (the chunker relies on String.split's documented behaviour, and its
+                                 output is pinned by RetrievalEvalTest). -->
+                            <arg>-XDcompilePolicy=simple</arg>
+                            <arg>-XDaddTypeAnnotationsToSymbol=true</arg>
+                            <arg>--should-stop=ifError=FLOW</arg>
+                            <arg>-Xplugin:ErrorProne -XepDisableWarningsInGeneratedCode -XepExcludedPaths:.*/target/generated-sources/.* -Xep:MissingSummary:OFF -Xep:StringSplitter:OFF</arg>
+                        </compilerArgs>
+                        <annotationProcessorPaths>
+                            <path>
+                                <groupId>com.google.errorprone</groupId>
+                                <artifactId>error_prone_core</artifactId>
+                                <version>${errorprone.version}</version>
+                            </path>
+                        </annotationProcessorPaths>
                     </configuration>
+                </plugin>
+                <!-- Lifecycle plugins pinned rather than taken from Maven's defaults (requirePluginVersions). -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-clean-plugin</artifactId>
+                    <version>3.5.0</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-resources-plugin</artifactId>
+                    <version>3.5.0</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-jar-plugin</artifactId>
+                    <version>3.5.1</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-install-plugin</artifactId>
+                    <version>3.2.0</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-deploy-plugin</artifactId>
+                    <version>3.2.0</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-site-plugin</artifactId>
+                    <version>3.22.0</version>
+                </plugin>
+                <!-- SBOM of everything we ship (CI: ./mvnw cyclonedx:makeAggregateBom), for supply-chain review. -->
+                <plugin>
+                    <groupId>org.cyclonedx</groupId>
+                    <artifactId>cyclonedx-maven-plugin</artifactId>
+                    <version>2.9.3</version>
+                    <configuration>
+                        <projectType>application</projectType>
+                        <outputFormat>json</outputFormat>
+                        <outputName>bom</outputName>
+                        <includeTestScope>false</includeTestScope>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-enforcer-plugin</artifactId>
+                    <version>3.6.3</version>
+                    <executions>
+                        <!-- Dormant (phase none): a module that must stay Spring-free or dependency-free turns its
+                             execution on by redeclaring it with <phase>validate</phase> (CLAUDE.md "Rules"). -->
+                        <execution>
+                            <id>no-spring</id>
+                            <phase>none</phase>
+                            <goals>
+                                <goal>enforce</goal>
+                            </goals>
+                            <configuration>
+                                <rules>
+                                    <bannedDependencies>
+                                        <message>This module must not depend on Spring (ADR 0001): the Flink job, the
+                                            batch job and their shared contracts run without it.</message>
+                                        <excludes>
+                                            <exclude>org.springframework*</exclude>
+                                            <exclude>com.alibaba.cloud.ai*</exclude>
+                                        </excludes>
+                                    </bannedDependencies>
+                                </rules>
+                            </configuration>
+                        </execution>
+                        <execution>
+                            <id>no-runtime-dependencies</id>
+                            <phase>none</phase>
+                            <goals>
+                                <goal>enforce</goal>
+                            </goals>
+                            <configuration>
+                                <rules>
+                                    <bannedDependencies>
+                                        <message>common is shared by every module and stays free of runtime
+                                            dependencies; test-scope libraries are fine.</message>
+                                        <excludes>
+                                            <exclude>*:*:*:*:compile</exclude>
+                                            <exclude>*:*:*:*:runtime</exclude>
+                                            <exclude>*:*:*:*:provided</exclude>
+                                            <exclude>*:*:*:*:system</exclude>
+                                        </excludes>
+                                    </bannedDependencies>
+                                </rules>
+                            </configuration>
+                        </execution>
+                    </executions>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
@@ -169,5 +297,32 @@
                 </plugin>
             </plugins>
         </pluginManagement>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>enforce</id>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <requireJavaVersion>
+                                    <version>[21,)</version>
+                                </requireJavaVersion>
+                                <requireMavenVersion>
+                                    <version>[3.9,)</version>
+                                </requireMavenVersion>
+                                <!-- Reproducible builds: no plugin falls back to whatever version Maven defaults to. -->
+                                <requirePluginVersions/>
+                                <banDuplicatePomDependencyVersions/>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
     </build>
 </project>

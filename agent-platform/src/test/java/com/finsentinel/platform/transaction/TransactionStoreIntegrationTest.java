@@ -37,10 +37,10 @@ class TransactionStoreIntegrationTest {
         Transaction t1 = txn(tenant, "acc-1", "12.50", Channel.CARD_PRESENT, "SG", Instant.now());
         Transaction t2 = txn(tenant, "acc-1", "99.00", Channel.TRANSFER, "SG", Instant.now());
 
-        kafka.send(Topics.TRANSACTIONS, t1.accountKey(), avro(t1));
-        kafka.send(Topics.TRANSACTIONS, t1.accountKey(), "{garbage".getBytes(StandardCharsets.UTF_8));
-        kafka.send(Topics.TRANSACTIONS, t1.accountKey(), avro(t1));
-        kafka.send(Topics.TRANSACTIONS, t2.accountKey(), avro(t2));
+        kafka.send(Topics.TRANSACTIONS, t1.accountKey(), avro(t1)).join();
+        kafka.send(Topics.TRANSACTIONS, t1.accountKey(), "{garbage".getBytes(StandardCharsets.UTF_8)).join();
+        kafka.send(Topics.TRANSACTIONS, t1.accountKey(), avro(t1)).join();
+        kafka.send(Topics.TRANSACTIONS, t2.accountKey(), avro(t2)).join();
 
         await().pollInSameThread().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
                 assertThat(repository.findRecent(tenant, "acc-1", Instant.now().minusSeconds(3600), 100))

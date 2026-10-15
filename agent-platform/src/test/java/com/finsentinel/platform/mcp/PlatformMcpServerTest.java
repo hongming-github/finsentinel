@@ -191,7 +191,7 @@ class PlatformMcpServerTest {
 
     private JsonNode call(String tool, Map<String, Object> arguments) {
         McpSchema.CallToolResult result = client.callTool(McpSchema.CallToolRequest.builder(tool).arguments(arguments).build());
-        assertThat(result.isError()).as(text(result)).isNotEqualTo(Boolean.TRUE);
+        assertThat(result.isError()).as(text(result)).isNotEqualTo(true);
         return json.readTree(text(result));
     }
 

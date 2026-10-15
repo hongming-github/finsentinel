@@ -5,8 +5,8 @@ package com.finsentinel.platform.systems;
  * over MCP in production; tests swap in a fake. Callers pass the tenant and the customer, account or counterparty;
  * agents never do, their tools fix them per case.
  *
- * @throws SystemUnavailableException from every method when the system cannot answer; the investigation goes on
- *                                    without it
+ * <p>Every method throws {@link SystemUnavailableException} when the system cannot answer; the investigation goes on
+ * without it.
  */
 public interface ExternalSystems {
 

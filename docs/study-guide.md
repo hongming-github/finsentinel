@@ -1353,3 +1353,61 @@ Flink 消费 Kafka 是它最擅长的、有 checkpoint 语义的方式；compact
 - 数据：235 个国家 4,327 个起降点，338 对陆路相连的国家，约 100 KB。27 对国家的首次计算（含加载）68 ms，之后走缓存。
 - 真实模型评测（gpt-5.4-mini，SINGLE，花费 $0.1435）：7 个 GEO_JUMP 用例各 3 次，**21/21 通过**，工具选择 100%，p50 4.4 秒 / p95 12.5 秒。新用例 `travel-notice-too-fast` 3 次都判欺诈（96–98 分）。`travel-notice-matches` 3 次都通过，但有一次判 NEEDS_REVIEW（48 分），上次修剧本后是 3 次 LIKELY_LEGITIMATE（10–15 分）。通过的运行不记录理由，所以原因不明；三次里一次不算趋势，下次全量评测时留意。报告在 `docs/eval/2026-10-15-geo-velocity.md`。
 - 测试：common 新增 7 个，stream-job 的 geo jump 用例从 2 个变 6 个，其中 5 个在旧规则下失败（mutation check）；平台新增 2 个；golden case 新增 `travel-notice-too-fast`（旅行通知国家对，但 9 小时到不了伦敦，旧规则根本不会告警）。
+
+## 工程化：CI 的质量和安全门槛
+
+决策记录见 [ADR 0022](adr/0022-ci-quality-and-security-gates.md)。
+
+### 为什么要做
+
+原来的 CI 只有一个 `./mvnw verify`：编译加测试。测试覆盖不到的代码没人检查，CLAUDE.md 里的规则全靠自觉，依赖从没查过已知漏洞，workflow 本身也按可被改动的 tag 运行第三方 action，token 权限还是默认值。仓库是私有的，没有 GitHub Advanced Security，所以 CodeQL 和 dependency-review 用不了，全部换成免费的开源工具。
+
+### 必读
+
+- 根 `pom.xml`：编译器插件（`-Xlint`、Error Prone）、enforcer、CycloneDX；`.mvn/jvm.config`
+- `agent-platform/.../ArchitectureTest.java`、`stream-job/.../ArchitectureTest.java`
+- `.github/workflows/ci.yml`、`eval.yml`、`.github/dependabot.yml`、`.github/actionlint.yaml`、`.trivyignore.yaml`
+
+### 设计要点（面试可讲）
+
+1. **构建本身就是 lint**：javac 警告和 Error Prone 警告都会让构建失败，本地 `./mvnw verify` 和 CI 跑的完全一样，不存在"本地过了 CI 不过"。
+2. **把团队规则写成检查**：enforcer 禁止 Flink/Spark 相关模块依赖 Spring、禁止 `common` 有运行时依赖；ArchUnit 检查所有模型调用只走 `LlmGateway`、只用 Jackson 3、`@Tool` 方法参数不能是基本类型、不能有 `ToolCallbackProvider` bean、图状态只能走我们的 fenced saver。违反了就编译不过或测试不过，失败信息里写着原因。
+3. **扫 SBOM 而不是扫 pom.xml**：SBOM 是 Maven 实际解析出来的版本（BOM 和覆盖都算进去），比扫描器自己解析 pom 准确；SBOM 本身也是银行做供应链审查时要的东西。
+4. **漏洞基线带过期时间**：第一次扫描就有 47 个已修复的 HIGH/CRITICAL。每条例外只限定到发现时的具体包版本（同一个 CVE 出现在新地方照样失败），30 天后过期。门槛从第一天起就是真的，存量问题有期限，不会被永久忽略。
+5. **供应链加固**：action 按 commit SHA 固定、镜像按 digest 固定；最小权限；checkout 不保留凭据；workflow 输入只通过环境变量进入脚本。
+
+### 设计取舍问答
+
+**问：为什么不直接用 trivy-action？**
+它的 tag 在 2026 年 3 月的供应链攻击里被改过。直接运行官方镜像并按 digest 固定，少一层第三方代码在 runner 上执行。这也是"为什么要按 SHA 固定 action"最好的现实例子。
+
+**问：为什么关掉了几条检查？**
+都写了原因，而且只关只针对写法或环境、不针对风险的检查：`serial`（Java 序列化只在同一次构建里传 Flink 函数，状态用 Flink 自己的序列化器）、`try`（作用域式的 try-with-resources）、`processing`（测试依赖带的注解处理器）、`MissingSummary`（record 只用 `@param` 写文档）、`StringSplitter`（改切分行为会改变 chunk，要花钱重跑检索评估）。
+
+**问：为什么不加代码格式化？**
+会改动几乎每个文件，对风险没有帮助。以后要加，用 `ratchetFrom` 只管改过的文件。
+
+**问：基线不就是把问题藏起来吗？**
+区别在于范围和期限：例外精确到包版本，到期自动失效，原因写在文件里；而且升级依赖已经作为单独的工作提出来了。直接让 CI 一直红，或者改成只报告不拦截，门槛都会形同虚设。
+
+### 踩过的坑
+
+1. **POM 里写死的配置值会盖过 `-D` 参数**：想用 `-Dmaven.compiler.failOnWarning=false` 一次列出所有警告，结果不生效。改成用 property 控制。
+2. **Error Prone 在 JDK 21 上还要 `-XDaddTypeAnnotationsToSymbol=true`**，否则直接报致命错误；`.mvn/jvm.config` 里还要放一组 javac 内部包的 `--add-exports`。
+3. **Trivy 扫 pom.xml 时会自己去请求 Maven Central**，第一次本地运行就被限流（429）。依赖交给 SBOM 扫描，仓库扫描加 `--offline-scan` 并跳过 pom。
+4. **actionlint 1.7.12 不认识 `ubuntu-26.04`**：它比这个 runner 镜像发布得早，按文档在 `actionlint.yaml` 里登记这个标签。
+5. **Error Prone 找到两个真实问题**：`CaseWorker` 丢掉了分析任务的 Future，分析自身处理之外的异常（比如记录失败时数据库断了）会悄无声息地消失；`AuditLogTest` 的并发写入同样丢掉了 Future，失败只能间接体现。两处都改了。
+6. **macOS 的 sed 不支持 GNU 的 `0,/re/` 语法**：做 actionlint 的 mutation check 时第一次什么都没改，差点以为检查通过了。又一次说明检查要先看到它失败。
+
+### 不足与改进
+
+- 47 个存量漏洞还没升级（Tomcat、Netty、Jackson 2 和 3、lz4），30 天内要处理。
+- 没有扫描 docker-compose 里的镜像本身（Trivy 可以扫镜像，CI 时间会变长）。
+- 没有 SAST 的数据流分析（CodeQL 要 GHAS；Semgrep 可以考虑）。
+- Dependabot 的漏洞告警和安全更新要在仓库设置里打开，这是仓库所有者的操作。
+
+### 实测数据
+
+- javac lint 初始 29 条警告，全部属于关掉的三类；Error Prone 初始 77 条，34 条 `MissingSummary`、6 条 `StringSplitter`，其余逐条修复或在原处注明原因后抑制。
+- SBOM：CycloneDX 1.6，463 个组件。Trivy：47 个 HIGH/CRITICAL（23 个 CVE）进基线；仓库扫描没有发现密钥。
+- 每道门槛都先用人为植入的违规看到它失败才算数：`new Date()`（Error Prone）、`common` 加 compile 依赖和 `stream-job` 加 Spring（enforcer）、`@Tool` 参数改成 `int`（ArchUnit）、引用不存在的 step（actionlint）、去掉例外文件（Trivy 退出码 1）。

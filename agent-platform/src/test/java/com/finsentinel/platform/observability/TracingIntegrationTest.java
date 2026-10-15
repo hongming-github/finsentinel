@@ -110,7 +110,7 @@ class TracingIntegrationTest {
                 serde.serialize(Contracts.toAvro(alert)));
         record.headers().add("traceparent",
                 ("00-" + traceId + "-" + spanId + "-01").getBytes(StandardCharsets.UTF_8));
-        kafka.send(record);
+        kafka.send(record).join();
         return await().pollInSameThread().atMost(Duration.ofSeconds(20)).until(() -> jdbc.sql(
                         "select case_id::text from alert where alert_id = :id")
                 .param("id", UUID.fromString(alert.alertId())).query(String.class).optional(), o -> o.isPresent())

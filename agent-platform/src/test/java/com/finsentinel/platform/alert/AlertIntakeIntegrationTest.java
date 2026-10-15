@@ -45,8 +45,8 @@ class AlertIntakeIntegrationTest {
         Alert alert = alert("harbour", "acc-dup");
         byte[] payload = serde.serialize(Contracts.toAvro(alert));
 
-        kafka.send(Topics.ALERTS, alert.accountId(), payload);
-        kafka.send(Topics.ALERTS, alert.accountId(), payload);
+        kafka.send(Topics.ALERTS, alert.accountId(), payload).join();
+        kafka.send(Topics.ALERTS, alert.accountId(), payload).join();
 
         await().pollInSameThread().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
                 assertThat(repository.findRecent("harbour", 50))
@@ -64,8 +64,8 @@ class AlertIntakeIntegrationTest {
         // A v1-era JSON alert: not the registry's wire format.
         byte[] poison = ("{\"alertId\":\"" + UUID.randomUUID() + "\"}").getBytes(StandardCharsets.UTF_8);
 
-        kafka.send(Topics.ALERTS, good.accountId(), poison);
-        kafka.send(Topics.ALERTS, good.accountId(), serde.serialize(Contracts.toAvro(good)));
+        kafka.send(Topics.ALERTS, good.accountId(), poison).join();
+        kafka.send(Topics.ALERTS, good.accountId(), serde.serialize(Contracts.toAvro(good))).join();
 
         await().pollInSameThread().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
                 assertThat(repository.findRecent("straits", 50))

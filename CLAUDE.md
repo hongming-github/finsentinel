@@ -41,6 +41,12 @@ committed, and how the user likes to work. Keep it updated at the end of each se
 - After changing the chunker or retrieval, run `RetrievalEvalTest` and compare with the table in ADR 0007.
 - Alert ids are deterministic (ADR 0003). Do not change `Alert.idFor` casually.
 - Check dependency versions on Maven Central before adding or bumping; do not guess.
+- The build is the lint (ADR 0022): javac `-Xlint` and Error Prone warnings fail it. Fix a finding; suppress only at the
+  site with `@SuppressWarnings("Check")` and the reason. Module bans (`no-spring`, `no-runtime-dependencies`) are
+  enforcer executions; CLAUDE.md rules the compiler cannot see go into an `ArchitectureTest`.
+- Workflows: actions pinned by commit SHA (version in a comment), images by digest, `permissions: contents: read`,
+  inputs into `run:` only through `env:`. A vulnerability exception in `.trivyignore.yaml` names its package
+  versions, a reason and an expiry; never a bare CVE id.
 - Agent tools are scoped by construction (tenant/account fixed in `InvestigationTools`); never add a tool
   parameter that selects tenant or account.
 - Identity comes from Keycloak JWTs (ADR 0014): the tenant only ever from the token (`Caller`), never from a header,

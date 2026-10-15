@@ -8,3 +8,6 @@ target/
 knowledge/docs/
 knowledge/.cache/
 HANDOFF.md
+
+# Trivy vulnerability database cache (CI)
+.trivy-cache/

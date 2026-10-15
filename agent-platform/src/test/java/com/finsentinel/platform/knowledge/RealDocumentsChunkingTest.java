@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Locale;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -46,7 +47,7 @@ class RealDocumentsChunkingTest {
     @Test
     void notice626HasSuspiciousTransactionReporting() {
         assertThat(chunks("notice-626-2025"))
-                .anyMatch(c -> c.section().toUpperCase().contains("SUSPICIOUS TRANSACTIONS REPORTING"));
+                .anyMatch(c -> c.section().toUpperCase(Locale.ROOT).contains("SUSPICIOUS TRANSACTIONS REPORTING"));
     }
 
     private List<RegulationChunk> chunks(String docId) {

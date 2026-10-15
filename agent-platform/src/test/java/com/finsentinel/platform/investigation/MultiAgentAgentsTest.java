@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ByteArrayResource;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
@@ -126,7 +127,7 @@ class MultiAgentAgentsTest {
                 List.of(new ToolEvidence("getAccountSecurityEvents", "{}", "{\"eventsLast30Days\":[\"NEW_DEVICE_LOGIN\"]}")));
         ScriptedChatModel model = new ScriptedChatModel(json, new LlmCaseReviewer.Verdict(true, List.of()));
 
-        new LlmCaseReviewer(models(model), json, new ByteArrayResource("r".getBytes()))
+        new LlmCaseReviewer(models(model), json, new ByteArrayResource("r".getBytes(StandardCharsets.UTF_8)))
                 .review(someCase, withEvidence, List.of());
 
         assertThat(model.prompts.getFirst()).contains("getAccountSecurityEvents").contains("NEW_DEVICE_LOGIN");
@@ -134,12 +135,12 @@ class MultiAgentAgentsTest {
 
     private LlmReportWriter writer(ScriptedChatModel model) {
         return new LlmReportWriter(models(model), json, props,
-                new ByteArrayResource("You are a test writer.".getBytes()));
+                new ByteArrayResource("You are a test writer.".getBytes(StandardCharsets.UTF_8)));
     }
 
     private LlmCaseReviewer reviewer(LlmCaseReviewer.Verdict verdict) {
         return new LlmCaseReviewer(models(new ScriptedChatModel(json, verdict)), json,
-                new ByteArrayResource("You are a test reviewer.".getBytes()));
+                new ByteArrayResource("You are a test reviewer.".getBytes(StandardCharsets.UTF_8)));
     }
 
     private static AnalysisPlan plan(boolean transfer) {

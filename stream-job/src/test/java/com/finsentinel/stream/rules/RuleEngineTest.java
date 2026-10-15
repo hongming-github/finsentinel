@@ -225,7 +225,7 @@ class RuleEngineTest {
     }
 
     private Transaction txn(String amount, Channel channel, String country, Instant at) {
-        return new Transaction("t" + (++seq), "harbour", "acc-1", "cus-1", new BigDecimal(amount), "SGD",
+        return new Transaction("t" + ++seq, "harbour", "acc-1", "cus-1", new BigDecimal(amount), "SGD",
                 "m-1", "5411", channel, country, at);
     }
 }

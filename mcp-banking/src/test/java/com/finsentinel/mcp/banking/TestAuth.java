@@ -44,7 +44,7 @@ final class TestAuth {
     static String token(String audience, String... roles) {
         JWTClaimsSet claims = new JWTClaimsSet.Builder().issuer(issuer()).audience(audience)
                 .subject("service-account-platform-service").claim("roles", List.of(roles))
-                .issueTime(new Date()).expirationTime(Date.from(Instant.now().plusSeconds(300))).build();
+                .issueTime(Date.from(Instant.now())).expirationTime(Date.from(Instant.now().plusSeconds(300))).build();
         try {
             SignedJWT jwt = new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.RS256).keyID("test-key").build(), claims);
             jwt.sign(new RSASSASigner(KEYS.getPrivate()));

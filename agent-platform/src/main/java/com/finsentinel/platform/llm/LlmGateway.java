@@ -83,14 +83,14 @@ public class LlmGateway {
         for (ModelRef ref : route) {
             LlmProviders.Provider provider = providers.get(ref.provider());
             CircuitBreaker breaker = breaker(ref.provider());
-            boolean lastResort = ref == route.getLast();
+            boolean lastResort = ref.equals(route.getLast());
             if (!provider.available() || (!breaker.allowsCall() && !lastResort)) {
                 continue;
             }
             try {
                 Answer<T> answer = call(provider, ref, system, user, tools, type);
                 breaker.success();
-                if (ref != model) {
+                if (!ref.equals(model)) {
                     log.warn("{} answered in place of {} (provider failure or open circuit)", ref, model);
                 }
                 return answer;

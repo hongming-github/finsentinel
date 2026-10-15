@@ -9,7 +9,6 @@ import org.springframework.stereotype.Component;
 
 import java.sql.Timestamp;
 import java.util.Collection;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -63,10 +62,10 @@ class FencedPostgresCheckpointSaver implements BaseCheckpointSaver {
     @Override
     public Optional<Checkpoint> get(RunnableConfig config) {
         CaseRun run = CaseRun.of(config);
-        LinkedList<Checkpoint> checkpoints = Tenancy.call(run.tenantId(), () -> load(run));
+        List<Checkpoint> checkpoints = Tenancy.call(run.tenantId(), () -> load(run));
         return config.checkPointId()
                 .map(id -> checkpoints.stream().filter(cp -> cp.getId().equals(id)).findFirst())
-                .orElseGet(() -> Optional.ofNullable(checkpoints.peek()));
+                .orElseGet(() -> checkpoints.stream().findFirst());
     }
 
     /**
@@ -123,7 +122,7 @@ class FencedPostgresCheckpointSaver implements BaseCheckpointSaver {
     }
 
     private Tag releaseRun(CaseRun run) {
-        LinkedList<Checkpoint> checkpoints = load(run);
+        List<Checkpoint> checkpoints = load(run);
         boolean owner = jdbc.sql(OWNER + """
                         , released as (
                             delete from graph_checkpoint
@@ -140,7 +139,7 @@ class FencedPostgresCheckpointSaver implements BaseCheckpointSaver {
         return new Tag(run.threadId(), checkpoints);
     }
 
-    private LinkedList<Checkpoint> load(CaseRun run) {
+    private List<Checkpoint> load(CaseRun run) {
         List<Checkpoint> rows = jdbc.sql("""
                         select checkpoint_id, node_id, next_node_id, state from graph_checkpoint
                         where case_id = :caseId and run = :run
@@ -155,7 +154,7 @@ class FencedPostgresCheckpointSaver implements BaseCheckpointSaver {
                         .nextNodeId(rs.getString("next_node_id"))
                         .build())
                 .list();
-        return new LinkedList<>(rows);
+        return rows;
     }
 
     private static void requireOwner(int rows, CaseRun run) {

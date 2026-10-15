@@ -12,9 +12,9 @@ import com.finsentinel.contracts.SchemaRegistry;
 import com.finsentinel.contracts.avro.AlertEvent;
 import com.finsentinel.contracts.avro.TransactionEvent;
 import org.apache.flink.streaming.api.TimerService;
+import org.apache.flink.streaming.api.functions.ProcessFunction;
 import org.apache.flink.util.Collector;
 import org.apache.flink.util.OutputTag;
-import org.apache.flink.util.function.SerializableSupplier;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.junit.jupiter.api.Test;
 
@@ -32,7 +32,6 @@ class AvroWireTest {
 
     private static final Instant WHEN = Instant.parse("2026-10-10T08:00:00Z");
     private static final InMemorySchemaRegistry REGISTRY = InMemorySchemaRegistry.withContracts();
-    private static final SerializableSupplier<SchemaRegistry> SUPPLIER = () -> REGISTRY;
 
     private final List<TracedTransaction> parsed = new ArrayList<>();
     private final List<byte[]> invalid = new ArrayList<>();
@@ -46,7 +45,7 @@ class AvroWireTest {
         byte[] json = "{\"txnId\": \"broken".getBytes(StandardCharsets.UTF_8);
         byte[] unknownSchema = {0, 0, 0, 1, 0, 2, 4};
 
-        ParseTransactions parse = open(new ParseTransactions(SUPPLIER));
+        ParseTransactions parse = open(new ParseTransactions(AvroWireTest::registry));
         String traceparent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
         parse.processElement(new RawMessage(good, traceparent), context(parse), collector());
         for (byte[] raw : List.of(json, unknownSchema, new byte[0])) {
@@ -78,7 +77,7 @@ class AvroWireTest {
     void alertsAreWrittenAsRegistryAvroKeyedByAccountWithTheirTraceContext() {
         Alert alert = new Alert("a-1", "straits", "acc-1", "c-1", AlertRule.GEO_JUMP, Severity.MEDIUM, "SG then GB",
                 List.of("t-1", "t-2"), WHEN, WHEN.plusSeconds(1));
-        AlertRecordSerializer serializer = new AlertRecordSerializer("alerts", SUPPLIER);
+        AlertRecordSerializer serializer = new AlertRecordSerializer("alerts", AvroWireTest::registry);
         serializer.open(null, null);
 
         String traceparent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
@@ -112,7 +111,13 @@ class AvroWireTest {
         };
     }
 
-    private ParseTransactions.Context context(ParseTransactions parse) {
+    private static SchemaRegistry registry() {
+        return REGISTRY;
+    }
+
+    // An inner class of the function can only be created through the function instance.
+    @SuppressWarnings("NonCanonicalType")
+    private ProcessFunction<RawMessage, TracedTransaction>.Context context(ParseTransactions parse) {
         return parse.new Context() {
             @Override
             public Long timestamp() {

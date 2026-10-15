@@ -1,10 +1,26 @@
-# Every push and pull request: build and every test that does not call a model (ADR 0017). Testcontainers needs Docker,
-# which GitHub-hosted Ubuntu runners have. Live LLM tests and the evaluation are skipped here (they need -Dlive / -Deval).
+# Every push and pull request (ADR 0022). Four jobs, so a red run says which kind of check failed:
+# - build: compile with javac lint and Error Prone (warnings fail), enforcer rules, every test that calls no model
+#   (ArchUnit rules and the evaluation dry run included; live LLM tests need -Dlive / -Deval), and the SBOM.
+# - dependency-scan: known vulnerabilities in the SBOM, i.e. the versions Maven actually resolved.
+# - repo-scan: secrets, misconfigurations and the Python example's lock file.
+# - workflow-lint: actionlint on these workflow files.
+# Third-party code runs pinned: actions by commit SHA, tool images by digest (tags can be moved: trivy-action's were in
+# March 2026). Dependabot proposes the updates (.github/dependabot.yml).
 name: ci
 
 on:
   push:
   pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TRIVY_IMAGE: aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa
 
 jobs:
   build:
@@ -13,17 +29,89 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-java@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
           java-version: "21"
           cache: maven
-      - name: Build and test (no model calls; includes the evaluation dry run)
-        run: ./mvnw -B -ntp verify
+      - name: Build, lint and test (no model calls; includes the evaluation dry run), then the SBOM
+        run: ./mvnw -B -ntp verify org.cyclonedx:cyclonedx-maven-plugin:makeAggregateBom
+      - name: Keep the SBOM
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sbom
+          path: target/bom.json
+          if-no-files-found: error
       - name: Keep test reports on failure
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: surefire-reports
           path: "**/target/surefire-reports/"
+
+  dependency-scan:
+    needs: build
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: sbom
+          path: target
+      - name: Today's date (UTC), for the database cache
+        id: day
+        run: echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+      - name: Cache the vulnerability database (one download a day)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .trivy-cache
+          key: trivy-db-${{ steps.day.outputs.day }}
+      # Fails on HIGH or CRITICAL vulnerabilities that have a fix, except the dated, per-version exceptions in
+      # .trivyignore.yaml.
+      - name: Scan the SBOM
+        run: >
+          docker run --rm -v "$PWD:/src" -w /src -e TRIVY_CACHE_DIR=/src/.trivy-cache "$TRIVY_IMAGE"
+          sbom --severity HIGH,CRITICAL --ignore-unfixed --ignorefile .trivyignore.yaml
+          --skip-version-check --exit-code 1 target/bom.json
+
+  repo-scan:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Today's date (UTC), for the database cache
+        id: day
+        run: echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+      - name: Cache the vulnerability database (one download a day)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .trivy-cache
+          key: trivy-db-${{ steps.day.outputs.day }}
+      # Maven dependencies are the SBOM scan's job: POMs are skipped here, and --offline-scan keeps Trivy from
+      # resolving them against Maven Central (which rate-limits it).
+      - name: Scan the repository for secrets, misconfigurations and vulnerable lock files
+        run: >
+          docker run --rm -v "$PWD:/src" -w /src -e TRIVY_CACHE_DIR=/src/.trivy-cache "$TRIVY_IMAGE"
+          fs --scanners vuln,secret,misconfig --severity HIGH,CRITICAL --ignore-unfixed --offline-scan
+          --skip-files pom.xml --skip-files "**/pom.xml" --skip-dirs .trivy-cache
+          --skip-version-check --exit-code 1 .
+
+  workflow-lint:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: actionlint
+        run: >
+          docker run --rm -v "$PWD:/repo" -w /repo
+          rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 -color
