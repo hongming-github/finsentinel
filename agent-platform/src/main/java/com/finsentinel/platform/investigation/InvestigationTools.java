@@ -2,6 +2,8 @@ package com.finsentinel.platform.investigation;
 
 import com.finsentinel.platform.privacy.PiiMasker;
 import com.finsentinel.common.Transaction;
+import com.finsentinel.common.TravelFeasibility;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.finsentinel.platform.alert.AlertRepository;
 import com.finsentinel.platform.knowledge.KnowledgeSearch;
 import com.finsentinel.platform.security.Tenancy;
@@ -28,7 +30,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -66,6 +70,7 @@ class InvestigationTools {
     private final ExternalSystems systems;
     private final InvestigationProperties.Tools limits;
     private final PiiMasker masker;
+    private final TravelFeasibility travel;
     private final List<ToolCall> calls = new CopyOnWriteArrayList<>();
     private final Set<String> seenTxnIds = ConcurrentHashMap.newKeySet();
     private final Set<String> seenChunkIds = ConcurrentHashMap.newKeySet();
@@ -76,8 +81,9 @@ class InvestigationTools {
 
     InvestigationTools(CaseContext caseContext, TransactionRepository transactions, AlertRepository alerts,
                        KnowledgeSearch knowledge, ExternalSystems systems, InvestigationProperties.Tools limits,
-                       PiiMasker masker) {
+                       PiiMasker masker, TravelFeasibility travel) {
         this.masker = masker;
+        this.travel = travel;
         this.caseContext = caseContext;
         this.transactions = transactions;
         this.alerts = alerts;
@@ -105,11 +111,31 @@ class InvestigationTools {
         return new RegulationSearchResult(hits, hits.isEmpty() ? "No matching passages." : null);
     }
 
-    @Tool(description = "Get the transactions behind every alert in this case, oldest first.")
-    List<TxnView> getAlertTransactions() {
+    @Tool(description = "Get the transactions behind every alert in this case, oldest first. When card-present "
+            + "payments follow each other in different countries, 'travel' says whether anyone could have made that "
+            + "trip in the time between them: minimumMinutes is a lower bound (fastest flight between the nearest "
+            + "airports, no time on the ground), so IMPOSSIBLE is certain and POSSIBLE does not mean likely.")
+    AlertTransactions getAlertTransactions() {
         long start = System.nanoTime();
         List<Transaction> result = db(() -> transactions.findByIds(tenant(), account(), caseContext.txnIds()));
-        return record("getAlertTransactions", "", result, start);
+        return new AlertTransactions(record("getAlertTransactions", "", result, start), travelChecks(result));
+    }
+
+    /** Each card-present payment against the card-present payment before it, where the country changed. */
+    private List<TravelView> travelChecks(List<Transaction> txns) {
+        List<Transaction> cardPresent = txns.stream()
+                .filter(t -> t.channel() == com.finsentinel.common.Channel.CARD_PRESENT)
+                .sorted(Comparator.comparing(Transaction::eventTime)).toList();
+        List<TravelView> checks = new ArrayList<>();
+        for (int i = 1; i < cardPresent.size(); i++) {
+            Transaction before = cardPresent.get(i - 1);
+            Transaction after = cardPresent.get(i);
+            if (!before.country().equals(after.country())) {
+                checks.add(TravelView.of(before, after, travel.check(before.country(), after.country(),
+                        Duration.between(before.eventTime(), after.eventTime()))));
+            }
+        }
+        return checks;
     }
 
     @Tool(description = "Get this account's transactions from the given number of days before the alert "
@@ -421,6 +447,25 @@ class InvestigationTools {
             return new TxnView(t.txnId(), t.eventTime().truncatedTo(ChronoUnit.SECONDS),
                     t.amount().toPlainString() + " " + t.currency(), t.channel().name(), t.country(),
                     t.merchantId(), t.merchantCategory());
+        }
+    }
+
+    /** The alert's transactions, and the trips between them; no travel entry when there is no country change. */
+    record AlertTransactions(List<TxnView> transactions, @JsonInclude(JsonInclude.Include.NON_EMPTY) List<TravelView> travel) {
+    }
+
+    /**
+     * Whether the card could have travelled between two card-present payments ({@link TravelFeasibility}). Minutes,
+     * rounded down, read more easily for the model than ISO durations; minimumMinutes is absent when the data has no
+     * flights for a country (verdict UNKNOWN).
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    record TravelView(String fromTxn, String toTxn, String from, String to, long elapsedMinutes, Long minimumMinutes,
+                      String verdict, String basis) {
+
+        static TravelView of(Transaction before, Transaction after, TravelFeasibility.Check check) {
+            return new TravelView(before.txnId(), after.txnId(), check.from(), check.to(), check.elapsed().toMinutes(),
+                    check.minimum() == null ? null : check.minimum().toMinutes(), check.verdict().name(), check.basis());
         }
     }
 

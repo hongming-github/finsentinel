@@ -126,6 +126,10 @@ committed, and how the user likes to work. Keep it updated at the end of each se
   and must stay rebuildable from landing (dynamic partition overwrite, idempotent re-runs). Days are UTC everywhere.
   Batch statistics are robust (median, MAD) because the batch cannot see which past amounts were fraud. The rule uses
   streaming history first and a fresh batch baseline only as a fallback; the alert reason names the source.
+- Travel feasibility (ADR 0021) is a lower bound, never an estimate: `TravelFeasibility` in `common`, data built by
+  `scripts/travel-data.py` (never edit the CSVs by hand). Unknown countries are UNKNOWN, never impossible; the rule's
+  `rules.geo-jump.max-speed-kmh` and the platform's `tools.travel-max-speed-kmh` stay equal. Agents read the verdict
+  from `travel`; playbooks never list flight times.
 - Stateful Flink operators keep their `uid(...)`; never rename one without a savepoint migration plan.
 - Kafka sources that rebuild state from a compacted topic (account baselines) start from `earliest()` on a cold
   start; event streams (transactions) continue from the group's committed offsets. Test restarts the way they happen

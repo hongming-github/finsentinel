@@ -39,8 +39,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * with {@code -Deval.repeats=3} (default), {@code -Deval.modes=SINGLE,MULTI}, {@code -Deval.cases=id1,id2},
  * {@code -Deval.maxCostUsd=1.00} (default), {@code -Deval.judge=true -Deval.judgeModel=gpt-5.4-mini}. Spring settings
  * override as system properties, e.g. {@code -Dfinsentinel.llm.models.reviewer=gpt-5.5} for a routing comparison.
- * At gpt-5.4-mini prices one run costs about $0.007 to $0.046 (cases that need a repair cost more); the 16 cases
- * three times in SINGLE mode, about $0.60, plus about $0.003 per judged run.
+ * At gpt-5.4-mini prices one run costs about $0.007 to $0.046 (cases that need a repair cost more); the 17 cases
+ * three times in SINGLE mode, about $0.55-0.65, plus about $0.003 per judged run.
  */
 @PlatformTest
 @TestPropertySource(properties = "finsentinel.test.fake-ai=false")

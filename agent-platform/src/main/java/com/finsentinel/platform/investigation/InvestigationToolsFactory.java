@@ -1,5 +1,6 @@
 package com.finsentinel.platform.investigation;
 
+import com.finsentinel.common.TravelFeasibility;
 import com.finsentinel.platform.privacy.PiiMasker;
 import com.finsentinel.platform.alert.AlertRepository;
 import com.finsentinel.platform.knowledge.KnowledgeSearch;
@@ -17,6 +18,7 @@ class InvestigationToolsFactory {
     private final ExternalSystems systems;
     private final InvestigationProperties props;
     private final PiiMasker masker;
+    private final TravelFeasibility travel;
 
     InvestigationToolsFactory(TransactionRepository transactions, AlertRepository alerts, KnowledgeSearch knowledge,
                               ExternalSystems systems, InvestigationProperties props, PiiMasker masker) {
@@ -26,9 +28,10 @@ class InvestigationToolsFactory {
         this.knowledge = knowledge;
         this.systems = systems;
         this.props = props;
+        this.travel = new TravelFeasibility(props.tools().travelMaxSpeedKmh());
     }
 
     InvestigationTools forCase(CaseContext caseContext) {
-        return new InvestigationTools(caseContext, transactions, alerts, knowledge, systems, props.tools(), masker);
+        return new InvestigationTools(caseContext, transactions, alerts, knowledge, systems, props.tools(), masker, travel);
     }
 }

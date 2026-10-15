@@ -14,7 +14,7 @@ model routing (ADR 0011), SINGLE vs MULTI (ADR 0010), the reviewer on gpt-5.5 (c
 
 ## Decision
 
-- **The golden dataset is data** (`src/test/resources/eval/golden-cases.json`): 16 cases in eight categories (card
+- **The golden dataset is data** (`src/test/resources/eval/golden-cases.json`): 16 cases (17 since ADR 0021 added `travel-notice-too-fast`) in eight categories (card
   fraud, false positives, transfer scams, account takeover, injection, resilience, tenant permissions, privacy), the
   eight live scenarios plus eight harder ones chosen to separate a careful investigation from a lucky one: card testing
   vs a shopping trip at familiar merchants, a travel notice that matches vs one for another country, a recurring rent
@@ -42,7 +42,7 @@ model routing (ADR 0011), SINGLE vs MULTI (ADR 0010), the reviewer on gpt-5.5 (c
 - **The gate** (`EvalGate`, `eval/thresholds.json`): overall pass rate, each critical case, every other case, tool
   selection, regulation relevance, mean cost per run. Thresholds are provisional, from the phase 3 to 6 live runs, to
   be recalibrated from the first baseline.
-- **Free dry run in every build** (`GoldenEvalDryRunTest`): all 16 cases through the same harness with the stub
+- **Free dry run in every build** (`GoldenEvalDryRunTest`): every case through the same harness with the stub
   agents: every scenario builds, claims and grades, and the gate fails on the stub's answers (fails closed).
 - **CI** (`.github/workflows`): `ci.yml` builds and runs every test that calls no model on each push; `eval.yml`
   runs the evaluation only when started by hand, with inputs for repeats, cases, modes, budget and judge, and uploads

@@ -6,12 +6,14 @@ import com.finsentinel.common.AlertRule;
 import com.finsentinel.common.Channel;
 import com.finsentinel.common.Severity;
 import com.finsentinel.common.Transaction;
+import com.finsentinel.common.TravelFeasibility;
 
 import java.io.Serializable;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -24,9 +26,11 @@ import java.util.Locale;
 public class RuleEngine implements Serializable {
 
     private final RuleConfig config;
+    private final TravelFeasibility travel;
 
     public RuleEngine(RuleConfig config) {
         this.config = config;
+        this.travel = new TravelFeasibility(config.geoJumpMaxSpeedKmh());
     }
 
     public List<Alert> evaluate(AccountRiskState state, Transaction txn, Instant now) {
@@ -117,19 +121,37 @@ public class RuleEngine implements Serializable {
     private record Profile(double centre, double spread, String description) {
     }
 
+    /**
+     * Two card-present payments in different countries sooner than any flight between them allows. Countries
+     * connected by land never fire (no bound). A country without flight data falls back to the plain window, and the
+     * reason says so.
+     */
     private void checkGeoJump(AccountRiskState state, Transaction txn, Instant now, List<Alert> out) {
         if (txn.channel() != Channel.CARD_PRESENT) {
             return;
         }
         long t = txn.eventTime().toEpochMilli();
-        if (state.lastCardPresentCountry != null
-                && !state.lastCardPresentCountry.equals(txn.country())
-                && Math.abs(t - state.lastCardPresentTimeMs) <= config.geoJumpWindow().toMillis()) {
+        if (state.lastCardPresentCountry != null && !state.lastCardPresentCountry.equals(txn.country())) {
             Duration gap = Duration.ofMillis(Math.abs(t - state.lastCardPresentTimeMs));
-            String reason = "card present in %s then %s within %s".formatted(
-                    state.lastCardPresentCountry, txn.country(), human(gap));
-            out.add(alert(txn, AlertRule.GEO_JUMP, Severity.HIGH, reason,
-                    List.of(state.lastCardPresentTxnId, txn.txnId()), now));
+            // Out-of-order arrivals: the reason and the transaction ids follow event time.
+            boolean arrivedLate = t < state.lastCardPresentTimeMs;
+            List<String> txnIds = arrivedLate ? List.of(txn.txnId(), state.lastCardPresentTxnId)
+                    : List.of(state.lastCardPresentTxnId, txn.txnId());
+            TravelFeasibility.Check check = arrivedLate ? travel.check(txn.country(), state.lastCardPresentCountry, gap)
+                    : travel.check(state.lastCardPresentCountry, txn.country(), gap);
+            String reason = switch (check.verdict()) {
+                case IMPOSSIBLE -> "card present in %s then %s %s apart; the fastest possible trip takes %s (%s)"
+                        .formatted(check.from(), check.to(), human(gap), human(check.minimum()), check.basis());
+                case UNKNOWN -> gap.compareTo(config.geoJumpFallbackWindow()) <= 0
+                        ? "card present in %s then %s within %s (%s, so judged by the %s window)".formatted(
+                                check.from(), check.to(), human(gap), check.basis(),
+                                human(config.geoJumpFallbackWindow()))
+                        : null;
+                case POSSIBLE -> null;
+            };
+            if (reason != null) {
+                out.add(alert(txn, AlertRule.GEO_JUMP, Severity.HIGH, reason, txnIds, now));
+            }
         }
         if (t >= state.lastCardPresentTimeMs) {
             state.lastCardPresentCountry = txn.country();
@@ -176,7 +198,9 @@ public class RuleEngine implements Serializable {
         }
     }
 
+    /** "10h41m" rather than "PT10H41M51S": seconds do not matter at this scale. */
     private static String human(Duration d) {
-        return d.toString().substring(2).toLowerCase(Locale.ROOT);
+        Duration rounded = d.compareTo(Duration.ofMinutes(1)) >= 0 ? d.truncatedTo(ChronoUnit.MINUTES) : d;
+        return rounded.toString().substring(2).toLowerCase(Locale.ROOT);
     }
 }

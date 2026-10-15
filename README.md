@@ -88,7 +88,7 @@ Redis · Keycloak · OpenTelemetry / Grafana LGTM · Testcontainers
 | `telemetry` | OpenTelemetry for the plain-Java processes (simulator, Flink): OTLP/HTTP export and the `traceparent` Kafka header. No Spring. |
 | `contracts` | Kafka message contracts: Avro schemas, generated classes, mappers to the common records, a small serde for the Confluent wire format, and `SchemaRegistration`. No Spring. |
 | `txn-simulator` | Traffic for two fictional banks (`harbour`, `straits`), with a week of backfill and injected fraud. |
-| `stream-job` | Flink job. Velocity, large-amount (per-account baseline, streaming or from the batch job), and geo-jump rules. Pure-Java `RuleEngine`. Writes the landing zone. |
+| `stream-job` | Flink job. Velocity, large-amount (per-account baseline, streaming or from the batch job), and geo-jump rules (impossible travel: a lower bound from the nearest airports, ADR 0021). Pure-Java `RuleEngine`. Writes the landing zone. |
 | `batch-job` | Daily Spark job: landing zone to curated Parquet, per-account robust baselines, published to Kafka for the stream job. No Spring. |
 | `agent-platform` | Spring Boot modular monolith. Idempotent alert intake, transaction store, Postgres work queue, a case lifecycle around a Spring AI Alibaba analysis graph with fenced Postgres checkpoints, an investigator agent with case-scoped tools and per-rule playbooks, validated case reports, and a regulatory knowledge base (MAS documents, hybrid retrieval with rerank). |
 | `mcp-banking` | MCP server for the bank's own systems: CRM profile (KYC, travel notices, staff notes) and core-banking security events. Stateless. |
@@ -200,7 +200,7 @@ serves about 80% of each case's first request (it served none when case data cam
 
 ### Evaluation
 
-`src/test/resources/eval/golden-cases.json` holds 16 golden cases (fraud, false positives, transfer scams, takeover,
+`src/test/resources/eval/golden-cases.json` holds 17 golden cases (fraud, false positives, transfer scams, takeover,
 injection, resilience, tenant permissions, privacy). `GoldenEvalTest` runs them through the real agents several times,
 grades each run deterministically (verdict, risk range, required and forbidden tools, relevant regulations, flags,
 missing checks, leaked personal data), optionally adds an LLM judge, writes `target/eval/report.md`, and fails when a
@@ -298,3 +298,4 @@ Study notes (Chinese): [docs/study-guide.md](docs/study-guide.md)
 - [0018 Avro contracts in a schema registry](docs/adr/0018-avro-contracts-and-schema-registry.md)
 - [0019 Daily Spark baselines over a Flink landing zone](docs/adr/0019-batch-baselines.md)
 - [0020 One trace from the payment to the bank's systems](docs/adr/0020-end-to-end-tracing.md)
+- [0021 Geo-velocity: a lower bound on travel between countries](docs/adr/0021-travel-feasibility.md)

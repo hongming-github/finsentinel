@@ -104,6 +104,8 @@ finsentinel:
     tools:
       max-days: 90
       max-transactions: 100
+      # Lower bound on travel between countries (ADR 0021); keep equal to rules.geo-jump.max-speed-kmh (stream job).
+      travel-max-speed-kmh: 1000
     report:
       fraud-min-score: 60
       legitimate-max-score: 40

@@ -84,7 +84,7 @@ class TrafficGenerator {
             }
             case GEO_JUMP -> List.of(
                     txn(account, amount(account), Channel.CARD_PRESENT, account.homeCountry(),
-                            regularMerchant(account), now.minus(Duration.ofMinutes(40))),
+                            regularMerchant(account), now.minus(Duration.ofMinutes(20))),
                     txn(account, amount(account), Channel.CARD_PRESENT,
                             TRAVEL_COUNTRIES[random.nextInt(TRAVEL_COUNTRIES.length)], newMerchant(), now));
             // Authorised-push-payment scam shape: a huge transfer to a payee the customer has never paid.
