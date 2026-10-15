@@ -35,11 +35,15 @@ public record InvestigationProperties(boolean enabled, int batchSize, Duration c
     /**
      * @param maxDays         furthest look-back a tool accepts; larger requests are clamped
      * @param maxTransactions most transactions one call returns
+     * @param travelMaxSpeedKmh speed behind the travel lower bound shown with the alert's transactions (common
+     *                          {@code TravelFeasibility}); the same value as {@code rules.geo-jump.max-speed-kmh} in the
+     *                          stream job, so the agent and the rule agree on what is impossible
      */
-    public record Tools(int maxDays, int maxTransactions) {
+    public record Tools(int maxDays, int maxTransactions, double travelMaxSpeedKmh) {
 
         public Tools {
             require(maxDays > 0 && maxTransactions > 0, "tools limits must be positive");
+            require(travelMaxSpeedKmh > 0, "tools.travel-max-speed-kmh must be positive");
         }
     }
 

@@ -75,11 +75,49 @@ class InvestigationToolsTest {
         InvestigationTools tools = toolsFor(alert(tenant, "acc-1", AlertRule.VELOCITY, Severity.MEDIUM,
                 List.of(mine.txnId(), sameAccountIdOtherBank.txnId(), otherAccount.txnId()), now));
 
-        assertThat(tools.getAlertTransactions()).extracting(InvestigationTools.TxnView::id).containsExactly(mine.txnId());
+        assertThat(tools.getAlertTransactions().transactions()).extracting(InvestigationTools.TxnView::id)
+                .containsExactly(mine.txnId());
         assertThat(tools.getRecentTransactions(7, 100)).extracting(InvestigationTools.TxnView::id)
                 .containsExactly(mine.txnId(), myHistory.txnId());
         // Baseline: own history only, without the alert's transaction.
         assertThat(tools.getAccountProfile(7).amounts().transactionCount()).isEqualTo(1);
+    }
+
+    /** The model gets the deterministic answer instead of judging flight times itself (ADR 0021). */
+    @Test
+    void alertTransactionsSayWhetherTheTripBetweenCountriesWasPossible() {
+        String tenant = uniqueTenant();
+        Instant now = Instant.now().truncatedTo(ChronoUnit.SECONDS);
+        Transaction home = txn(tenant, "acc-1", "40", Channel.CARD_PRESENT, "SG", now.minusSeconds(1800));
+        Transaction online = txn(tenant, "acc-1", "15", Channel.CARD_NOT_PRESENT, "US", now.minusSeconds(900));
+        Transaction london = txn(tenant, "acc-1", "900", Channel.CARD_PRESENT, "GB", now);
+        transactions.insertAll(List.of(home, online, london));
+        InvestigationTools tools = toolsFor(alert(tenant, "acc-1", AlertRule.GEO_JUMP, Severity.HIGH,
+                List.of(home.txnId(), online.txnId(), london.txnId()), now));
+
+        String seen = call(tools, "getAlertTransactions");
+
+        // Online payments say nothing about where the card is.
+        assertThat(seen).contains("\"travel\":[{\"fromTxn\":\"" + home.txnId() + "\",\"toTxn\":\"" + london.txnId()
+                + "\",\"from\":\"SG\",\"to\":\"GB\",\"elapsedMinutes\":30,\"minimumMinutes\":641,"
+                + "\"verdict\":\"IMPOSSIBLE\",\"basis\":\"nearest airports ");
+    }
+
+    @Test
+    void noTravelEntryWithoutACountryChangeAndNoBoundWithoutData() {
+        String tenant = uniqueTenant();
+        Instant now = Instant.now();
+        Transaction a = txn(tenant, "acc-1", "40", Channel.CARD_PRESENT, "SG", now.minusSeconds(600));
+        Transaction b = txn(tenant, "acc-1", "41", Channel.CARD_PRESENT, "SG", now);
+        Transaction c = txn(tenant, "acc-2", "42", Channel.CARD_PRESENT, "SG", now.minusSeconds(600));
+        Transaction d = txn(tenant, "acc-2", "43", Channel.CARD_PRESENT, "UA", now);
+        transactions.insertAll(List.of(a, b, c, d));
+
+        assertThat(call(toolsFor(alert(tenant, "acc-1", AlertRule.VELOCITY, Severity.MEDIUM,
+                List.of(a.txnId(), b.txnId()), now)), "getAlertTransactions")).doesNotContain("travel");
+        assertThat(call(toolsFor(alert(tenant, "acc-2", AlertRule.GEO_JUMP, Severity.HIGH,
+                List.of(c.txnId(), d.txnId()), now)), "getAlertTransactions"))
+                .contains("\"elapsedMinutes\":10,\"verdict\":\"UNKNOWN\",\"basis\":\"no flight data for UA\"");
     }
 
     @Test

@@ -183,6 +183,6 @@ class CaseWorkerTest {
 
     static InvestigationProperties props(int maxPerHour, Duration lockTimeout) {
         return new InvestigationProperties(true, 5, Duration.ofMinutes(5), 3, maxPerHour, lockTimeout,
-                new InvestigationProperties.Tools(90, 100), new InvestigationProperties.Report(60, 40, 1, true));
+                new InvestigationProperties.Tools(90, 100, 1000), new InvestigationProperties.Report(60, 40, 1, true));
     }
 }

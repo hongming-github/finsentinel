@@ -17,7 +17,8 @@ class JobConfigTest {
         assertThat(config.bootstrapServers()).isEqualTo("localhost:9092");
         assertThat(config.stateTtl()).isEqualTo(Duration.ofDays(30));
         assertThat(config.rules().velocityThreshold()).isEqualTo(8);
-        assertThat(config.rules().geoJumpWindow()).isEqualTo(Duration.ofHours(2));
+        assertThat(config.rules().geoJumpMaxSpeedKmh()).isEqualTo(1000);
+        assertThat(config.rules().geoJumpFallbackWindow()).isEqualTo(Duration.ofHours(2));
     }
 
     @Test

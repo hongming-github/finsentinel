@@ -10,5 +10,18 @@
     </parent>
 
     <artifactId>common</artifactId>
-    <description>Event contracts shared by every module. Zero dependencies on purpose.</description>
+    <description>Event contracts shared by every module. Zero runtime dependencies on purpose.</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
 </project>

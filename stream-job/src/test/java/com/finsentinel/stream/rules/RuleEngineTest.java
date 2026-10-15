@@ -135,7 +135,7 @@ class RuleEngineTest {
     }
 
     @Test
-    void geoJumpFiresForCardPresentInTwoCountriesWithinWindow() {
+    void geoJumpFiresWhenNoFlightCouldHaveMadeTheTrip() {
         Transaction home = txn("30", Channel.CARD_PRESENT, "SG", T0);
         run(home);
 
@@ -144,15 +144,57 @@ class RuleEngineTest {
         assertThat(alerts).singleElement().satisfies(a -> {
             assertThat(a.rule()).isEqualTo(AlertRule.GEO_JUMP);
             assertThat(a.txnIds()).first().isEqualTo(home.txnId());
+            assertThat(a.reason()).matches("card present in SG then GB 30m apart; the fastest possible trip takes "
+                    + "10h\\d\\dm \\(nearest airports \\w{4}-\\w{4}, [\\d,]+ km\\)");
         });
     }
 
+    /** The old two-hour window missed this: London five hours after Singapore is still impossible. */
     @Test
-    void geoJumpIgnoresOnlinePaymentsAndSlowTravel() {
+    void geoJumpCatchesImpossibleTripsLongerThanAFixedWindow() {
+        run(txn("30", Channel.CARD_PRESENT, "SG", T0));
+
+        assertThat(run(txn("30", Channel.CARD_PRESENT, "GB", T0.plusSeconds(5 * 3600))))
+                .singleElement().extracting(Alert::rule).isEqualTo(AlertRule.GEO_JUMP);
+    }
+
+    /** The old two-hour window flagged this: Johor Bahru is a short drive across the Causeway. */
+    @Test
+    void geoJumpIgnoresCountriesConnectedByLand() {
+        run(txn("30", Channel.CARD_PRESENT, "SG", T0));
+
+        assertThat(run(txn("30", Channel.CARD_PRESENT, "MY", T0.plusSeconds(1800)))).isEmpty();
+        assertThat(run(txn("30", Channel.CARD_PRESENT, "TH", T0.plusSeconds(3600)))).isEmpty();
+    }
+
+    @Test
+    void geoJumpIgnoresOnlinePaymentsAndPossibleTrips() {
         run(txn("30", Channel.CARD_PRESENT, "SG", T0));
 
         assertThat(run(txn("30", Channel.CARD_NOT_PRESENT, "US", T0.plusSeconds(60)))).isEmpty();
-        assertThat(run(txn("30", Channel.CARD_PRESENT, "MY", T0.plusSeconds(3 * 3600)))).isEmpty();
+        assertThat(run(txn("30", Channel.CARD_PRESENT, "JP", T0.plusSeconds(8 * 3600)))).isEmpty();
+    }
+
+    @Test
+    void geoJumpFallsBackToTheWindowForACountryWithoutFlightData() {
+        run(txn("30", Channel.CARD_PRESENT, "SG", T0));
+
+        assertThat(run(txn("30", Channel.CARD_PRESENT, "UA", T0.plusSeconds(3600)))).singleElement()
+                .extracting(Alert::reason).asString().contains("no flight data for UA", "judged by the 2h window");
+        assertThat(run(txn("30", Channel.CARD_PRESENT, "SG", T0.plusSeconds(4 * 3600)))).isEmpty();
+    }
+
+    @Test
+    void geoJumpComparesOutOfOrderPaymentsByTheirEventTimes() {
+        Transaction singapore = txn("30", Channel.CARD_PRESENT, "SG", T0.plusSeconds(3600));
+        run(singapore);
+
+        // Arrives later, happened earlier: London an hour before Singapore.
+        Transaction london = txn("30", Channel.CARD_PRESENT, "GB", T0);
+        assertThat(run(london)).singleElement().satisfies(a -> {
+            assertThat(a.reason()).startsWith("card present in GB then SG 1h apart");
+            assertThat(a.txnIds()).containsExactly(london.txnId(), singapore.txnId());
+        });
     }
 
     @Test

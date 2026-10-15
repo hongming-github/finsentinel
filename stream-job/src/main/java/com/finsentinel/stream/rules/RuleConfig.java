@@ -14,14 +14,19 @@ public record RuleConfig(
         double largeAmountMeanMultiple,
         BigDecimal hardLimit,
         Duration baselineMaxAge,
-        Duration geoJumpWindow) implements Serializable {
+        double geoJumpMaxSpeedKmh,
+        Duration geoJumpFallbackWindow) implements Serializable {
 
     public RuleConfig {
         if (velocityThreshold < 2) {
             throw new IllegalArgumentException("rules.velocity.threshold must be at least 2");
         }
-        if (velocityWindow.isNegative() || velocityWindow.isZero() || geoJumpWindow.isNegative() || geoJumpWindow.isZero()) {
+        if (velocityWindow.isNegative() || velocityWindow.isZero() || geoJumpFallbackWindow.isNegative()
+                || geoJumpFallbackWindow.isZero()) {
             throw new IllegalArgumentException("rule windows must be positive");
+        }
+        if (!(geoJumpMaxSpeedKmh > 0)) {
+            throw new IllegalArgumentException("rules.geo-jump.max-speed-kmh must be positive");
         }
         if (baselineMaxAge.isNegative() || baselineMaxAge.isZero()) {
             throw new IllegalArgumentException("rules.large-amount.baseline-max-age must be positive");
@@ -37,7 +42,8 @@ public record RuleConfig(
                 Settings.decimal(p, "rules.large-amount.mean-multiple"),
                 new BigDecimal(Settings.string(p, "rules.large-amount.hard-limit")),
                 Settings.duration(p, "rules.large-amount.baseline-max-age"),
-                Settings.duration(p, "rules.geo-jump.window"));
+                Settings.decimal(p, "rules.geo-jump.max-speed-kmh"),
+                Settings.duration(p, "rules.geo-jump.fallback-window"));
     }
 
     /** The values in the bundled stream-job.properties. */

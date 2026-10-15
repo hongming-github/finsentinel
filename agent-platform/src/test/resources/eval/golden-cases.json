@@ -288,6 +288,29 @@
       }
     },
     {
+      "id": "travel-notice-too-fast",
+      "category": "card-fraud",
+      "description": "The customer's travel notice says United Kingdom, and nine hours after a Singapore payment the card is used in London: the right country, but no flight is that fast. The old two-hour window never raised this alert (ADR 0021).",
+      "expertView": "The notice names the right country, but Singapore to London takes about thirteen hours; nine hours is impossible, so the notice explains nothing and the London payment is most likely a cloned card. Likely fraud, or at least review; contact the customer.",
+      "setup": {
+        "account": "acc-fasttrip",
+        "history": { "days": 20, "before": "-PT10H" },
+        "transactions": [
+          { "ref": "home", "amount": "42.60", "channel": "CARD_PRESENT", "country": "SG", "counterparty": "m-3", "at": "-PT9H" },
+          { "ref": "london", "amount": "1140.00", "channel": "CARD_PRESENT", "country": "GB", "counterparty": "m-london-7", "at": "PT0S" }
+        ],
+        "profile": {
+          "segment": "MASS", "kycRiskRating": "LOW", "occupation": "Accountant", "residenceCountry": "SG",
+          "travelNotices": [ { "country": "GB", "from": "-P1D", "to": "P10D" } ]
+        }
+      },
+      "alert": { "rule": "GEO_JUMP", "severity": "HIGH", "transactions": ["home", "london"] },
+      "expect": {
+        "dispositions": ["LIKELY_FRAUD", "NEEDS_REVIEW"], "minRiskScore": 60,
+        "requiredTools": ["getAlertTransactions", "getCustomerProfile"]
+      }
+    },
+    {
       "id": "mule-payee-no-takeover",
       "category": "transfer-scam",
       "critical": true,
