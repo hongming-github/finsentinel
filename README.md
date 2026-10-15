@@ -206,7 +206,7 @@ grades each run deterministically (verdict, risk range, required and forbidden t
 missing checks, leaked personal data), optionally adds an LLM judge, writes `target/eval/report.md`, and fails when a
 threshold in `eval/thresholds.json` is missed. It stops before its budget (`-Deval.maxCostUsd`, default $1). A dry run
 with stub agents validates every case in each build for free. CI: `.github/workflows/ci.yml` on every push (no model
-calls); `eval.yml` by hand. ADR 0017.
+calls, see "Tests"); `eval.yml` by hand. ADR 0017.
 
 ### MCP server
 
@@ -273,6 +273,12 @@ configuration and add the `--add-opens` flags from `stream-job/pom.xml` (`flink.
 ./mvnw -pl agent-platform test -Dtest=RetrievalEvalTest -Dlive=true -Dsurefire.failIfNoSpecifiedTests=false
 ```
 
+`verify` also runs the static checks: javac lint and Error Prone (warnings fail the build), Maven Enforcer
+(Spring-free and dependency-free modules, pinned plugin versions) and ArchUnit rules from CLAUDE.md (`ArchitectureTest`).
+CI (`.github/workflows/ci.yml`, ADR 0022) adds a CycloneDX SBOM, a Trivy scan of it for known vulnerabilities
+(exceptions, dated, in `.trivyignore.yaml`), a Trivy scan of the repository for secrets, and actionlint; Dependabot
+proposes updates weekly.
+
 ## Design decisions
 
 Study notes (Chinese): [docs/study-guide.md](docs/study-guide.md)
@@ -299,3 +305,4 @@ Study notes (Chinese): [docs/study-guide.md](docs/study-guide.md)
 - [0019 Daily Spark baselines over a Flink landing zone](docs/adr/0019-batch-baselines.md)
 - [0020 One trace from the payment to the bank's systems](docs/adr/0020-end-to-end-tracing.md)
 - [0021 Geo-velocity: a lower bound on travel between countries](docs/adr/0021-travel-feasibility.md)
+- [0022 CI quality and security gates](docs/adr/0022-ci-quality-and-security-gates.md)

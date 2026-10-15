@@ -1,0 +1,38 @@
+# Weekly update pull requests (ADR 0022). Minor and patch updates come grouped per ecosystem, one PR to review; major
+# updates come one by one, since they are decisions (CLAUDE.md: after a Spring AI or Spring AI Alibaba upgrade, run the
+# full suite and a packaged-jar case). CI runs every check on each PR.
+version: 2
+updates:
+  - package-ecosystem: maven
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      maven-minor-and-patch:
+        update-types: [minor, patch]
+
+  # Also keeps the commit SHAs in the workflows current, with the version in the trailing comment.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        update-types: [minor, patch]
+
+  - package-ecosystem: docker-compose
+    directory: /deploy
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      images-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: uv
+    directory: /examples/mcp-client-python
+    schedule:
+      interval: monthly

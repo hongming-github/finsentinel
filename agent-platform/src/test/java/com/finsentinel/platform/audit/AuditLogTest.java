@@ -17,10 +17,12 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.stream.IntStream;
 
 import static com.finsentinel.platform.TestData.alert;
@@ -142,8 +144,12 @@ class AuditLogTest {
 
     @Test
     void concurrentAppendsKeepOneUnbrokenChain() throws Exception {
+        List<Future<?>> appends = new ArrayList<>();
         try (ExecutorService pool = Executors.newFixedThreadPool(8)) {
-            IntStream.range(0, 40).forEach(i -> pool.submit(() -> audit.record(entry(tenant, "GET /x/" + i))));
+            IntStream.range(0, 40).forEach(i -> appends.add(pool.submit(() -> audit.record(entry(tenant, "GET /x/" + i)))));
+        }
+        for (Future<?> append : appends) {
+            append.get(); // rethrows a failed append instead of losing it with the future
         }
 
         AuditLog.Verification verification = audit.verify(tenant);

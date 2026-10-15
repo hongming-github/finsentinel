@@ -121,7 +121,7 @@ class CaseAnalysisResumeTest {
         assertThat(cases.find(tenant, caseId).orElseThrow().stage()).isEqualTo(CaseStage.AWAITING_DECISION);
         assertThat(investigator.calls()).isEqualTo(1);
         assertThat(reviewer.calls()).as("the crashed review ran again, nothing before it").isEqualTo(1);
-        assertThat(cases.analyses(tenant, caseId)).singleElement();
+        assertThat(cases.analyses(tenant, caseId)).hasSize(1);
     }
 
     @Test
@@ -168,7 +168,7 @@ class CaseAnalysisResumeTest {
         assertThat(reviewer.calls()).as("the stale worker stopped at its first write: it never ran the review")
                 .isEqualTo(1);
         assertThat(checkpointNodes(caseId)).isEmpty();
-        assertThat(cases.analyses(tenant, caseId)).singleElement();
+        assertThat(cases.analyses(tenant, caseId)).hasSize(1);
         assertThat(eventTypes(cases, tenant, caseId)).containsExactly("OPENED", "ANALYSED");
     }
 

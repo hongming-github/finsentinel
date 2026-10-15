@@ -98,8 +98,9 @@ public class Simulator {
 
     private void inject(Scenario scenario, Account account) {
         if (scenario == Scenario.MALFORMED) {
-            producer.send(new ProducerRecord<>(Topics.TRANSACTIONS, account.tenantId() + "|" + account.accountId(),
-                    "{\"txnId\": \"broken".getBytes(StandardCharsets.UTF_8)));
+            var unused = producer.send(new ProducerRecord<>(Topics.TRANSACTIONS,
+                    account.tenantId() + "|" + account.accountId(),
+                    "{\"txnId\": \"broken".getBytes(StandardCharsets.UTF_8)), (metadata, error) -> logFailure(error));
         } else {
             generator.scenario(scenario, account, Instant.now()).forEach(this::send);
         }
@@ -114,7 +115,7 @@ public class Simulator {
         ProducerRecord<String, byte[]> record = new ProducerRecord<>(Topics.TRANSACTIONS, txn.accountKey(),
                 serde.serialize(Contracts.toAvro(txn)));
         if (!telemetry.enabled()) {
-            producer.send(record);
+            var unused = producer.send(record, (metadata, error) -> logFailure(error));
             return;
         }
         Span span = telemetry.tracer().spanBuilder(Topics.TRANSACTIONS + " publish").setSpanKind(SpanKind.PRODUCER)
@@ -125,11 +126,19 @@ public class Simulator {
                 .startSpan();
         record.headers().add(TraceContext.HEADER,
                 TraceContext.traceparent(Context.root().with(span)).getBytes(StandardCharsets.UTF_8));
-        producer.send(record, (metadata, error) -> {
+        var unused = producer.send(record, (metadata, error) -> {
             if (error != null) {
                 span.recordException(error);
             }
             span.end();
+            logFailure(error);
         });
+    }
+
+    /** Sends are asynchronous; a failed one would otherwise go unnoticed. */
+    private static void logFailure(Exception error) {
+        if (error != null) {
+            log.warn("Send failed: {}", error.toString());
+        }
     }
 }

@@ -1,0 +1,5 @@
+# actionlint 1.7.12 predates GitHub's ubuntu-26.04 hosted runner; listing it here is the documented way to accept a
+# label actionlint does not know. Drop it once actionlint knows the label.
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04

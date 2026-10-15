@@ -39,6 +39,7 @@ import tools.jackson.databind.json.JsonMapper;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -197,7 +198,7 @@ class LiveInvestigationTest {
                         new AccountDetails.SecurityEvent("TRANSFER_LIMIT_RAISED", now.minus(Duration.ofHours(2)),
                                 "Daily transfer limit raised from 5,000 to 50,000 SGD"))));
         systems.screening(tenant, new ScreeningResult("payee-new-4415", List.of(new ScreeningResult.Hit(
-                "MULE_ACCOUNTS", "Reported as a money mule account by two other banks", LocalDate.now().minusDays(20)))));
+                "MULE_ACCOUNTS", "Reported as a money mule account by two other banks", LocalDate.now(ZoneOffset.UTC).minusDays(20)))));
 
         InvestigationResult result = run(mode, alert(tenant, "acc-ato", AlertRule.LARGE_AMOUNT, Severity.HIGH,
                 List.of(transfer.txnId()), now));

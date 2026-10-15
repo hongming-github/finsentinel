@@ -16,6 +16,7 @@ public enum Specialist {
     /** MAS regulations, for transfers: who bears the loss, reporting duties. */
     REGULATIONS(Set.of("searchRegulations"));
 
+    @SuppressWarnings("ImmutableEnumChecker") // Set.of is unmodifiable; the checker only knows Guava's ImmutableSet
     private final Set<String> tools;
 
     Specialist(Set<String> tools) {

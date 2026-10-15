@@ -143,6 +143,7 @@ class SemanticCacheEvalTest {
         return dot / Math.sqrt(na * nb);
     }
 
+    @SuppressWarnings("ArrayRecordComponent") // compared by group and text, never by the vector
     private record Question(String group, Set<String> relevant, String text, float[] vector) {
 
         Question withVector(float[] v) {

@@ -150,7 +150,7 @@ class ComplianceMcpServerTest {
 
     private JsonNode screen(String counterpartyId) {
         McpSchema.CallToolResult result = client.callTool(McpSchema.CallToolRequest.builder("screenCounterparty").arguments(Map.of("tenantId", "straits", "counterpartyId", counterpartyId)).build());
-        assertThat(result.isError()).isNotEqualTo(Boolean.TRUE);
+        assertThat(result.isError()).isNotEqualTo(true);
         return json.readTree(((McpSchema.TextContent) result.content().getFirst()).text());
     }
 }

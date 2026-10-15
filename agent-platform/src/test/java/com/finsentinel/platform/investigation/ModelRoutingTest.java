@@ -16,6 +16,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ByteArrayResource;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
@@ -85,7 +86,7 @@ class ModelRoutingTest {
         LlmCaseInvestigator investigator = new LlmCaseInvestigator(
                 new AgentModels(TestLlm.gateway(model, model, TestLlm.properties(Set.of()), Clock.systemUTC()), router, masker),
                 toolsFactory, json, investigationProps,
-                new ByteArrayResource("You are a test investigator.".getBytes()));
+                new ByteArrayResource("You are a test investigator.".getBytes(StandardCharsets.UTF_8)));
 
         InvestigationResult result = investigator.investigate(caseWith(Channel.CARD_PRESENT, Severity.HIGH));
 

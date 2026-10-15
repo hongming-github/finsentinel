@@ -19,12 +19,10 @@ import java.util.Locale;
 public class FakeEmbedder implements Embedder {
 
     public static final int DIMENSIONS = 1536;
-    private int calls;
     private int texts;
 
     @Override
     public synchronized List<float[]> embed(List<String> input) {
-        calls++;
         texts += input.size();
         List<float[]> out = new ArrayList<>(input.size());
         for (String text : input) {

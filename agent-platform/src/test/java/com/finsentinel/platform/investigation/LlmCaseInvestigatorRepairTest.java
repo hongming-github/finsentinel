@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ByteArrayResource;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
@@ -151,7 +152,7 @@ class LlmCaseInvestigatorRepairTest {
 
     private LlmCaseInvestigator investigator(ChatModel model) {
         return new LlmCaseInvestigator(models(model), toolsFactory, json, props,
-                new ByteArrayResource("You are a test investigator.".getBytes()));
+                new ByteArrayResource("You are a test investigator.".getBytes(StandardCharsets.UTF_8)));
     }
 
     private static CaseContext anyCase() {
