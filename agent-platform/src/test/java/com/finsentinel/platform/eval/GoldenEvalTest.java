@@ -108,6 +108,7 @@ class GoldenEvalTest {
                     dearest = dearest.max(r.costUsd());
                     System.out.printf("%-30s %-6s #%d %-7s %-18s %4s $%.4f %s%n", c.id(), mode, repeat, r.status(),
                             r.disposition(), r.riskScore(), r.costUsd(), r.failures());
+                    r.explanation().forEach(line -> System.out.println("    " + line));
                 }
             }
         }

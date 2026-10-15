@@ -41,7 +41,7 @@ class EvalGateTest {
     void budgetSkipsCostAndToolSelectionAreGated() {
         List<RunRecord> records = new ArrayList<>(List.of(
                 new RunRecord("a", "x", false, "SINGLE", 1, RunRecord.PASSED, "LIKELY_FRAUD", 90, List.of(), 4, 2,
-                        null, null, null, new BigDecimal("0.080"), 1000),
+                        null, null, null, new BigDecimal("0.080"), 1000, List.of()),
                 RunRecord.skipped(new GoldenCase("a", "x", false, "d", "e", null, null, null), "SINGLE", 2)));
 
         assertThat(EvalGate.violations(report(records), THRESHOLDS)).containsExactlyInAnyOrder(
@@ -53,7 +53,7 @@ class EvalGateTest {
     private static RunRecord run(String id, boolean critical, boolean passed, String cost) {
         return new RunRecord(id, "x", critical, "SINGLE", 1, passed ? RunRecord.PASSED : RunRecord.FAILED,
                 "LIKELY_FRAUD", 90, passed ? List.of() : List.of("disposition: wrong"), 1, 1, true, null, null,
-                new BigDecimal(cost), 1000);
+                new BigDecimal(cost), 1000, List.of());
     }
 
     private static EvalReport report(List<RunRecord> records) {
