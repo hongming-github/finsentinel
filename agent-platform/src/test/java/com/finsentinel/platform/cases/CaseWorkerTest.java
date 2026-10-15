@@ -171,7 +171,7 @@ class CaseWorkerTest {
         newCase(Severity.HIGH);
         newCase(Severity.HIGH);
         int alreadyUsed = cases.startedInLastHour();
-        CaseWorker capped = new CaseWorker(cases, alerts, analysis, props(alreadyUsed + 1, Duration.ofSeconds(2)), systems);
+        CaseWorker capped = new CaseWorker(cases, alerts, analysis, props(alreadyUsed + 1, Duration.ofSeconds(2)), systems, io.opentelemetry.api.OpenTelemetry.noop().getTracer("test"));
 
         assertThat(capped.runOnce()).isEqualTo(1);
         assertThat(capped.runOnce()).isZero();

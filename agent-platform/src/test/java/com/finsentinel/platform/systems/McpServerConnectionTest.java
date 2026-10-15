@@ -30,7 +30,7 @@ class McpServerConnectionTest {
         McpServerConnection connection = new McpServerConnection("banking", URI.create("http://localhost:1"),
                 Duration.ofSeconds(1), Duration.ofSeconds(1), json, () -> {
                     throw new IllegalStateException("identity provider down");
-                });
+                }, io.opentelemetry.api.OpenTelemetry.noop().getTracer("test"));
 
         assertThatThrownBy(() -> connection.call("getCustomerProfile", Map.of(), CustomerProfile.class))
                 .isInstanceOf(SystemUnavailableException.class)

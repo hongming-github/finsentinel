@@ -31,6 +31,19 @@ spring:
         reasoning-effort: none
       embedding:
         model: text-embedding-3-small
+    # Traces (ADR 0020) carry model names, token counts and cost, never case material: prompts, answers and tool
+    # arguments stay out of spans whatever the library defaults become (ObservabilityPropertiesTest guards this).
+    chat:
+      observations:
+        log-prompt: false
+        log-completion: false
+      client:
+        observations:
+          log-prompt: false
+          log-completion: false
+    tools:
+      observations:
+        include-content: false
     mcp:
       server:
         name: finsentinel-platform
@@ -74,6 +87,9 @@ spring:
     producer:
       # Bytes in, bytes out: the outbox sends JSON it has serialised, dead-letter records keep the bytes that arrived.
       value-serializer: org.apache.kafka.common.serialization.ByteArraySerializer
+    listener:
+      # A consumer span per message, continuing the producer's trace from the traceparent header (ADR 0020).
+      observation-enabled: true
 
 finsentinel:
   investigation:
@@ -212,6 +228,20 @@ finsentinel:
     retry-attempts: 2
 
 management:
+  tracing:
+    sampling:
+      # Parent-based: a trace started upstream (a transaction) keeps the upstream decision; this rate applies to
+      # traces that start here (analyst requests). All of them in development; lower it in production.
+      probability: 1.0
+  # Traces are exported only when an OTLP endpoint is set, e.g.
+  #   --management.opentelemetry.tracing.export.otlp.endpoint=http://localhost:4318/v1/traces
+  otlp:
+    metrics:
+      export:
+        # Off by default: with no collector running it would log a failed push every minute. To send metrics to
+        # the obs profile: --management.otlp.metrics.export.enabled=true
+        #                  --management.otlp.metrics.export.url=http://localhost:4318/v1/metrics
+        enabled: false
   endpoints:
     web:
       exposure:

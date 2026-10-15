@@ -1,5 +1,7 @@
 package com.finsentinel.platform.cases;
 
+import com.finsentinel.platform.observability.Traces;
+
 import com.finsentinel.common.Alert;
 import com.finsentinel.common.Severity;
 import com.finsentinel.platform.analysis.AnalysisMode;
@@ -55,11 +57,14 @@ public class CaseRepository {
     /**
      * Finds or opens the account's open case for an incoming alert and returns its id. Must run in the intake
      * transaction: the case row stays locked until the alert has been inserted.
+     *
+     * @param traceParent the alert's trace: the run this alert starts continues it (ADR 0020); null if untraced
      */
-    String attach(Alert alert) {
+    String attach(Alert alert, String traceParent) {
         Optional<String> created = jdbc.sql("""
-                        insert into fraud_case (case_id, tenant_id, account_id, customer_id, stage, priority)
-                        values (:caseId, :tenantId, :accountId, :customerId, 'ANALYSIS', :priority)
+                        insert into fraud_case (case_id, tenant_id, account_id, customer_id, stage, priority,
+                                                trace_parent)
+                        values (:caseId, :tenantId, :accountId, :customerId, 'ANALYSIS', :priority, :traceParent)
                         on conflict (tenant_id, account_id) where stage <> 'CLOSED' do nothing
                         returning case_id
                         """)
@@ -68,6 +73,7 @@ public class CaseRepository {
                 .param("accountId", alert.accountId())
                 .param("customerId", alert.customerId())
                 .param("priority", alert.severity().name())
+                .param("traceParent", traceParent)
                 .query(String.class)
                 .optional();
         if (created.isPresent()) {
@@ -94,16 +100,45 @@ public class CaseRepository {
                             analysis_run = analysis_run + 1,
                             attempts = case when stage = 'ANALYSIS' then attempts else 0 end,
                             claimed_at = case when stage = 'ANALYSIS' then claimed_at end,
+                            trace_parent = :traceParent,
                             version = version + 1,
                             updated_at = now()
                         where case_id = :caseId
                         """.formatted(PRIORITY_ORDER))
                 .param("severity", alert.severity().name())
+                .param("traceParent", traceParent)
                 .param("caseId", UUID.fromString(open.caseId()))
                 .update();
         event(open.caseId(), reopen ? "REOPENED" : "ALERT_ADDED", open.stage(), CaseStage.ANALYSIS, "system",
                 alertDetail(alert));
         return open.caseId();
+    }
+
+    /**
+     * Where the current run's trace comes from (ADR 0020): the case's own trace context (what started this run) and
+     * those of all its alerts, oldest first.
+     */
+    public RunTrace runTrace(String tenantId, String caseId) {
+        String parent = jdbc.sql("select trace_parent from fraud_case where tenant_id = :tenantId and case_id = :caseId")
+                .param("tenantId", tenantId)
+                .param("caseId", UUID.fromString(caseId))
+                .query(String.class)
+                .optional()
+                .orElse(null);
+        List<String> alerts = jdbc.sql("""
+                        select trace_parent from alert
+                        where tenant_id = :tenantId and case_id = :caseId and trace_parent is not null
+                        order by received_at
+                        """)
+                .param("tenantId", tenantId)
+                .param("caseId", UUID.fromString(caseId))
+                .query(String.class)
+                .list();
+        return new RunTrace(parent, alerts);
+    }
+
+    /** @param parent null when what started the run was not traced */
+    public record RunTrace(String parent, List<String> alerts) {
     }
 
     // ---------------------------------------------------------------- work queue
@@ -288,6 +323,7 @@ public class CaseRepository {
                             closed_at = case when :to = 'CLOSED' then now() end,
                             analysis_run = analysis_run + case when :to = 'ANALYSIS' then 1 else 0 end,
                             analyst_note = case when :to = 'ANALYSIS' then :note end,
+                            trace_parent = case when :to = 'ANALYSIS' then :traceParent else trace_parent end,
                             attempts = 0, claimed_at = null, version = version + 1, updated_at = now()
                         where tenant_id = :tenantId and case_id = :caseId and version = :version
                           and stage in ('AWAITING_DECISION', 'FAILED')
@@ -300,6 +336,8 @@ public class CaseRepository {
                 .param("tenantId", tenantId)
                 .param("caseId", UUID.fromString(caseId))
                 .param("version", expectedVersion)
+                // The analyst's request starts the next run: the analysis continues its trace.
+                .param("traceParent", Traces.current())
                 .query((rs, n) -> map(rs))
                 .optional();
         if (updated.isEmpty()) {

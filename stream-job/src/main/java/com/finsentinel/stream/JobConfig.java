@@ -9,11 +9,12 @@ import java.util.Properties;
 
 /**
  * Job settings. Precedence, lowest to highest: bundled stream-job.properties, environment
- * ({@code KAFKA_BOOTSTRAP_SERVERS}, {@code SCHEMA_REGISTRY_URL}, {@code FINSENTINEL_LAKE_DIR}), {@code --key=value}
+ * ({@code KAFKA_BOOTSTRAP_SERVERS}, {@code SCHEMA_REGISTRY_URL}, {@code FINSENTINEL_LAKE_DIR}, {@code OTEL_EXPORTER_OTLP_ENDPOINT}), {@code --key=value}
  * arguments. Unknown keys are rejected so a typo cannot silently fall back to a default threshold.
  */
 record JobConfig(String bootstrapServers, String schemaRegistryUrl, Duration schemaRegistryTimeout, String groupId,
-                 Duration checkpointInterval, int webUiPort, Duration stateTtl, String lakeDir, RuleConfig rules) {
+                 Duration checkpointInterval, int webUiPort, Duration stateTtl, String lakeDir, String otlpEndpoint,
+                 RuleConfig rules) {
 
     static JobConfig load(String[] args, Map<String, String> env) {
         Properties p = Settings.defaults();
@@ -24,6 +25,10 @@ record JobConfig(String bootstrapServers, String schemaRegistryUrl, Duration sch
         String envLake = env.get("FINSENTINEL_LAKE_DIR");
         if (envLake != null && !envLake.isBlank()) {
             p.setProperty("lake.dir", envLake);
+        }
+        String envOtlp = env.get("OTEL_EXPORTER_OTLP_ENDPOINT");
+        if (envOtlp != null && !envOtlp.isBlank()) {
+            p.setProperty("tracing.otlp-endpoint", envOtlp);
         }
         String envRegistry = env.get("SCHEMA_REGISTRY_URL");
         if (envRegistry != null && !envRegistry.isBlank()) {
@@ -49,6 +54,7 @@ record JobConfig(String bootstrapServers, String schemaRegistryUrl, Duration sch
                 Settings.integer(p, "local.web-ui-port"),
                 Settings.duration(p, "state.ttl"),
                 Settings.path(p, "lake.dir"),
+                p.getProperty("tracing.otlp-endpoint", "").trim(),
                 RuleConfig.from(p));
     }
 }

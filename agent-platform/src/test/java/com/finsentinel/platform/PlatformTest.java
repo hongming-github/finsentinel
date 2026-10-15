@@ -32,6 +32,6 @@ import java.lang.annotation.Target;
 @AutoConfigureMockMvc
 @ExtendWith(SystemScopeExtension.class)
 @Import({TestcontainersConfig.class, StubCaseInvestigator.class, StubSpecialistAgents.class, StubReportWriter.class,
-        StubCaseReviewer.class, FakeEmbedder.class, FakeExternalSystems.class})
+        StubCaseReviewer.class, FakeEmbedder.class, FakeExternalSystems.class, TestTracing.class})
 public @interface PlatformTest {
 }

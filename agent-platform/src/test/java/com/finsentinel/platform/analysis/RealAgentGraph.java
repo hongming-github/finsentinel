@@ -23,7 +23,8 @@ public final class RealAgentGraph {
             return new CaseAnalysisGraph(real(context, CaseInvestigator.class), real(context, SpecialistAgents.class),
                     real(context, ReportWriter.class), real(context, CaseReviewer.class),
                     context.getBean(CasePlanner.class), context.getBean(FencedPostgresCheckpointSaver.class),
-                    context.getBean(CaseGraphStateSerializer.class), context.getBean(AnalysisProperties.class));
+                    context.getBean(CaseGraphStateSerializer.class), context.getBean(AnalysisProperties.class),
+                    io.opentelemetry.api.OpenTelemetry.noop().getTracer("test"));
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }

@@ -332,7 +332,8 @@ class LiveInvestigationTest {
     private CaseAnalysisGraph graph() {
         try {
             return new CaseAnalysisGraph(real(investigators), real(specialistAgents), real(writers), real(reviewers),
-                    planner, saver, serializer, props);
+                    planner, saver, serializer, props,
+                    io.opentelemetry.api.OpenTelemetry.noop().getTracer("test"));
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }

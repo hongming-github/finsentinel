@@ -2,6 +2,7 @@ package com.finsentinel.platform.cases;
 
 import com.finsentinel.platform.security.Tenancy;
 import com.finsentinel.common.Alert;
+import com.finsentinel.platform.observability.Traces;
 import com.finsentinel.platform.alert.AlertRepository;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -35,8 +36,10 @@ public class CaseIntake {
             if (alerts.exists(alert.alertId())) {
                 return Optional.<String>empty();
             }
-            String caseId = cases.attach(alert);
-            if (!alerts.insertIfAbsent(alert, caseId)) {
+            // The listener's consumer span: the alert's trace, continued here and, after the queue, by the analysis.
+            String trace = Traces.current();
+            String caseId = cases.attach(alert, trace);
+            if (!alerts.insertIfAbsent(alert, caseId, trace)) {
                 // A concurrent delivery of the same alert won the insert: undo our case changes.
                 status.setRollbackOnly();
                 return Optional.<String>empty();

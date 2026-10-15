@@ -1,6 +1,7 @@
 package com.finsentinel.platform.systems;
 
 import com.finsentinel.platform.security.ServiceToken;
+import io.opentelemetry.api.trace.Tracer;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -13,11 +14,11 @@ class McpExternalSystems implements ExternalSystems, AutoCloseable {
     private final McpServerConnection banking;
     private final McpServerConnection compliance;
 
-    McpExternalSystems(SystemsProperties props, JsonMapper json, ServiceToken token) {
+    McpExternalSystems(SystemsProperties props, JsonMapper json, ServiceToken token, Tracer tracer) {
         this.banking = new McpServerConnection("banking", props.bankingUrl(), props.connectTimeout(),
-                props.requestTimeout(), json, token::bearer);
+                props.requestTimeout(), json, token::bearer, tracer);
         this.compliance = new McpServerConnection("compliance", props.complianceUrl(), props.connectTimeout(),
-                props.requestTimeout(), json, token::bearer);
+                props.requestTimeout(), json, token::bearer, tracer);
     }
 
     @Override

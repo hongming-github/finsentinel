@@ -22,6 +22,10 @@
             <artifactId>contracts</artifactId>
         </dependency>
         <dependency>
+            <groupId>com.finsentinel</groupId>
+            <artifactId>telemetry</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.apache.kafka</groupId>
             <artifactId>kafka-clients</artifactId>
         </dependency>

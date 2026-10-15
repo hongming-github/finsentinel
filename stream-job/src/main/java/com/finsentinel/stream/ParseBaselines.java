@@ -17,7 +17,7 @@ import org.slf4j.LoggerFactory;
  * account keeps its previous baseline (or its streaming history) and tomorrow's run replaces it, so it is not worth a
  * dead-letter topic. A registry outage fails the task, as for transactions.
  */
-class ParseBaselines extends ProcessFunction<byte[], AccountBaseline> {
+class ParseBaselines extends ProcessFunction<RawMessage, AccountBaseline> {
 
     private static final Logger log = LoggerFactory.getLogger(ParseBaselines.class);
 
@@ -34,9 +34,9 @@ class ParseBaselines extends ProcessFunction<byte[], AccountBaseline> {
     }
 
     @Override
-    public void processElement(byte[] raw, Context ctx, Collector<AccountBaseline> out) {
+    public void processElement(RawMessage raw, Context ctx, Collector<AccountBaseline> out) {
         try {
-            out.collect(Contracts.fromAvro(serde.deserialize(raw)));
+            out.collect(Contracts.fromAvro(serde.deserialize(raw.value())));
         } catch (AvroSerde.InvalidMessageException e) {
             log.warn("Skipping unreadable account baseline: {}", e.getMessage());
         }

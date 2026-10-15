@@ -7,7 +7,14 @@ import io.modelcontextprotocol.spec.McpSchema;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.sdk.testing.exporter.InMemorySpanExporter;
+import io.opentelemetry.sdk.trace.SdkTracerProvider;
+import io.opentelemetry.sdk.trace.data.SpanData;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -22,12 +29,15 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** A real MCP client against this server, backed by the WireMock fake systems. */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        classes = {ComplianceMcpApplication.class, ComplianceMcpServerTest.Spans.class})
 @Testcontainers
 class ComplianceMcpServerTest {
 
@@ -38,6 +48,32 @@ class ComplianceMcpServerTest {
     static void systemUrls(DynamicPropertyRegistry registry) {
         registry.add("finsentinel.compliance.screening-url", () -> FakeSystems.url(systems, "/screening"));
         registry.add("spring.security.oauth2.resourceserver.jwt.issuer-uri", TestAuth::issuer);
+    }
+
+    @Autowired
+    InMemorySpanExporter spans;
+    @Autowired
+    SdkTracerProvider tracerProvider;
+
+    @TestConfiguration(proxyBeanMethods = false)
+    static class Spans {
+        @Bean
+        InMemorySpanExporter spans() {
+            return InMemorySpanExporter.create();
+        }
+    }
+
+    /** A payee's name can be a person's name: the screening call is traced by URI template only (ADR 0020). */
+    @org.junit.jupiter.api.Test
+    void screeningCallsAreTracedWithoutTheCounterparty() {
+        screen("rapid-cash-trading");
+        tracerProvider.forceFlush().join(10, TimeUnit.SECONDS);
+
+        List<SpanData> outbound = spans.getFinishedSpanItems().stream()
+                .filter(s -> s.getKind() == SpanKind.CLIENT).toList();
+        assertThat(outbound).isNotEmpty();
+        assertThat(outbound).allSatisfy(span -> assertThat(span.getAttributes().asMap().values())
+                .noneMatch(value -> value.toString().contains("rapid-cash-trading")));
     }
 
     @LocalServerPort

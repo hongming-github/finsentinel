@@ -45,7 +45,7 @@ public class RiskDetectionJob {
         Duration registryTimeout = config.schemaRegistryTimeout();
         SerializableSupplier<SchemaRegistry> registry = () -> new HttpSchemaRegistry(registryUrl, registryTimeout);
 
-        SingleOutputStreamOperator<Transaction> transactions = env
+        SingleOutputStreamOperator<TracedTransaction> transactions = env
                 .fromSource(transactionsSource(config).build(), WatermarkStrategy.noWatermarks(), "transactions")
                 .uid("transactions-source")
                 .process(new ParseTransactions(registry))
@@ -60,17 +60,18 @@ public class RiskDetectionJob {
                 .name("parse-baselines");
 
         // Stable uids: the rule state survives topology changes when the job is restored from a savepoint.
-        DataStream<Alert> alerts = transactions
-                .keyBy(Transaction::accountKey)
+        DataStream<TracedAlert> alerts = transactions
+                .keyBy(traced -> traced.txn().accountKey())
                 .connect(baselines.keyBy(AccountBaseline::accountKey))
-                .process(new RiskRuleFunction(config.rules(), config.stateTtl()))
+                .process(new RiskRuleFunction(config.rules(), config.stateTtl(), config.otlpEndpoint()))
                 .uid("risk-rules")
                 .name("risk-rules");
 
         alerts.sinkTo(alertSink(config.bootstrapServers(), registry)).uid("alerts-sink").name("alerts");
         transactions.getSideOutput(ParseTransactions.INVALID)
                 .sinkTo(dlqSink(config.bootstrapServers())).uid("dlq-sink").name("transactions-dlq");
-        transactions.sinkTo(LandingZone.transactions(config.lakeDir())).uid("landing-sink").name("landing-zone");
+        transactions.map(TracedTransaction::txn).returns(Transaction.class).name("untrace")
+                .sinkTo(LandingZone.transactions(config.lakeDir())).uid("landing-sink").name("landing-zone");
 
         env.execute("finsentinel-risk-detection");
     }
@@ -82,7 +83,7 @@ public class RiskDetectionJob {
     // flink-connector-kafka 5.0.0-2.2 (the latest) takes only Kafka's deprecated OffsetResetStrategy here; drop the
     // suppression when it accepts AutoOffsetResetStrategy.
     @SuppressWarnings("deprecation")
-    static KafkaSourceBuilder<byte[]> transactionsSource(JobConfig config) {
+    static KafkaSourceBuilder<RawMessage> transactionsSource(JobConfig config) {
         return bytesSource(config, Topics.TRANSACTIONS)
                 .setStartingOffsets(OffsetsInitializer.committedOffsets(OffsetResetStrategy.EARLIEST));
     }
@@ -93,20 +94,21 @@ public class RiskDetectionJob {
      * offsets would skip everything the previous job had read, so the new job would have no baselines until the next
      * batch run. Restoring from a checkpoint or savepoint still resumes from the offsets in the state.
      */
-    static KafkaSourceBuilder<byte[]> baselinesSource(JobConfig config) {
+    static KafkaSourceBuilder<RawMessage> baselinesSource(JobConfig config) {
         return bytesSource(config, Topics.ACCOUNT_BASELINES).setStartingOffsets(OffsetsInitializer.earliest());
     }
 
-    private static KafkaSourceBuilder<byte[]> bytesSource(JobConfig config, String topic) {
-        return KafkaSource.<byte[]>builder()
+    private static KafkaSourceBuilder<RawMessage> bytesSource(JobConfig config, String topic) {
+        return KafkaSource.<RawMessage>builder()
                 .setBootstrapServers(config.bootstrapServers())
                 .setTopics(topic)
                 .setGroupId(config.groupId())
                 .setDeserializer(new RawValue());
     }
 
-    private static KafkaSink<Alert> alertSink(String bootstrapServers, SerializableSupplier<SchemaRegistry> registry) {
-        return KafkaSink.<Alert>builder()
+    private static KafkaSink<TracedAlert> alertSink(String bootstrapServers,
+                                                    SerializableSupplier<SchemaRegistry> registry) {
+        return KafkaSink.<TracedAlert>builder()
                 .setBootstrapServers(bootstrapServers)
                 .setRecordSerializer(new AlertRecordSerializer(Topics.ALERTS, registry))
                 .setDeliveryGuarantee(DeliveryGuarantee.AT_LEAST_ONCE)

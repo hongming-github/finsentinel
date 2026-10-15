@@ -63,7 +63,7 @@ class CaseAnalysisResumeTest {
         investigator.reset();
         reviewer.reset();
         // Unlimited budget: these tests are about resuming, not about the hourly cap other tests use up.
-        worker = new CaseWorker(cases, alerts, analysis, CaseWorkerTest.props(0, Duration.ofSeconds(2)), systems);
+        worker = new CaseWorker(cases, alerts, analysis, CaseWorkerTest.props(0, Duration.ofSeconds(2)), systems, io.opentelemetry.api.OpenTelemetry.noop().getTracer("test"));
     }
 
     @AfterEach

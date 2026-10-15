@@ -24,11 +24,13 @@ public class LlmProviders {
     private static final Logger log = LoggerFactory.getLogger(LlmProviders.class);
 
     private final Map<String, Provider> providers;
+    private final ObservationRegistry observations;
 
     @Autowired
     LlmProviders(LlmProperties props, ChatClient.Builder openAi, ObjectProvider<ObservationRegistry> observations) {
         // The builder's own tool-calling manager inherits this registry, so tool calls on these providers are traced too.
         ObservationRegistry registry = observations.getIfAvailable(() -> ObservationRegistry.NOOP);
+        this.observations = registry;
         Map<String, Provider> built = new HashMap<>();
         props.providers().forEach((name, config) -> {
             if (ModelRef.DEFAULT_PROVIDER.equals(name)) {
@@ -52,6 +54,12 @@ public class LlmProviders {
     /** For tests: providers backed by given clients. */
     public LlmProviders(Map<String, Provider> providers) {
         this.providers = Map.copyOf(providers);
+        this.observations = ObservationRegistry.NOOP;
+    }
+
+    /** Where the gateway records each call (ADR 0020): a span per call in traces, a timer per model in metrics. */
+    ObservationRegistry observations() {
+        return observations;
     }
 
     public Provider get(String name) {

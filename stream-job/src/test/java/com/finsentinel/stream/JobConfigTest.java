@@ -43,6 +43,13 @@ class JobConfigTest {
     }
 
     @Test
+    void tracingIsOffUnlessAnOtlpEndpointIsGiven() {
+        assertThat(JobConfig.load(new String[0], Map.of()).otlpEndpoint()).isEmpty();
+        assertThat(JobConfig.load(new String[0], Map.of("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel:4318"))
+                .otlpEndpoint()).isEqualTo("http://otel:4318");
+    }
+
+    @Test
     void schemaRegistryComesFromTheFileOrTheEnvironment() {
         assertThat(JobConfig.load(new String[0], Map.of()).schemaRegistryUrl())
                 .isEqualTo("http://localhost:8095/apis/ccompat/v7");

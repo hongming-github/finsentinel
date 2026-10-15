@@ -29,6 +29,17 @@ finsentinel:
     read-timeout: 5s
 
 management:
+  tracing:
+    sampling:
+      # Parent-based: requests from the platform keep its decision.
+      probability: 1.0
+  # Traces are exported only when an OTLP endpoint is set:
+  #   --management.opentelemetry.tracing.export.otlp.endpoint=http://localhost:4318/v1/traces
+  otlp:
+    metrics:
+      export:
+        # Off unless a collector is configured: it would log a failed push every minute.
+        enabled: false
   endpoints:
     web:
       exposure:
