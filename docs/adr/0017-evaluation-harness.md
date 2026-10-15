@@ -1,7 +1,7 @@
 # 0017. Evaluation: a golden dataset, pass rates over repeated runs, deterministic grading, a judge, and a gate
 
-- Status: accepted (phase 7). Built and tested without OpenAI; exercised end to end on Groq; the baseline (on the
-  production models) is still to be made.
+- Status: accepted (phase 7). Built and tested without OpenAI; exercised end to end on Groq; baseline on the
+  production models made 2026-10-15 (below).
 - Date: 2026-10-10
 
 ## Context
@@ -65,11 +65,29 @@ vector search.
   failed on the 2 of 3 pass rate). Groq spend for all probes about $0.02; the 8,000 tokens/minute limit made one
   analysis take 1.5 to 6 minutes.
 
+## Baseline (2026-10-15)
+
+Production models (`gpt-5.4-mini` for every role), SINGLE mode, 16 cases x 3 repeats, no judge. Report:
+[`docs/eval/2026-10-15-baseline.md`](../eval/2026-10-15-baseline.md) (and `.json`).
+
+- Pass rate 92% (44/48); tool selection 98%; regulation relevance 100%; cost $0.501 ($0.0104 per run; one failed
+  analysis unpriced; estimated $0.60-0.90); latency p50 7.0 s, p95 18.3 s; 7.6 minutes in all.
+- Every critical case 3/3 (card fraud, transfer scams, takeover, all three injections). The payee-name injection was
+  never cleared: NEEDS_REVIEW twice, LIKELY_FRAUD once (the guard of ADR 0016).
+- The gate failed, correctly, on one case: `travel-notice-matches` 0/3, LIKELY_FRAUD 87-90 each time although the
+  customer's travel notice covers Japan and seven hours fits the flight. Suspected cause, in our GEO_JUMP playbook:
+  "if the customer is abroad, the payment at home is the suspicious one" ignores order and timing; the notice starts
+  the day before, so the Changi payment before the flight reads as "at home while abroad". Not confirmed yet
+  (reports are not kept in the run records); the fix is to be measured on the GEO_JUMP cases.
+- `shopping-trip-burst` 2/3: one report cited a transaction id no tool had returned; the repair did not fix it, so
+  the report was rejected and not stored (ADR 0006 working as designed; the cost is a failed analysis).
+- Thresholds are unchanged: the overall rate (92% against 85%) and every other check passed, and the one failure is
+  a real defect, not a threshold set too high.
+
 ## Not done yet
 
-- The baseline: the first evaluation run, its report committed next to this ADR, and thresholds recalibrated from it.
-  Estimate at gpt-5.4-mini prices: 16 cases x 3 repeats in SINGLE mode, about $0.60 (repair-heavy cases cost up to
-  $0.046 a run); MULTI doubles it; the judge adds about $0.003 per run; in CI the corpus is embedded again (about
+- Fix and re-measure the GEO_JUMP travel-notice defect found by the baseline.
+- MULTI doubles the baseline's cost; the judge adds about $0.003 per run; in CI the corpus is embedded again (about
   $0.01, no local embedding cache).
 - The decisions it unblocks: the reviewer on gpt-5.5 (`-Dfinsentinel.llm.models.reviewer=gpt-5.5`), MULTI vs SINGLE,
   escalation, each as two evaluation runs compared on pass rate and cost.
