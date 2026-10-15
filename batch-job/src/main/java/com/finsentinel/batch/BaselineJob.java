@@ -53,6 +53,11 @@ public final class BaselineJob {
                 asOf.minusDays(config.curateLookbackDays()), asOf.minusDays(1), curation.read(),
                 curation.quarantined(), curation.duplicates(), curation.curated());
 
+        if (!lake.exists(spark, lake.curatedTransactions())) {
+            // A first run, or nothing has landed yet: no history means no baselines, not a failed run.
+            log.info("No curated transactions yet in {}: no baselines as of {}", lake.root(), asOf);
+            return new Summary(curation, 0);
+        }
         Dataset<Row> baselines = Baselines.compute(spark, lake, asOf, config.windowDays(), now).cache();
         try {
             long accounts = baselines.count();
