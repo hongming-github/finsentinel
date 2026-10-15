@@ -82,7 +82,9 @@ committed, and how the user likes to work. Keep it updated at the end of each se
 - The platform must be safe to run as several instances: coordinate through Postgres (row locks, fencing,
   advisory locks), never through in-memory state. Prove concurrency fixes with a test that fails without them,
   on a `clean` build.
-- Spring AI 2.0 OpenAI uses Chat Completions: gpt-5.x rejects tools + reasoning there, so `reasoning-effort: none`.
+- Spring AI 2.0 OpenAI uses Chat Completions: tools work there only without reasoning (gpt-5.x rejects the mix,
+  gpt-6-luna documents tools with reasoning effort none only), so `reasoning-effort: none`. Default model: gpt-6-luna
+  for every role and the reranker (ADR 0023).
 - No tunable numbers in code: Spring settings go in `application.yaml` via `@ConfigurationProperties` records
   (validated in their compact constructors); Flink settings go in `stream-job.properties`.
 - SQL is hand-written with `JdbcClient` (ADR 0005); bind every value as a parameter, constants included.
@@ -98,14 +100,17 @@ committed, and how the user likes to work. Keep it updated at the end of each se
   specialist reports for the writer); without it, it flags supported claims and the writer deletes them (ADR 0010).
 - Playbook guidance that differs by channel goes in separate sections (card vs transfer); agents misapply mixed lists.
 - Every model the platform can call has a price in `finsentinel.llm.prices` (USD per million tokens, with the date it
-  was checked on developers.openai.com); startup fails otherwise. Cost is computed from the model the provider
+  was checked on developers.openai.com); startup fails otherwise. Models that bill prompt-cache writes (OpenAI from
+  GPT-5.6) need `cache-write` too: written tokens come from the SDK's usage, which Spring AI 2.0.1 does not map. Cost is computed from the model the provider
   reports, so do not fake it in tests that assert on cost.
 - Regulation search results are cached in Redis by exact normalised question only (`SearchCache`, ADR 0013). Never
   add a semantic (embedding-similarity) cache in front of retrieval or reranking without re-running
   `SemanticCacheEvalTest`: near-miss questions embed above most paraphrases. Redis is disposable: errors are misses,
   degraded rankings are not cached, nothing that must be correct lives there.
-- Prompts put text shared by cases (system prompt, playbooks) before case data; case data first disables the provider's
-  prompt cache for every case. Watch the cached-token share after prompt changes.
+- Text shared by cases (role prompt, playbooks, the bank's unconnected-systems note) goes in the system message
+  (`ReportWriting.systemPrompt`); case data only in the user message. GPT-5.6+ caches at message boundaries: shared
+  text at the head of the user message was never read back (ADR 0023). Tool definitions stay sorted by name. Watch
+  the cached-token share after prompt changes.
 - Every model call goes through `LlmGateway` (never a ChatClient directly): it prices the call and falls back to
   another provider on provider failure only (OpenAI SDK errors), with a per-instance circuit breaker (ADR 0012).
   Models are `provider:model`; a new provider needs `structured-output-with-tools` and `schema-formats-on-non-strings`

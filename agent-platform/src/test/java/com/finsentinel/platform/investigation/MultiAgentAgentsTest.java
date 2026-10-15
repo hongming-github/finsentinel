@@ -95,8 +95,8 @@ class MultiAgentAgentsTest {
 
         writer(model).write(someCase, plan(false), List.of(report(Specialist.TRANSACTIONS, Set.of())), revision);
 
+        assertThat(model.systemPrompts.getFirst()).contains("Playbook for GEO_JUMP");
         assertThat(model.prompts.getFirst())
-                .contains("Playbook for GEO_JUMP")
                 .contains("TRANSACTIONS stub summary")
                 .contains("A reviewer sent your previous report back")
                 .contains("impossible travel cannot be legitimate")

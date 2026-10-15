@@ -299,8 +299,13 @@ class InvestigationTools {
                 .toList();
     }
 
+    /**
+     * Sorted by name: tool definitions open the prompt, so their order is part of every cached prefix, and reflection
+     * does not promise one. A reordering would turn every case's prompt into a cache miss.
+     */
     private List<ToolCallback> allCallbacks() {
         return Arrays.stream(MethodToolCallbackProvider.builder().toolObjects(this).build().getToolCallbacks())
+                .sorted(Comparator.comparing(c -> c.getToolDefinition().name()))
                 .map(c -> (ToolCallback) new RecordingCallback(c))
                 .toList();
     }

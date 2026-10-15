@@ -57,6 +57,26 @@ raises fewer immaterial objections; unproven on this sample.
 - Next candidates: prompt order for provider prompt caching (stable text first; cached input is billed at 10% of
   the input price), and the semantic cache of step 5C.
 
+## GPT-6 Luna and cache-write pricing (2026-10-15)
+
+`gpt-6-luna` costs $0.10 input, $0.01 cached input and $0.50 output per million tokens (gpt-5.4-mini: $0.75, $0.075,
+$4.50), supports Chat Completions with tools and structured output (tools only with reasoning effort `none`, which we
+already set), and is OpenAI's recommended replacement for `gpt-5.4-nano`, our reranker, which is shut down on
+2027-04-01 (developers.openai.com models, pricing and deprecations pages, checked 2026-10-15).
+
+From GPT-5.6 on, OpenAI also bills **cache writes**: prompt tokens written to the prompt cache cost 1.25x input
+($0.125 for Luna) instead of the input rate. Luna's first call with a 2,245-token prompt reported
+`prompt_tokens_details.cache_write_tokens: 2242`; the same prompt again, `cached_tokens: 2242`. Spring AI 2.0.1 drops
+the write count (it passes null as the cache-write tokens) but keeps the SDK's usage, so `LlmUsage` reads it from
+there and `LlmPricing` bills written tokens at the model's `cache-write` price (input price when none is set).
+Without that, a Luna call's cost comes out low by a fifth of every written token: 0.00132 instead of 0.00147 in
+`LlmPricingTest`, which fails when the read is removed. The written tokens are priced but not yet stored per
+analysis (only cached tokens are).
+
+Smoke run (`geo-impossible-travel`, every role on Luna, Groq unset so no fallback could answer): passed, LIKELY_FRAUD
+96, $0.0008 (gpt-5.4-mini: $0.004-0.007 on the same case), 10.6 s (one run; mini 4-7 s). A decision needs the full
+evaluation with cost, not one case.
+
 ## Consequences
 
 - Every analysis has a price; routing changes can be judged in dollars and accuracy, not guessed.

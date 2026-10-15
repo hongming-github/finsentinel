@@ -69,32 +69,29 @@ class LlmCaseInvestigatorRepairTest {
     }
 
     @Test
-    void briefCarriesOnlyThePlaybookForTheAlertsRule() {
+    void systemPromptCarriesOnlyThePlaybookForTheAlertsRule() {
         ScriptedChatModel model = new ScriptedChatModel(json, CaseReportValidatorTest.report(Disposition.NEEDS_REVIEW, 50, List.of()));
 
         investigator(model).investigate(anyCase()); // one VELOCITY alert
 
-        assertThat(model.prompts.getFirst()).contains("Playbook for VELOCITY").contains("card testing")
+        assertThat(model.systemPrompts.getFirst()).contains("Playbook for VELOCITY").contains("card testing")
                 .doesNotContain("impossible travel").doesNotContain("authorised push payment");
+        assertThat(model.prompts.getFirst()).doesNotContain("Playbook").contains("Its alerts");
     }
 
     @Test
-    void casesOfTheSameRuleShareThePlaybookAsAPromptPrefix() {
+    void casesOfTheSameRuleShareTheirWholeSystemMessage() {
         ScriptedChatModel model = new ScriptedChatModel(json, CaseReportValidatorTest.report(Disposition.NEEDS_REVIEW, 50, List.of()),
                 CaseReportValidatorTest.report(Disposition.NEEDS_REVIEW, 50, List.of()));
 
         investigator(model).investigate(anyCase());
         investigator(model).investigate(anyCase());
 
-        // The provider caches shared prefixes only: case data placed before the playbook made every case a miss.
-        String a = model.prompts.get(0);
-        String b = model.prompts.get(1);
-        int shared = 0;
-        while (shared < Math.min(a.length(), b.length()) && a.charAt(shared) == b.charAt(shared)) {
-            shared++;
-        }
-        assertThat(a.substring(0, shared)).contains("Playbook for VELOCITY").contains("card testing");
-        assertThat(a.substring(shared)).as("after the first case-specific character").doesNotContain("Playbook");
+        // From GPT-5.6 on the provider caches at message boundaries: the reusable part (role prompt and playbook) must be
+        // one whole message, identical across cases, with every case-specific character in the user message after it.
+        assertThat(model.systemPrompts.get(0)).isEqualTo(model.systemPrompts.get(1))
+                .contains("Playbook for VELOCITY").contains("card testing");
+        assertThat(model.prompts.get(0)).isNotEqualTo(model.prompts.get(1));
     }
 
     @Test
@@ -106,8 +103,9 @@ class LlmCaseInvestigatorRepairTest {
         investigator(model).investigate(TestData.context(java.util.Set.of(BankSystem.BANKING), alert));
         investigator(model).investigate(TestData.context(alert));
 
-        assertThat(model.prompts.get(0)).contains("This bank has not connected [COMPLIANCE]");
-        assertThat(model.prompts.get(1)).as("a fully connected bank's prompt is unchanged").doesNotContain("not connected");
+        assertThat(model.systemPrompts.get(0)).contains("This bank has not connected [COMPLIANCE]");
+        assertThat(model.systemPrompts.get(1)).as("a fully connected bank's prompt is unchanged")
+                .doesNotContain("not connected");
     }
 
     @Test
@@ -135,9 +133,10 @@ class LlmCaseInvestigatorRepairTest {
 
         investigator(model).investigate(twoRules);
 
-        assertThat(model.prompts.getFirst()).contains("Playbook for GEO_JUMP").contains("Playbook for VELOCITY")
-                .doesNotContain("Playbook for LARGE_AMOUNT")
-                .contains("sent the case back").contains("Customer says the UK purchase was theirs");
+        assertThat(model.systemPrompts.getFirst()).contains("Playbook for GEO_JUMP").contains("Playbook for VELOCITY")
+                .doesNotContain("Playbook for LARGE_AMOUNT");
+        assertThat(model.prompts.getFirst()).contains("sent the case back")
+                .contains("Customer says the UK purchase was theirs");
     }
 
     @Test

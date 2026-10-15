@@ -396,6 +396,16 @@ class InvestigationToolsTest {
         assertThat(systemsConfig.connectedFor(uniqueTenant())).isEqualTo(BankSystem.ALL);
     }
 
+    /** Tool definitions open every prompt: a stable order keeps the provider's prompt cache valid across cases. */
+    @Test
+    void toolsAreOfferedInAStableOrder() {
+        InvestigationTools tools = toolsFor(alert(uniqueTenant(), "acc-1", AlertRule.VELOCITY, Severity.LOW, List.of(),
+                Instant.now()));
+
+        assertThat(names(tools.callbacks())).isSorted().hasSizeGreaterThan(5);
+        assertThat(names(tools.callbacks(Specialist.TRANSACTIONS.tools()))).isSorted();
+    }
+
     private static List<String> names(List<ToolCallback> callbacks) {
         return callbacks.stream().map(c -> c.getToolDefinition().name()).toList();
     }
