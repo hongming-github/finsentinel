@@ -14,7 +14,7 @@ import java.util.List;
 record RunRecord(String caseId, String category, boolean critical, String mode, int repeat, String status,
                  String disposition, Integer riskScore, List<String> failures, int requiredTools,
                  int requiredToolsCalled, Boolean regulationsRelevant, Double judgeScore, List<String> unsupportedClaims,
-                 BigDecimal costUsd, long latencyMs) {
+                 BigDecimal costUsd, long latencyMs, List<String> explanation) {
 
     static final String PASSED = "PASSED";
     static final String FAILED = "FAILED";
@@ -23,12 +23,13 @@ record RunRecord(String caseId, String category, boolean critical, String mode, 
     RunRecord {
         failures = failures == null ? List.of() : List.copyOf(failures);
         unsupportedClaims = unsupportedClaims == null ? List.of() : List.copyOf(unsupportedClaims);
+        explanation = explanation == null ? List.of() : List.copyOf(explanation);
         costUsd = costUsd == null ? BigDecimal.ZERO : costUsd;
     }
 
     static RunRecord skipped(GoldenCase c, String mode, int repeat) {
         return new RunRecord(c.id(), c.category(), c.critical(), mode, repeat, SKIPPED, null, null,
-                List.of("budget used up before this run"), 0, 0, null, null, null, null, 0);
+                List.of("budget used up before this run"), 0, 0, null, null, null, null, 0, List.of());
     }
 
     /** The analysis threw (provider failure, report still invalid after repair): its cost is not known. */

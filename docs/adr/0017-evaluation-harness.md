@@ -79,6 +79,18 @@ Production models (`gpt-5.4-mini` for every role), SINGLE mode, 16 cases x 3 rep
   "if the customer is abroad, the payment at home is the suspicious one" ignores order and timing; the notice starts
   the day before, so the Changi payment before the flight reads as "at home while abroad". Not confirmed yet
   (reports are not kept in the run records); the fix is to be measured on the GEO_JUMP cases.
+- Resolved the same day, in our GEO_JUMP playbook, not the model. A failed run now records the report's summary and
+  findings (pseudonymised), which showed the reasoning: "7 hours apart; that timing is too short", the GEO_JUMP rule
+  "strongly supported", a new Japanese merchant and no earlier Japan activity counted as strengthening. Three
+  causes, all in the playbook: its first line said the rule fires on payments "closer together in time than travel
+  allows" (our rule is only a time window, it knows no distances), it gave no flight times beyond Malaysia and
+  Europe, and it listed a new foreign merchant as strengthening even when a travel notice covers the country; plus
+  the travel-notice line that ignored order and timing. Re-measured on the six GEO_JUMP cases x 3: the notice line
+  alone took the case to 1/3 ($0.083); all four changes to 3/3 (LIKELY_LEGITIMATE 10-15) with every other GEO_JUMP
+  case still 3/3, impossible travel and the wrong-country notice still LIKELY_FRAUD 96-97 ($0.115). Report:
+  [`docs/eval/2026-10-15-geo-jump-fix.md`](../eval/2026-10-15-geo-jump-fix.md). The flight times are general domain
+  knowledge, but they were added because of this case; a deterministic feasibility check (country pair to minimum
+  travel time) would not depend on the model's geography at all.
 - `shopping-trip-burst` 2/3: one report cited a transaction id no tool had returned; the repair did not fix it, so
   the report was rejected and not stored (ADR 0006 working as designed; the cost is a failed analysis).
 - Thresholds are unchanged: the overall rate (92% against 85%) and every other check passed, and the one failure is
@@ -86,7 +98,8 @@ Production models (`gpt-5.4-mini` for every role), SINGLE mode, 16 cases x 3 rep
 
 ## Not done yet
 
-- Fix and re-measure the GEO_JUMP travel-notice defect found by the baseline.
+- A golden case for the other branch of the travel-notice rule (abroad first, then a payment at home during the
+  trip), and a deterministic travel-feasibility check instead of flight times in the playbook.
 - MULTI doubles the baseline's cost; the judge adds about $0.003 per run; in CI the corpus is embedded again (about
   $0.01, no local embedding cache).
 - The decisions it unblocks: the reviewer on gpt-5.5 (`-Dfinsentinel.llm.models.reviewer=gpt-5.5`), MULTI vs SINGLE,
