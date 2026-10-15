@@ -40,6 +40,11 @@ streaming operator can use on its first event.
   tenant|account** (not broadcast: each task holds only its own accounts' baselines, so state grows with accounts,
   not with parallelism). The baseline goes into the same `AccountRiskState`; an older baseline arriving late (a re-run
   of a past day) does not replace a newer one.
+- **The baselines source starts from the beginning of the topic** whenever the job starts without a savepoint
+  (`OffsetsInitializer.earliest()`), while transactions continue from the group's committed offsets. Restoring from a
+  checkpoint or savepoint resumes both from the offsets in the state. (Fixed on 2026-10-15: at first both used the
+  group's committed offsets, so a redeployed job on the same group skipped every baseline the old job had read and
+  had none until the next batch run; see Evidence.)
 - **Which profile the rule uses**: the account's streaming history once it has `min-history` (10) transactions, since
   it is more recent and excludes flagged amounts; otherwise a batch baseline with at least `min-history` transactions
   and no older than `rules.large-amount.baseline-max-age` (3 days, from the transaction's event time); otherwise only
@@ -68,6 +73,13 @@ streaming operator can use on its first event.
   median 200.05): a payment of 200.05 raised nothing, 6,001.50 raised LARGE_AMOUNT citing the batch baseline, and the
   same 6,001.50 on an account with no baseline raised nothing (below the hard limit). Without the baseline, the fresh
   job would have let the 6,001.50 through.
+- Cold start on a group that had already read both topics (fixed 2026-10-15): `StartingOffsetsTest` commits the
+  group's offsets at the end of both topics in a Kafka container and reads each source the job builds: transactions
+  yield nothing (they continue), baselines yield every record; with the earlier `committedOffsets` for baselines it
+  read none and the test fails. On the compose stack, the same redeployment (group moved to the end of both topics,
+  fresh baselines as of the day): before the fix a payment 30x the account median (2,407.50 against 80.25 over 95
+  transactions) raised nothing; after it, LARGE_AMOUNT citing the batch baseline. The first e2e had used a new group,
+  which starts at the beginning anyway, so it did not show this.
 - Found on the way: the first run wrote 82 Parquet files and opened 82 Kafka producers for 100 baselines, because AQE
   does not coalesce a cached plan's shuffle partitions by default; with
   `spark.sql.optimizer.canChangeCachedPlanOutputPartitioning` it writes one file.
