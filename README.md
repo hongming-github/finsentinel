@@ -6,33 +6,35 @@ report for a compliance analyst.
 Built as a portfolio project covering the delivery work of a client-facing AI agent engineer: streaming data,
 agent orchestration, RAG, MCP integration with enterprise systems, evaluation, security, and multi-tenancy.
 
+**Data path**: detection, the lake and the batch baselines.
+
 ```mermaid
-flowchart LR
+flowchart TB
     SIM[txn-simulator] --> TX[[txn.transactions.v2<br/>Avro]]
+    SR[(Apicurio<br/>schema registry)] -.-|schema ids| TX
     TX -->|group finsentinel-stream| F[stream-job<br/>Flink rules]
     F -.->|unreadable| DLQ[[txn.transactions.dlq.v2]]
     F --> AL[[risk.alerts.v2<br/>Avro]]
-    SR[(Apicurio<br/>schema registry)] -.-|schema ids| TX
-    F -->|JSON Lines, dt=| LZ[(landing zone)]
+    F -->|JSON Lines, one dir per UTC day| LZ[(landing zone<br/>dt=YYYY-MM-DD)]
     LZ --> SP[batch-job<br/>Spark, daily]
     SP -->|curated Parquet| LK[(lake)]
     SP --> BL[[account.baselines.v1<br/>Avro, compacted]]
     BL -->|keyed by account| F
-    subgraph P [agent-platform · Spring Boot 4.1]
-        TS[TransactionStore]
-        AI[Alert intake<br/>groups alerts into cases]
-        Q[Case queue<br/>ANALYSIS stage]
-        AG[Analysis graph · Spring AI Alibaba<br/>single agent or plan → specialists → writer<br/>LLM reviewer · fenced checkpoints]
-        API[Case API<br/>analyst decision]
-        OB[Outbox relay]
-    end
-    TX -->|group agent-platform-txn-store| TS
-    AL -->|group agent-platform-alert-intake| AI
+    TX -->|group agent-platform-txn-store| P[agent-platform]
+    AL -->|group agent-platform-alert-intake| P
+```
+
+**Agent platform** (Spring Boot 4.1): cases, the analysis graph and the systems it calls.
+
+```mermaid
+flowchart TB
+    TX[[txn.transactions.v2]] --> TS[TransactionStore]
+    AL[[risk.alerts.v2]] --> AI[Alert intake<br/>groups alerts into cases]
+    API[Case API<br/>analyst decision] -->|If-Match version| PG
     TS --> PG[(Postgres<br/>txn, alert, case,<br/>graph checkpoints)]
     AI --> PG
-    PG --> Q --> AG
-    API -->|If-Match version| PG
-    PG --> OB -->|case.events.v1| K2[[case.events.v1]]
+    PG --> Q[Case queue<br/>ANALYSIS stage] --> AG[Analysis graph · Spring AI Alibaba<br/>single agent or plan → specialists → writer<br/>LLM reviewer · fenced checkpoints]
+    PG --> OB[Outbox relay] --> K2[[case.events.v1]]
     AG <-->|case-scoped tools| PG
     AG <-->|JSON-schema report| LLM[OpenAI]
     AG -->|searchRegulations| SC[(Redis<br/>search cache)]
