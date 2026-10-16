@@ -40,6 +40,8 @@ class ConcurrentCaseClaimTest {
     @Autowired
     CaseRepository cases;
     @Autowired
+    PipelineMetrics metrics;
+    @Autowired
     SystemsProperties systems;
     @Autowired
     CaseIntake intake;
@@ -90,7 +92,8 @@ class ConcurrentCaseClaimTest {
         }));
         locked.await();
         CaseWorker worker = new CaseWorker(cases, alerts, analysis,
-                CaseWorkerTest.props(1_000, Duration.ofMillis(300)), systems, io.opentelemetry.api.OpenTelemetry.noop().getTracer("test"));
+                CaseWorkerTest.props(1_000, Duration.ofMillis(300)), systems, io.opentelemetry.api.OpenTelemetry.noop().getTracer("test"),
+                metrics);
 
         int claimed;
         long waitedMs;

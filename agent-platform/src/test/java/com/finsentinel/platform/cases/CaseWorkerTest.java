@@ -30,6 +30,8 @@ class CaseWorkerTest {
     @Autowired
     CaseWorker worker;
     @Autowired
+    PipelineMetrics metrics;
+    @Autowired
     CaseRepository cases;
     @Autowired
     SystemsProperties systems;
@@ -54,6 +56,19 @@ class CaseWorkerTest {
     @AfterEach
     void resetStub() {
         investigator.reset();
+    }
+
+    /** Phase 9 measures alert-to-report per stage and the backlog from these meters (ADR 0024). */
+    @Test
+    void anAnalysedAlertIsTimedPerStageAndTheBacklogIsCounted() {
+        double before = metrics.registry().get("finsentinel.pipeline").tag("stage", "total").timer().count();
+        newCase(Severity.HIGH);
+        assertThat(metrics.registry().get("finsentinel.cases.waiting").gauge().value()).isGreaterThanOrEqualTo(1);
+
+        worker.runOnce();
+
+        assertThat(metrics.registry().get("finsentinel.pipeline").tag("stage", "total").timer().count())
+                .isGreaterThan((long) before);
     }
 
     /** Cached and written prompt tokens are how we see whether prompts reuse the provider's cache (ADR 0023). */
@@ -189,7 +204,8 @@ class CaseWorkerTest {
         newCase(Severity.HIGH);
         newCase(Severity.HIGH);
         int alreadyUsed = cases.startedInLastHour();
-        CaseWorker capped = new CaseWorker(cases, alerts, analysis, props(alreadyUsed + 1, Duration.ofSeconds(2)), systems, io.opentelemetry.api.OpenTelemetry.noop().getTracer("test"));
+        CaseWorker capped = new CaseWorker(cases, alerts, analysis, props(alreadyUsed + 1, Duration.ofSeconds(2)), systems, io.opentelemetry.api.OpenTelemetry.noop().getTracer("test"),
+                metrics);
 
         assertThat(capped.runOnce()).isEqualTo(1);
         assertThat(capped.runOnce()).isZero();

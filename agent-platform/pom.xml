@@ -187,6 +187,12 @@
             <artifactId>archunit</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- The OpenAI stand-in, started in-process by FakeLlmContractTest (ADR 0024). -->
+        <dependency>
+            <groupId>com.finsentinel</groupId>
+            <artifactId>fake-llm</artifactId>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-kafka-test</artifactId>

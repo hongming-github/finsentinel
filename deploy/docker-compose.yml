@@ -177,6 +177,10 @@ services:
       - "3000:3000"
       - "4317:4317"
       - "4318:4318"
+    # Our dashboards (phase 9, ADR 0024), provisioned at startup next to the image's own.
+    volumes:
+      - ./grafana/dashboards.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/finsentinel.yaml:ro
+      - ./grafana/dashboards:/otel-lgtm/finsentinel-dashboards:ro
     mem_limit: 1200m
 
 volumes:

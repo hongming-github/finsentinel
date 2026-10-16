@@ -470,6 +470,14 @@ public class CaseRepository {
                                BigDecimal costUsd) {
     }
 
+    /** Cases in a stage across every bank: queue monitoring, in the system scope. */
+    public long countInStage(CaseStage stage) {
+        return jdbc.sql("select count(*) from fraud_case where stage = :stage")
+                .param("stage", stage.name())
+                .query(Long.class)
+                .single();
+    }
+
     // ---------------------------------------------------------------- helpers
 
     private void insertAnalysis(String caseId, int run, AnalysisMode mode, InvestigationResult result, Review review) {

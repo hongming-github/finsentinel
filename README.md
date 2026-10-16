@@ -183,6 +183,23 @@ docker compose -f deploy/docker-compose.yml --profile obs up -d     # Grafana (T
 Without an endpoint nothing is exported and nothing is logged; trace context is still passed on, so a traced
 producer's trace continues downstream.
 
+### Load tests and chaos drills
+
+Phase 9 (ADR 0024) runs the platform against `fake-llm`, an OpenAI-compatible stand-in that speaks the tool-calling
+protocol and answers any structured-output schema, so the real gateway, tools, validation, review and fallback run and
+nothing costs money. Its latency and errors can be changed per provider while the stack runs.
+
+```bash
+scripts/stack.sh up                       # Docker (core, systems, obs), schemas, fake-llm, MCP servers, platform (profile load)
+scripts/stack.sh flink                    # Flink job, embedded (another terminal)
+scripts/stack.sh traffic --tps=20 --fraud-every=3 --duration=120
+# Grafana http://localhost:3000, dashboard "FinSentinel pipeline": alert-to-report p50/p95 and p95 by stage, backlog,
+# analyses per minute, model-call latency, fallback share. Slow the main model down, or make it fail:
+curl -X POST 'localhost:8096/admin/behaviour?provider=openai' -d '{"latencyMs":1500,"errorStatus":503,"errorRate":0.3}'
+curl -X DELETE localhost:8096/admin/behaviour
+scripts/stack.sh down
+```
+
 ### LLM cost
 
 Every analysis records its cost at list prices (all model calls, reranking included), in total and by model.
@@ -257,6 +274,7 @@ configuration and add the `--add-opens` flags from `stream-job/pom.xml` (`flink.
 | Fake bank systems (WireMock) | 8093 |
 | Keycloak | 8094 |
 | Schema registry (Apicurio) | 8095 |
+| fake-llm (profile `load`) | 8096 |
 | Grafana (`obs` profile), OTLP gRPC / HTTP | 3000, 4317 / 4318 |
 | Flink UI (local run) | 8082 |
 | Flink UI (`stream` profile) | 8081 |
@@ -307,3 +325,4 @@ Study notes (Chinese): [docs/study-guide.md](docs/study-guide.md)
 - [0021 Geo-velocity: a lower bound on travel between countries](docs/adr/0021-travel-feasibility.md)
 - [0022 CI quality and security gates](docs/adr/0022-ci-quality-and-security-gates.md)
 - [0023 GPT-6 Luna as the default model](docs/adr/0023-gpt-6-luna.md)
+- [0024 Phase 9 foundation: fake LLM, pipeline metrics, stack script](docs/adr/0024-phase-9-measurement.md)

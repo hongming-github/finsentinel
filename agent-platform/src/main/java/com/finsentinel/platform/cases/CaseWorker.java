@@ -49,10 +49,12 @@ public class CaseWorker {
     private final SystemsProperties systems;
     private final AtomicLong lastBudgetWarning = new AtomicLong();
     private final Tracer tracer;
+    private final PipelineMetrics metrics;
 
     CaseWorker(CaseRepository cases, AlertRepository alerts, CaseAnalysisGraph analysis,
-               InvestigationProperties props, SystemsProperties systems, Tracer tracer) {
+               InvestigationProperties props, SystemsProperties systems, Tracer tracer, PipelineMetrics metrics) {
         this.tracer = tracer;
+        this.metrics = metrics;
         this.systems = systems;
         this.cases = cases;
         this.alerts = alerts;
@@ -139,12 +141,14 @@ public class CaseWorker {
     private void analyseInSpan(CaseClaim claim, Span span) {
         FraudCase c = claim.fraudCase();
         try {
-            List<Alert> caseAlerts = alerts.findByCase(c.tenantId(), c.caseId()).stream().map(StoredAlert::alert).toList();
+            List<StoredAlert> stored = alerts.findByCase(c.tenantId(), c.caseId());
+            List<Alert> caseAlerts = stored.stream().map(StoredAlert::alert).toList();
             CaseContext context = new CaseContext(c.caseId(), c.tenantId(), c.accountId(), c.customerId(), caseAlerts,
                     c.analysisRun(), c.analystNote(), systems.connectedFor(c.tenantId()));
             CaseAnalysisGraph.Outcome outcome = analysis.analyse(context, claim.claimedAt());
             InvestigationResult result = outcome.investigation();
             CaseRepository.Completion completion = cases.complete(claim, outcome.mode(), result, outcome.review());
+            metrics.analysed(stored, claim);
             log.info("Case {} run {} ({} alerts, {}): {} {} {} risk={} review={} tools={} calls={} tokens={}/{} "
                             + "cached={} written={} cost=${} {}ms{}",
                     c.caseId(), c.analysisRun(), caseAlerts.size(), context.rules(), outcome.mode(), completion,

@@ -1,0 +1,34 @@
+# Profile "load": load tests and chaos drills (phase 9, ADR 0024). Every model and embedding call goes to fake-llm
+# (./mvnw -pl fake-llm exec:java, :8096), which speaks the OpenAI protocol and costs nothing. Nothing else changes: the
+# platform runs its real gateway, tools, validation, review, budget and fallback. scripts/stack.sh starts it this way.
+spring:
+  ai:
+    openai:
+      base-url: http://localhost:8096/v1
+      api-key: fake-llm
+finsentinel:
+  llm:
+    providers:
+      # The fallback provider answers from fake-llm too, under its own path, so a drill can fail one and not the other.
+      groq:
+        base-url: http://localhost:8096/groq/v1
+        api-key: fake-llm
+    prices:
+      # fake-llm reports itself as the answering model, under either provider; its calls cost nothing.
+      "[fake-llm]": { input: 0, cached-input: 0, output: 0 }
+      "[groq:fake-llm]": { input: 0, cached-input: 0, output: 0 }
+  investigation:
+    # Still a budget, never off: sized for a load test against fake-llm, not for spending on a real model.
+    max-per-hour: 100000
+  knowledge:
+    # Never embed the corpus with fake-llm's vectors: that would overwrite the real embeddings in the database. Searches
+    # still run (the keyword half finds passages; fake query vectors make the vector half arbitrary).
+    sync-on-startup: false
+management:
+  otlp:
+    metrics:
+      export:
+        # To the obs profile's collector (Grafana LGTM), every 10 s so a short run shows up.
+        enabled: true
+        url: http://localhost:4318/v1/metrics
+        step: 10s

@@ -21,6 +21,7 @@
         <module>contracts</module>
         <module>telemetry</module>
         <module>txn-simulator</module>
+        <module>fake-llm</module>
         <module>stream-job</module>
         <module>batch-job</module>
         <module>agent-platform</module>
@@ -78,6 +79,11 @@
             <dependency>
                 <groupId>com.finsentinel</groupId>
                 <artifactId>telemetry</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.finsentinel</groupId>
+                <artifactId>fake-llm</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
