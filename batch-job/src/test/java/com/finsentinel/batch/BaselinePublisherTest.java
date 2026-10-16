@@ -33,7 +33,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class BaselinePublisherTest {
 
     @Container
-    static final KafkaContainer KAFKA = new KafkaContainer("apache/kafka:4.2.1");
+    static final KafkaContainer KAFKA = new KafkaContainer("apache/kafka:4.3.1");
 
     private static final Instant NOW = Instant.parse("2026-10-10T01:00:00Z");
     private static final InMemorySchemaRegistry REGISTRY = InMemorySchemaRegistry.withContracts();
