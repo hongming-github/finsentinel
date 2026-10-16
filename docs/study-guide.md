@@ -1401,7 +1401,7 @@ Flink 消费 Kafka 是它最擅长的、有 checkpoint 语义的方式；compact
 
 ### 不足与改进
 
-- 47 个存量漏洞还没升级（Tomcat、Netty、Jackson 2 和 3、lz4），30 天内要处理。
+- ~~47 个存量漏洞还没升级~~：第二天已全部升级，例外文件清空（见下一节）。
 - 没有扫描 docker-compose 里的镜像本身（Trivy 可以扫镜像，CI 时间会变长）。
 - 没有 SAST 的数据流分析（CodeQL 要 GHAS；Semgrep 可以考虑）。
 - Dependabot 的漏洞告警和安全更新要在仓库设置里打开，这是仓库所有者的操作。
@@ -1411,6 +1411,67 @@ Flink 消费 Kafka 是它最擅长的、有 checkpoint 语义的方式；compact
 - javac lint 初始 29 条警告，全部属于关掉的三类；Error Prone 初始 77 条，34 条 `MissingSummary`、6 条 `StringSplitter`，其余逐条修复或在原处注明原因后抑制。
 - SBOM：CycloneDX 1.6，463 个组件。Trivy：47 个 HIGH/CRITICAL（23 个 CVE）进基线；仓库扫描没有发现密钥。
 - 每道门槛都先用人为植入的违规看到它失败才算数：`new Date()`（Error Prone）、`common` 加 compile 依赖和 `stream-job` 加 Spring（enforcer）、`@Tool` 参数改成 `int`（ArchUnit）、引用不存在的 step（actionlint）、去掉例外文件（Trivy 退出码 1）。
+
+## 工程化：清掉 47 个存量漏洞（依赖升级）
+
+决策和证据见 [ADR 0022](adr/0022-ci-quality-and-security-gates.md) 的 "Upgrades" 一节。
+
+### 为什么要做
+
+CI 门槛上线时把 47 个 HIGH/CRITICAL（23 个 CVE，其中 Tomcat 3 个 CRITICAL）放进了带过期时间的基线，30 天内必须升级。基线只是给出期限，不是解决。
+
+### 必读
+
+- 根 `pom.xml` 的版本属性（`jackson2.version`、`jackson3.version`、`netty.version`、`lz4.version`、`tomcat.version`）和 `dependencyManagement`
+- `agent-platform`、`mcp-banking`、`mcp-compliance` 的 `pom.xml`：Boot BOM **之前**的覆盖
+- `.github/dependabot.yml`（OpenTelemetry 忽略、`maven-framework-aligned` 分组）、`.trivyignore.yaml`（已清空，留着格式说明）
+
+### 设计要点（面试可讲）
+
+1. **先查漏洞从哪条依赖路径进来，再决定在哪里修**：`dependency:tree` 显示 Tomcat 来自 Boot，Netty 4.2.13 只来自 Spark（平台用的 Boot 已经是 4.2.17），Jackson 2 的四个版本分别来自 Flink Kafka 连接器、Spark、Boot、Avro，lz4 来自 kafka-clients 和 Spark。修的位置跟着来源走。
+2. **Maven BOM 的优先级是"先声明者赢"**，而且模块自己的 import 排在继承来的前面。实测：只改根 POM 的 `jackson3.version`，`contracts` 变成 3.1.7，平台还是 3.1.5。所以三个 Spring 模块要在 Boot BOM 前面再 import 一次 Jackson BOM、单独钉 Tomcat（Tomcat 没有 BOM）。普通的 `dependencyManagement` 条目（如 lz4）则不受 import 顺序影响，在所有模块都生效。
+3. **跟着框架的版本线走，而不是追最新**：Jackson 2 全部统一到 2.21.7，因为 Spark 要求 `jackson-module-scala` 与 databind 次版本一致，而 Spark 4.2.0 和 Boot 4.1.1 都在 2.21 线上；Jackson 3 用 3.1.7（Boot 管理 3.1.5），不跳到 3.2。补丁版本是能修掉 CVE 的最小一步。
+4. **用对照实验证明扫描结果可信**：同一个 Trivy 镜像、同一天的数据库，旧 SBOM 不带例外仍然扫出 47 条，新 SBOM 是 0。没有对照的话，"0 个漏洞"也可能只是数据库没更新。
+5. **验证要跑到生产形态**：打包后的平台和两个 MCP 服务实际启动并走一遍带 Keycloak token 的请求；Flink 和 Spark 用临时 Kafka 和临时湖跑了一次完整链路，不动共享开发环境。
+
+### 设计取舍问答
+
+**问：为什么不直接合并 Dependabot 的分组 PR？**
+它是红的：OpenTelemetry 1.67 弃用了 `TraceContext` 用到的 API，而 `-Werror` 让构建失败。更根本的是 OpenTelemetry 必须和 Boot 管理的版本一致（CLAUDE.md）。同一个 PR 里还有几项需要单独决定：Flink 2.3.0（Maven Central 上还没有对应 Flink 2.3 的 Kafka 连接器）、Kafka 4.4.0（发布不到两周，Boot 管理的是 4.2 线）、Jackson 3.2.3、JUnit 6.1.3、log4j 2.26.1、MCP SDK 2.0.1。安全的那部分（slf4j 补丁、Maven 插件）拿进来，其余写明原因留下。
+
+**问：以后 Dependabot 还会每周提这些吗？**
+会，但分开提：跟着框架走的依赖放进 `maven-framework-aligned` 分组，单独一个 PR，需要判断的事不会再挡住纯粹安全的更新；OpenTelemetry 直接忽略，它随 Boot 升级一起动。被分组或留下的依赖如果出现漏洞，SBOM 扫描照样会失败，不会被藏起来。
+
+**问：Spark 和 Flink 是 `provided`，覆盖版本有意义吗？**
+对本地运行、测试和 SBOM 有意义；到了真正的集群上，用的是集群自带的 jar（Spark 4.2.0 自带 Netty 4.2.13、Jackson 2.21.2）。部署时要么等 Spark 发修复版本，要么把同样的覆盖放进作业的 classpath。这一点写在 ADR 里，不假装已经解决。
+
+**问：Flink 没升级，savepoint 有影响吗？**
+没有：Flink 还是 2.2.1，有状态算子的 `uid` 不变。Jackson 2 的版本变化也不碰 Flink 状态，状态类型走 Flink 自己的 POJO 序列化器（`SerializationTest` 守着）。将来升 Flink 2.3 时要专门做 savepoint 兼容检查。
+
+**问：为什么 Maven 3.10.0 没升？**
+它的 resolver 会向依赖 POM 里声明的每个仓库请求 `.meta/prefixes.txt`，Flyway 和 Redgate 的仓库回 401、java.net 的证书过期，每次构建多出 4 条警告。这值得单独处理（过滤或屏蔽这些仓库），不该夹在漏洞修复里。
+
+### 踩过的坑
+
+1. **只改根 POM 的版本属性，Spring 模块不生效**：Boot BOM 先被 import，它管理的版本赢了。必须在模块里 Boot BOM 之前声明。
+2. **Dependabot 自己会关掉旧 PR 再开新的**：合并 #1、#2 之后，#8 被自动关闭，换成了 #9（22 项）。看 PR 编号不如看内容。
+3. **Kafka 补丁版不等于修了 lz4**：kafka-clients 4.2.2 依赖的仍是 lz4 1.11.2（低于修复版 1.11.4），所以 lz4 要单独钉，Kafka 保持和 Boot 一致的 4.2.1。
+4. **Jackson 2.21 起和 Jackson 3 带着同名的许可证文件**，stream-job 的 shade 插件因此报重叠警告，按已有做法用 `AppendingTransformer` 合并。
+5. **在共享开发栈上启动 Flink 有副作用**：默认消费组有约 6200 条积压，新消费组又会从 earliest 重放，产生的告警会被平台接成待分析案件（之后真开分析就要花钱）。改用临时 Kafka 容器 + 临时湖目录做端到端。
+6. **SBOM 扫描看不到 shade 进别的 jar 里的库**：`flink-shaded-jackson`、`flink-shaded-netty` 有自己的坐标，Trivy 不会把 Jackson/Netty 的公告对应过去。0 个发现不等于没有问题。
+
+### 不足与改进
+
+- Spring 模块里的覆盖要在每次升级 Boot 时检查，Boot 管理了修复版本就删掉，否则以后会反过来把版本拖住。
+- 集群上的 Spark/Flink 仍然是它们自带的依赖版本。
+- Flink 2.3 和 Maven 3.10 各自需要一次单独的升级。
+
+### 实测数据
+
+- 47 个发现（23 个 CVE）→ 0；新 SBOM 437 个组件（原 463：Jackson 2 从四个版本变一个，lz4 从两个变一个），MEDIUM/LOW 也是 0。
+- `clean verify` 全绿：common 7、contracts 10、telemetry 3、stream-job 44、batch-job 8、平台 237（19 个跳过）、mcp-banking 8、mcp-compliance 6；没有编译器或 Error Prone 警告。
+- 打包 jar：平台和两个 MCP 服务在 Tomcat 11.0.26 上启动；带 token 查案件 200，查别的银行 404，不带 token 401。
+- 隔离端到端：模拟器 4,818 笔交易 → Flink 2.2.1 产生 17 条告警、2 条格式错误进 DLQ、写出 landing → Spark 批处理 curated 1,703 行，发布 200 个账户基线。全程没有异常，没有调用任何模型。
 
 ## GPT-6 Luna 的准备工作：缓存写入的计费
 

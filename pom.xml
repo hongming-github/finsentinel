@@ -42,10 +42,17 @@
              Only the telemetry module uses it: a BOM here would override Boot's management in the platform. -->
         <opentelemetry.version>1.62.0</opentelemetry.version>
         <kafka.version>4.2.1</kafka.version>
-        <jackson3.version>3.1.5</jackson3.version>
+        <!-- Security fixes (ADR 0022 "Upgrades"). Jackson 2 stays on the 2.21 line that Spark 4.2.0
+             (jackson-module-scala must match databind's minor) and Spring Boot 4.1.1 use; Jackson 3 on Boot's 3.1 line.
+             The Spring modules import these ahead of the Boot BOM, which would otherwise win (see agent-platform). -->
+        <jackson2.version>2.21.7</jackson2.version>
+        <jackson3.version>3.1.7</jackson3.version>
+        <netty.version>4.2.17.Final</netty.version>
+        <lz4.version>1.11.4</lz4.version>
+        <tomcat.version>11.0.26</tomcat.version>
         <avro.version>1.12.2</avro.version>
         <testcontainers.version>2.0.5</testcontainers.version>
-        <slf4j.version>2.0.17</slf4j.version>
+        <slf4j.version>2.0.20</slf4j.version>
         <log4j.version>2.25.5</log4j.version>
         <junit.version>6.0.3</junit.version>
         <assertj.version>3.27.7</assertj.version>
@@ -85,10 +92,33 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
+            <!-- Jackson 2 arrives through Avro, Spark and the Flink Kafka connector, each on its own version; one
+                 patched version for all of them. -->
+            <dependency>
+                <groupId>com.fasterxml.jackson</groupId>
+                <artifactId>jackson-bom</artifactId>
+                <version>${jackson2.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <!-- Spark 4.2.0 brings Netty 4.2.13; the version Spring Boot 4.1.1 manages. -->
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-bom</artifactId>
+                <version>${netty.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
             <dependency>
                 <groupId>org.apache.kafka</groupId>
                 <artifactId>kafka-clients</artifactId>
                 <version>${kafka.version}</version>
+            </dependency>
+            <!-- kafka-clients 4.2.1 brings lz4-java 1.10.1 (4.2.2 still 1.11.2) and Spark 4.2.0 brings 1.11.0. -->
+            <dependency>
+                <groupId>at.yawk.lz4</groupId>
+                <artifactId>lz4-java</artifactId>
+                <version>${lz4.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.slf4j</groupId>
@@ -142,7 +172,7 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-compiler-plugin</artifactId>
-                    <version>3.14.1</version>
+                    <version>3.16.0</version>
                     <configuration>
                         <parameters>true</parameters>
                         <showWarnings>true</showWarnings>
@@ -268,17 +298,17 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-surefire-plugin</artifactId>
-                    <version>3.5.4</version>
+                    <version>3.6.0</version>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-failsafe-plugin</artifactId>
-                    <version>3.5.4</version>
+                    <version>3.6.0</version>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-shade-plugin</artifactId>
-                    <version>3.6.1</version>
+                    <version>3.6.2</version>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.avro</groupId>
@@ -288,7 +318,7 @@
                 <plugin>
                     <groupId>org.codehaus.mojo</groupId>
                     <artifactId>exec-maven-plugin</artifactId>
-                    <version>3.6.2</version>
+                    <version>3.6.4</version>
                 </plugin>
                 <plugin>
                     <groupId>org.springframework.boot</groupId>

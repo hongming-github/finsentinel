@@ -9,7 +9,25 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+    ignore:
+      # Stays at the version Spring Boot manages (CLAUDE.md, root pom.xml): it moves with the Boot upgrade, never alone.
+      - dependency-name: "io.opentelemetry:*"
     groups:
+      # Versions chosen to match a framework rather than the newest release: Jackson 3, JUnit and Kafka follow Spring
+      # Boot, log4j and Jackson 2 follow Spark, the MCP SDK follows Spring AI, and Flink waits for a matching
+      # flink-connector-kafka (ADR 0022 "Upgrades"). Their own PR, so a decision does not hold back the safe updates;
+      # the SBOM scan still fails on any of them with a known vulnerability.
+      maven-framework-aligned:
+        patterns:
+          - "tools.jackson*"
+          - "com.fasterxml.jackson*"
+          - "org.junit*"
+          - "org.apache.kafka*"
+          - "org.apache.logging.log4j*"
+          - "io.modelcontextprotocol*"
+          - "org.apache.flink*"
+          - "org.apache.spark*"
+        update-types: [minor, patch]
       maven-minor-and-patch:
         update-types: [minor, patch]
 
