@@ -1459,6 +1459,7 @@ CI 门槛上线时把 47 个 HIGH/CRITICAL（23 个 CVE，其中 Tomcat 3 个 CR
 4. **Jackson 2.21 起和 Jackson 3 带着同名的许可证文件**，stream-job 的 shade 插件因此报重叠警告，按已有做法用 `AppendingTransformer` 合并。
 5. **在共享开发栈上启动 Flink 有副作用**：默认消费组有约 6200 条积压，新消费组又会从 earliest 重放，产生的告警会被平台接成待分析案件（之后真开分析就要花钱）。改用临时 Kafka 容器 + 临时湖目录做端到端。
 6. **SBOM 扫描看不到 shade 进别的 jar 里的库**：`flink-shaded-jackson`、`flink-shaded-netty` 有自己的坐标，Trivy 不会把 Jackson/Netty 的公告对应过去。0 个发现不等于没有问题。
+7. **Dependabot 的分组不是"先匹配者得"**：新加的 `maven-framework-aligned` 分组第一次运行就没生效，更新任务的日志写着这些依赖"属于更具体的分组 `maven-minor-and-patch`"，全部又进了同一个 PR（#14）。改成在兜底分组里用 `exclude-patterns` 明确排除。配置改完要看机器人实际怎么执行，不能只看配置文件。另外，`dependabot.yml` 一合并到 main，Dependabot 就会立刻重跑所有生态并重开 PR，不会等到周一。
 
 ### 不足与改进
 
