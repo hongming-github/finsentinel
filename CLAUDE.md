@@ -29,6 +29,9 @@ committed, and how the user likes to work. Keep it updated at the end of each se
 - `common` stays dependency-free. `stream-job` and `batch-job` never depend on Spring (ADR 0001). `contracts` (Avro,
   registry client) stays Spring-free too: the Flink job uses it.
 - Only `agent-platform` and MCP modules import the Spring Boot / Spring AI BOMs. Keep the root POM free of them.
+  A version override for those modules (security fixes) goes ahead of the Boot BOM in each of them, from a root
+  property: imported BOMs never override each other, the first listed wins. Remove it once Boot manages a fixed
+  version (ADR 0022 "Upgrades").
 - Jackson 3 (`tools.jackson`) everywhere in our code.
 - Rule logic lives in `stream-job/.../rules` as pure Java; Flink functions stay thin wrappers.
 - Types that cross Flink operators or live in state must stay Flink POJOs; `SerializationTest` guards this.
