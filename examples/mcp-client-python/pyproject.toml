@@ -5,7 +5,7 @@ description = "A LangGraph analyst assistant that uses the FinSentinel platform 
 requires-python = ">=3.12"
 # Versions checked on PyPI.
 dependencies = [
-    "langchain==1.4.3",
+    "langchain==1.4.5",
     "langgraph==1.2.12",
     "langchain-mcp-adapters==0.3.2",
     "langchain-openai==1.6.7",
