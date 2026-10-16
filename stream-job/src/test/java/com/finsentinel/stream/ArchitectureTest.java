@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Test;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
-/** Rules from CLAUDE.md the compiler cannot see; Spring is kept out by the enforcer in the POM. */
+/** Architecture rules the compiler cannot see; Spring is kept out by the enforcer in the POM. */
 class ArchitectureTest {
 
     private static final JavaClasses CLASSES = new ClassFileImporter()

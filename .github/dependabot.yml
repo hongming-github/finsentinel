@@ -1,5 +1,5 @@
 # Weekly update pull requests (ADR 0022). Minor and patch updates come grouped per ecosystem, one PR to review; major
-# updates come one by one, since they are decisions (CLAUDE.md: after a Spring AI or Spring AI Alibaba upgrade, run the
+# updates come one by one, since they are decisions (after a Spring AI or Spring AI Alibaba upgrade, run the
 # full suite and a packaged-jar case). CI runs every check on each PR.
 version: 2
 updates:
@@ -10,7 +10,7 @@ updates:
       day: monday
     open-pull-requests-limit: 5
     ignore:
-      # Stays at the version Spring Boot manages (CLAUDE.md, root pom.xml): it moves with the Boot upgrade, never alone.
+      # Stays at the version Spring Boot manages (ADR 0020, root pom.xml): it moves with the Boot upgrade, never alone.
       - dependency-name: "io.opentelemetry:*"
     groups:
       # Versions chosen to match a framework rather than the newest release: Jackson 3, JUnit and Kafka follow Spring

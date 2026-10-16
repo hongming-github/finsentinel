@@ -77,7 +77,7 @@ test guards it.
   only, or fused order) is served but not cached, or the outage would outlive itself by a week.
 - **The value is chunk ids plus what the search cost**, never passage text: passages are read fresh from Postgres,
   and a hit whose ids are no longer all present is treated as a miss. The question is hashed, not stored. The corpus
-  is public and global, so one entry serves every tenant (CLAUDE.md: the knowledge base is the one global read).
+  is public and global, so one entry serves every tenant (the knowledge base is the one global read, ADR 0015).
 - **Redis is disposable.** Any Redis error is a miss (250 ms timeouts), its health indicator is off so an outage does
   not mark the platform DOWN, and two instances missing at once both search and both write the same value. Postgres
   stays the place for shared state that must be right (claims, budgets); Redis holds what is only worth money.

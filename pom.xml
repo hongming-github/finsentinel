@@ -262,7 +262,7 @@
                     <version>3.6.3</version>
                     <executions>
                         <!-- Dormant (phase none): a module that must stay Spring-free or dependency-free turns its
-                             execution on by redeclaring it with <phase>validate</phase> (CLAUDE.md "Rules"). -->
+                             execution on by redeclaring it with <phase>validate</phase> (ADR 0022). -->
                         <execution>
                             <id>no-spring</id>
                             <phase>none</phase>

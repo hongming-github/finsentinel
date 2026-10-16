@@ -19,7 +19,7 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
 
 /**
- * Rules from CLAUDE.md that the compiler cannot see, checked on the compiled classes of the platform and of the shared
+ * Architecture rules the compiler cannot see, checked on the compiled classes of the platform and of the shared
  * modules it uses. Each rule names its reason; a rule that must change needs the ADR that changes it.
  */
 class ArchitectureTest {
@@ -54,10 +54,10 @@ class ArchitectureTest {
     void thePlatformsOwnMcpToolsAreNeverToolCallbackProviders() {
         noMethods().that().areAnnotatedWith(Bean.class)
                 .should().haveRawReturnType(JavaClass.Predicates.assignableTo(ToolCallbackProvider.class))
-                .because("Spring AI hands every ToolCallbackProvider bean to the agents (CLAUDE.md, MCP rules)")
+                .because("Spring AI hands every ToolCallbackProvider bean to the agents (ADR 0002)")
                 .check(CLASSES);
         noClasses().should().implement(ToolCallbackProvider.class)
-                .because("Spring AI hands every ToolCallbackProvider bean to the agents (CLAUDE.md, MCP rules)")
+                .because("Spring AI hands every ToolCallbackProvider bean to the agents (ADR 0002)")
                 .check(CLASSES);
     }
 

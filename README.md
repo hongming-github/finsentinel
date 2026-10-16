@@ -306,7 +306,7 @@ configuration and add the `--add-opens` flags from `stream-job/pom.xml` (`flink.
 ```
 
 `verify` also runs the static checks: javac lint and Error Prone (warnings fail the build), Maven Enforcer
-(Spring-free and dependency-free modules, pinned plugin versions) and ArchUnit rules from CLAUDE.md (`ArchitectureTest`).
+(Spring-free and dependency-free modules, pinned plugin versions) and ArchUnit checks of the architecture rules (`ArchitectureTest`).
 CI (`.github/workflows/ci.yml`, ADR 0022) adds a CycloneDX SBOM, a Trivy scan of it for known vulnerabilities
 (exceptions, dated, in `.trivyignore.yaml`), a Trivy scan of the repository for secrets, and actionlint; Dependabot
 proposes updates weekly.

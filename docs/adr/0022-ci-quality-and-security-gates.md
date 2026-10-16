@@ -6,7 +6,7 @@
 ## Context
 
 CI ran one job, `./mvnw verify`: compile and every test that calls no model. Nothing checked code beyond what tests
-exercise, the rules in CLAUDE.md were kept by discipline alone, dependencies were never checked for known
+exercise, the project's architecture rules were kept by discipline alone, dependencies were never checked for known
 vulnerabilities, and the workflows themselves ran third-party actions by movable tags with the default token
 permissions. The repository is private without GitHub Advanced Security, so CodeQL and the dependency-review action
 are not available; the checks below are free and open source.
@@ -24,7 +24,7 @@ are not available; the checks below are free and open source.
   its output is pinned by `RetrievalEvalTest`; changing it would need a paid re-run). Generated Avro code is excluded.
   Needs the javac exports in `.mvn/jvm.config`.
 - **Maven Enforcer**: Java 21+, Maven 3.9+, every plugin version pinned (`requirePluginVersions`, which pinned the six
-  lifecycle plugins Maven had been defaulting), no duplicate dependency declarations, and two CLAUDE.md rules as
+  lifecycle plugins Maven had been defaulting), no duplicate dependency declarations, and two architecture rules as
   dependency bans, switched on per module: `no-spring` (contracts, telemetry, txn-simulator, stream-job, batch-job;
   ADR 0001) and `no-runtime-dependencies` (common).
 - **ArchUnit** tests for rules the compiler cannot see: every model call goes through `LlmGateway` (no `ChatClient`
@@ -96,7 +96,7 @@ Every fixed version was checked on Maven Central and released at least two weeks
 - **Dependabot's grouped PR #9** (it replaced #8 after #1 and #2 were merged; 22 updates, red): taken are slf4j
   2.0.20 and the Maven plugins compiler 3.16.0, surefire and failsafe 3.6.0, shade 3.6.2, exec 3.6.4 (build green,
   no new warnings). Left, with the reason:
-  - OpenTelemetry 1.67.0: must equal Boot's managed 1.62.0 (CLAUDE.md); 1.67 deprecates an API `TraceContext` uses,
+  - OpenTelemetry 1.67.0: must equal Boot's managed 1.62.0 (ADR 0020); 1.67 deprecates an API `TraceContext` uses,
     which is what turned the PR red. Now ignored in `dependabot.yml`.
   - Jackson 3.2.3: see above. Kafka 4.4.0: released 2026-10-06 (less than two weeks), and Boot 4.1.1 and
     spring-kafka manage the 4.2 line; 4.2.2 still brings lz4 1.11.2, so it fixes nothing here. JUnit 6.1.3: Boot

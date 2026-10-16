@@ -13,7 +13,7 @@ nothing about distance, so it was wrong in both directions:
 
 The agent had to judge feasibility itself from a list of rough flight times in the playbook. The phase 7 baseline
 showed what that costs: `travel-notice-matches` failed 0/3 partly because the playbook described the rule wrongly and
-the model reasoned about travel times on its own (fixed in `ea8c317`). A number a program can compute should not be
+the model reasoned about travel times on its own (fixed in `d013b96`). A number a program can compute should not be
 left to a model.
 
 How issuers do it: card networks and issuers decide at authorization time with ML scores and rules; geo-velocity
@@ -80,7 +80,7 @@ at 1000 km/h, record flight included, with the US-UK bound at 4 h 09 min against
 - Evaluation with the new playbook and `travel` field (`docs/eval/2026-10-15-geo-velocity.md`, gpt-5.4-mini, SINGLE):
   the seven GEO_JUMP cases x3 = **21/21**, tools 100%, $0.1435 ($0.0068 per run), p50 4.4 s / p95 12.5 s.
   `travel-notice-too-fast` 3/3 LIKELY_FRAUD (96-98). `travel-notice-matches` passed 3/3 but one run answered
-  NEEDS_REVIEW at 48 (the run after the playbook fix in `ea8c317` had 3/3 LIKELY_LEGITIMATE at 10-15); passing runs
+  NEEDS_REVIEW at 48 (the run after the playbook fix in `d013b96` had 3/3 LIKELY_LEGITIMATE at 10-15); passing runs
   keep no explanation, so the reason is not known. One run in three is no trend; watch it in the next full run.
 
 ## Consequences
