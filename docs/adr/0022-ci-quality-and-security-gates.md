@@ -52,7 +52,9 @@ such as `x; curl ...` was a script injection).
 **Dependabot** proposes weekly updates for Maven, GitHub Actions (SHAs included), the compose images and the Python
 example; minor and patch updates grouped per ecosystem, majors one by one. Maven libraries whose version is chosen to
 match a framework (see "Upgrades") come in a group of their own, so one decision does not hold back the safe updates;
-OpenTelemetry is ignored, since it moves only with Spring Boot.
+OpenTelemetry is ignored, since it moves only with Spring Boot. The catch-all group excludes those patterns
+explicitly: without that, Dependabot put every dependency in the catch-all (its job log: "belongs to more specific
+group"), not in the first group that matched.
 
 ### Known vulnerabilities at the start
 

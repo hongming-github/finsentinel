@@ -28,7 +28,18 @@ updates:
           - "org.apache.flink*"
           - "org.apache.spark*"
         update-types: [minor, patch]
+      # Everything else. The exclusions are needed: Dependabot does not take the first matching group, it judged this
+      # catch-all "more specific" and put every dependency in it (seen in the update job's log, 2026-10-16).
       maven-minor-and-patch:
+        exclude-patterns:
+          - "tools.jackson*"
+          - "com.fasterxml.jackson*"
+          - "org.junit*"
+          - "org.apache.kafka*"
+          - "org.apache.logging.log4j*"
+          - "io.modelcontextprotocol*"
+          - "org.apache.flink*"
+          - "org.apache.spark*"
         update-types: [minor, patch]
 
   # Also keeps the commit SHAs in the workflows current, with the version in the trailing comment.
@@ -50,7 +61,11 @@ updates:
       images-minor-and-patch:
         update-types: [minor, patch]
 
+  # One PR for the example's minor and patch updates, not one per package.
   - package-ecosystem: uv
     directory: /examples/mcp-client-python
     schedule:
       interval: monthly
+    groups:
+      python-minor-and-patch:
+        update-types: [minor, patch]
