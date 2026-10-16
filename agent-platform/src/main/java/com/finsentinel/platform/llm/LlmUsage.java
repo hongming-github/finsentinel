@@ -60,9 +60,10 @@ public record LlmUsage(String model, Integer inputTokens, Integer outputTokens, 
      * Prompt tokens written to the provider's cache, or null when unknown. Spring AI 2.0.1's OpenAI client drops the
      * count (it passes null as the cache-write tokens) but keeps the SDK's usage, where Chat Completions reports it. That
      * works for a single request only: over a tool-calling exchange Spring AI sums the usage of each request, drops the
-     * SDK's usage, and sums its own empty cache-write field to 0. So a 0 without the SDK's usage means unknown, never
-     * "nothing written"; such calls bill their unknown writes at the input rate (ADR 0023). Cached tokens are summed
-     * correctly either way.
+     * SDK's usage, and sums its own cache-write field, which it never fills (null; 0 is treated the same, so a summing
+     * rule that turned nulls into 0 changes nothing). Without the SDK's usage the count is unknown, never "nothing
+     * written"; such calls bill their unknown writes at the input rate (ADR 0023). Cached tokens are summed correctly
+     * either way. Spring AI fix proposed upstream: spring-projects/spring-ai#7180.
      */
     static Integer cacheWriteTokens(Usage usage) {
         if (usage == null) {

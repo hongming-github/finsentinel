@@ -76,7 +76,7 @@ class LlmPricingTest {
 
     /**
      * Over a tool-calling exchange Spring AI 2.0.1 sums each request's usage into one without the SDK's usage, with its
-     * own (never filled) cache-write field summed to 0: that is unknown, not zero writes.
+     * own never-filled cache-write field summed (null, or 0 under another summing rule): unknown, not zero writes.
      */
     @Test
     void cacheWritesOfAToolCallingExchangeAreUnknownNotZero() {

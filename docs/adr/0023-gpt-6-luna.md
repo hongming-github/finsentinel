@@ -84,10 +84,12 @@ least 14% written. The gateway's per-call debug line splits it:
   roughly $0.0001 per review. Not worth padding the prompt or mixing other rules' playbooks into it (ADR 0007).
   The report writer and the specialists of MULTI mode (not the default) are in the same position.
 - **Cache writes of tool-calling exchanges are lost by Spring AI 2.0.1.** It sums the usage of every request of an
-  exchange (cached tokens included, correctly) but drops the SDK's usage and sums its own empty cache-write field to
-  0. `LlmUsage.cacheWriteTokens` treats that as unknown (null) rather than zero, and such calls bill their writes at
-  the input rate: low by $0.025 per million written tokens, under $0.0001 a case. So the written share in the report
-  is a floor. The fix belongs upstream: map `prompt_tokens_details.cache_write_tokens` in `OpenAiChatModel`.
+  exchange (cached tokens included, correctly) but drops the SDK's usage and sums its own cache-write field, which it
+  never fills (the sum stays null; first written here as 0, corrected 2026-10-16). `LlmUsage.cacheWriteTokens` treats
+  null and 0 alike as unknown rather than zero, and such calls bill their writes at the input rate: low by $0.025 per
+  million written tokens, under $0.0001 a case. So the written share in the report is a floor. The fix belongs
+  upstream: proposed as spring-projects/spring-ai#7180 (map `prompt_tokens_details.cache_write_tokens` in
+  `OpenAiChatModel`); once released, drop the fallback to the SDK's usage.
 
 ## Consequences
 

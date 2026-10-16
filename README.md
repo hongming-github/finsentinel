@@ -299,7 +299,6 @@ proposes updates weekly.
 
 ## Design decisions
 
-Study notes (Chinese): [docs/study-guide.md](docs/study-guide.md)
 
 
 - [0001 Modular monolith, Spring-free jobs](docs/adr/0001-modular-monolith.md)

@@ -11,3 +11,6 @@ HANDOFF.md
 
 # Trivy vulnerability database cache (CI)
 .trivy-cache/
+
+# Personal study notes, kept locally
+docs/study-guide.md
