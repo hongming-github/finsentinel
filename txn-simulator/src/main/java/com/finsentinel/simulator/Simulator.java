@@ -24,6 +24,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /** Publishes a week of backfill, then live traffic at a fixed rate with periodic fraud injection. */
 public class Simulator {
@@ -35,6 +38,12 @@ public class Simulator {
     private final KafkaProducer<String, byte[]> producer;
     private final AvroSerde<TransactionEvent> serde;
     private final Telemetry telemetry;
+    /** Publishes scenario transactions at their event time (a burst lasts as long as it says). */
+    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "scenario-publisher");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     Simulator(SimulatorConfig config) {
         this.config = config;
@@ -73,6 +82,12 @@ public class Simulator {
             log.info("Backfilled {} historical transactions", history.size());
         }
 
+        if (config.burst() > 0) {
+            List<Account> accounts = generator.distinctAccounts(config.burst());
+            accounts.forEach(account -> inject(generator.randomAlertingScenario(), account));
+            log.info("Injected a burst of {} fraud scenarios", accounts.size());
+        }
+
         long start = System.currentTimeMillis();
         long nextFraudAt = start + config.fraudEverySeconds() * 1000L;
         long sent = 0;
@@ -87,10 +102,15 @@ public class Simulator {
                 inject(generator.randomScenario(), generator.randomAccount());
                 nextFraudAt = tick + config.fraudEverySeconds() * 1000L;
             }
-            if (sent % (config.tps() * 30L) == 0) {
+            if (config.tps() > 0 && sent % (config.tps() * 30L) == 0) {
                 log.info("Sent {} live transactions", sent);
             }
             Thread.sleep(Math.max(0, 1000 - (System.currentTimeMillis() - tick)));
+        }
+        // Delayed scenario transactions still go out after shutdown (the executor's default policy).
+        scheduler.shutdown();
+        if (!scheduler.awaitTermination(1, TimeUnit.MINUTES)) {
+            log.warn("Scenario transactions still pending at shutdown");
         }
         producer.close();
         telemetry.close();
@@ -102,7 +122,15 @@ public class Simulator {
                     account.tenantId() + "|" + account.accountId(),
                     "{\"txnId\": \"broken".getBytes(StandardCharsets.UTF_8)), (metadata, error) -> logFailure(error));
         } else {
-            generator.scenario(scenario, account, Instant.now()).forEach(this::send);
+            Instant now = Instant.now();
+            for (Transaction txn : generator.scenario(scenario, account, now)) {
+                long delayMs = Duration.between(now, txn.eventTime()).toMillis();
+                if (delayMs <= 0) {
+                    send(txn);
+                } else {
+                    var unused = scheduler.schedule(() -> send(txn), delayMs, TimeUnit.MILLISECONDS);
+                }
+            }
         }
         log.info("Injected {} on {}/{}", scenario, account.tenantId(), account.accountId());
     }

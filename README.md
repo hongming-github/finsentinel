@@ -93,6 +93,8 @@ Redis · Keycloak · OpenTelemetry / Grafana LGTM · Testcontainers
 | `agent-platform` | Spring Boot modular monolith. Idempotent alert intake, transaction store, Postgres work queue, a case lifecycle around a Spring AI Alibaba analysis graph with fenced Postgres checkpoints, an investigator agent with case-scoped tools and per-rule playbooks, validated case reports, and a regulatory knowledge base (MAS documents, hybrid retrieval with rerank). |
 | `mcp-banking` | MCP server for the bank's own systems: CRM profile (KYC, travel notices, staff notes) and core-banking security events. Stateless. |
 | `mcp-compliance` | MCP server for the screening vendor: counterparty watchlists, including the inter-bank mule account list. Stateless. |
+| `fake-llm` | OpenAI-compatible stand-in for load tests and drills: speaks the tool-calling protocol, answers any structured-output schema, injects latency and errors per provider (ADR 0024). No Spring. |
+| `load-test` | Gatling simulations of the analyst case API and the MCP endpoint, with realm tokens (ADR 0025). Compiled by the build, run by hand. No Spring. |
 | `examples/mcp-client-python` | A LangGraph analyst assistant in Python that uses the platform only through its MCP server. |
 | `deploy/systems/` | WireMock stand-ins for those systems, with id-pattern stories (travel notice, account takeover, mule payee, a prompt-injected CRM note). |
 | `knowledge/` | `sources.json` lists the MAS documents; `scripts/fetch-knowledge.sh` downloads them (not committed). |
@@ -200,6 +202,16 @@ curl -X DELETE localhost:8096/admin/behaviour
 scripts/stack.sh down
 ```
 
+Load tests (phase 9B, ADR 0025; results in `docs/perf/2026-10-16-phase-9b.md`) run against that stack:
+
+```bash
+scripts/stack.sh traffic --tps=1000 --fraud-every=1 --duration=120   # a stream step
+scripts/perf/flink-rate.py --interval 10                             # Flink's rate, lag and busy time
+scripts/stack.sh traffic --tps=20 --fraud-every=0 --burst=120 --duration=25   # 120 alerts at once, for the queue
+./mvnw -pl load-test gatling:test -Dgatling.simulationClass=com.finsentinel.loadtest.AnalystApiSimulation \
+  -Danalyst.users-per-second=50                                      # or McpSimulation; settings: load-test.properties
+```
+
 ### LLM cost
 
 Every analysis records its cost at list prices (all model calls, reranking included), in total and by model.
@@ -241,8 +253,10 @@ Investigations are capped at `finsentinel.investigation.max-per-hour` (default 6
 run up an unbounded LLM bill. Set `finsentinel.investigation.enabled=false` to store alerts without investigating.
 
 Simulator options: `--tps`, `--accounts` (per tenant), `--backfill` (history per account), `--fraud-every`
-(seconds, 0 = off), `--duration` (seconds, 0 = forever), `--seed` (traffic only; random by default and printed at
-start). The account population is fixed, so the same account id is always the same customer.
+(seconds, 0 = off), `--burst` (scenarios on as many accounts at once after the backfill), `--duration` (seconds,
+0 = forever), `--seed` (traffic only; random by default and printed at start). The account population is fixed per
+account id, so the same id is always the same customer whatever `--accounts` is. Scenario transactions are published
+at their event time (a velocity burst takes 18 s).
 
 To run the Flink job from IntelliJ, enable "Add dependencies with provided scope to classpath" in the run
 configuration and add the `--add-opens` flags from `stream-job/pom.xml` (`flink.jvm.opens`).
@@ -251,7 +265,7 @@ configuration and add the `--add-opens` flags from `stream-job/pom.xml` (`flink.
 
 | What | Where | Override |
 |---|---|---|
-| Flink rules, state TTL, Kafka, schema registry, lake directory, checkpoints | `stream-job/src/main/resources/stream-job.properties` | `--key=value` job arguments (`-Djob.args="..."` for local runs); unknown keys are rejected |
+| Flink rules, state TTL, Kafka, schema registry, lake directory, checkpoint interval and directory | `stream-job/src/main/resources/stream-job.properties` | `--key=value` job arguments (`-Djob.args="..."` for local runs); unknown keys are rejected |
 | Investigation queue, budget, tool limits, report rules | `agent-platform/src/main/resources/application.yaml` (`finsentinel.investigation.*`) | Spring Boot property sources (env, `--` args); invalid values fail at startup |
 | Alert API and Kafka retry | same file (`finsentinel.alerts.*`) | same |
 | Schema registry | same file (`finsentinel.schema-registry.*`); simulator `--registry=`; all three also read `SCHEMA_REGISTRY_URL` | same |

@@ -52,7 +52,7 @@ an alert's time went between the payment and the report.
   negative spans skipped, the backlog gauge counts an open case.
 - **On the local stack** (core, systems, obs; Flink embedded; simulator at 20 tps, a fraud scenario every 3 s, two
   runs): 66 alerts filed and analysed through fake-llm, 0 failed, all three rules; ~250 ms per analysis. First
-  figures, to be measured properly in step B: p95 detection 12.4 s (Flink catching up on the simulator's backfill),
+  figures, to be measured properly in step B: p95 detection 12.4 s (thought to be Flink catching up on the backfill; ADR 0025 found the simulator backdating velocity bursts),
   delivery 0.3 s, queue 6.8 s (5 s poll, 2 cases per claim), analysis 3.3 s, total 16.0 s. With fake-llm's main
   provider at 1.5 s latency and 30% 503s, the backlog rose to 16 cases and queue p95 to about 17 s; only one call fell
   back, because the OpenAI SDK retries a 503 twice (0.3^3 = 2.7% of calls exhaust them).

@@ -9,6 +9,8 @@ import java.util.Map;
  * @param schemaRegistryUrl Confluent-compatible schema registry API; the transaction schema must be registered there
  * @param otlpEndpoint      OTLP/HTTP receiver for traces (ADR 0020); empty = no tracing
  * @param fraudEverySeconds how often one fraud scenario is injected; 0 disables injection
+ * @param burst             fraud scenarios injected at once on as many distinct accounts after the backfill, for queue
+ *                          drain tests (ADR 0025); 0 = none
  * @param durationSeconds   stop after this long; 0 runs until interrupted
  */
 record SimulatorConfig(
@@ -19,6 +21,7 @@ record SimulatorConfig(
         int accountsPerTenant,
         int backfillPerAccount,
         int fraudEverySeconds,
+        int burst,
         int durationSeconds,
         long seed) {
 
@@ -40,6 +43,7 @@ record SimulatorConfig(
                 Integer.parseInt(kv.getOrDefault("accounts", "500")),
                 Integer.parseInt(kv.getOrDefault("backfill", "20")),
                 Integer.parseInt(kv.getOrDefault("fraud-every", "15")),
+                Integer.parseInt(kv.getOrDefault("burst", "0")),
                 Integer.parseInt(kv.getOrDefault("duration", "0")),
                 // Random by default so repeated runs produce new transaction ids; pass --seed to reproduce a run.
                 kv.containsKey("seed") ? Long.parseLong(kv.get("seed")) : System.nanoTime());

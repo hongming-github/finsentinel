@@ -34,6 +34,14 @@ class JobConfigTest {
     }
 
     @Test
+    void checkpointsGoToAFileSystemByDefault() {
+        assertThat(JobConfig.load(new String[0], Map.of()).checkpointDir())
+                .isEqualTo("file://" + System.getProperty("user.home") + "/.finsentinel/checkpoints");
+        assertThat(JobConfig.load(new String[]{"--checkpoint.dir=s3://bucket/checkpoints"}, Map.of()).checkpointDir())
+                .isEqualTo("s3://bucket/checkpoints");
+    }
+
+    @Test
     void lakeDirComesFromTheFileOrTheEnvironment() {
         assertThat(JobConfig.load(new String[0], Map.of()).lakeDir())
                 .isEqualTo(System.getProperty("user.home") + "/.finsentinel/lake");

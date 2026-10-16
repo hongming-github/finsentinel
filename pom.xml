@@ -27,6 +27,7 @@
         <module>agent-platform</module>
         <module>mcp-banking</module>
         <module>mcp-compliance</module>
+        <module>load-test</module>
     </modules>
 
     <properties>
@@ -62,6 +63,9 @@
         <maven.compiler.failOnWarning>true</maven.compiler.failOnWarning>
         <errorprone.version>2.50.0</errorprone.version>
         <archunit.version>1.5.1</archunit.version>
+        <!-- Load tests (load-test module, ADR 0025); run by hand with gatling:test, never in the build's lifecycle. -->
+        <gatling.version>3.16.0</gatling.version>
+        <gatling-maven-plugin.version>4.21.12</gatling-maven-plugin.version>
     </properties>
 
     <dependencyManagement>

@@ -3,6 +3,7 @@ package com.finsentinel.stream;
 import com.finsentinel.stream.rules.RuleConfig;
 import com.finsentinel.stream.rules.Settings;
 
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Map;
 import java.util.Properties;
@@ -13,7 +14,7 @@ import java.util.Properties;
  * arguments. Unknown keys are rejected so a typo cannot silently fall back to a default threshold.
  */
 record JobConfig(String bootstrapServers, String schemaRegistryUrl, Duration schemaRegistryTimeout, String groupId,
-                 Duration checkpointInterval, int webUiPort, Duration stateTtl, String lakeDir, String otlpEndpoint,
+                 Duration checkpointInterval, String checkpointDir, int webUiPort, Duration stateTtl, String lakeDir, String otlpEndpoint,
                  RuleConfig rules) {
 
     static JobConfig load(String[] args, Map<String, String> env) {
@@ -51,10 +52,16 @@ record JobConfig(String bootstrapServers, String schemaRegistryUrl, Duration sch
                 Settings.duration(p, "schema-registry.timeout"),
                 Settings.string(p, "kafka.group-id"),
                 Settings.duration(p, "checkpoint.interval"),
+                fileSystemUri(Settings.path(p, "checkpoint.dir")),
                 Settings.integer(p, "local.web-ui-port"),
                 Settings.duration(p, "state.ttl"),
                 Settings.path(p, "lake.dir"),
                 p.getProperty("tracing.otlp-endpoint", "").trim(),
                 RuleConfig.from(p));
+    }
+
+    /** Flink needs a scheme for checkpoint storage; a plain path is a local directory. */
+    private static String fileSystemUri(String dir) {
+        return dir.contains("://") ? dir : "file://" + Path.of(dir).toAbsolutePath().normalize();
     }
 }

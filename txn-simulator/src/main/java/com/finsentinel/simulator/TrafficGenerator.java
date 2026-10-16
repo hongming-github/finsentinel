@@ -8,9 +8,11 @@ import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Random;
+import java.util.SplittableRandom;
 import java.util.UUID;
 
 /** Produces normal and fraudulent transactions. Traffic is deterministic for a given seed. */
@@ -25,7 +27,9 @@ class TrafficGenerator {
 
     /**
      * Fixed on purpose: an account id must always describe the same customer (home country, spending level,
-     * regular merchants) across runs, or history from one run contradicts the next. Only traffic varies by seed.
+     * regular merchants) across runs and population sizes, or history from one run contradicts the next. Each account
+     * draws from its own generator seeded by its id, so {@code --accounts} only adds or drops customers. Only traffic
+     * varies by seed.
      */
     private static final long POPULATION_SEED = 20260930L;
 
@@ -33,17 +37,17 @@ class TrafficGenerator {
     private final List<Account> accounts = new ArrayList<>();
 
     TrafficGenerator(int accountsPerTenant, long trafficSeed) {
-        Random population = new Random(POPULATION_SEED);
         this.random = new Random(trafficSeed);
         for (String tenant : TENANTS) {
             for (int i = 0; i < accountsPerTenant; i++) {
+                String accountId = "%s-acc-%04d".formatted(tenant, i);
+                SplittableRandom population = new SplittableRandom(POPULATION_SEED ^ accountId.hashCode());
                 String home = population.nextDouble() < 0.9 ? "SG" : "MY";
                 BigDecimal typical = BigDecimal.valueOf(20 + population.nextInt(280));
                 List<String> merchants = new ArrayList<>();
                 for (int m = 0; m < 8; m++) {
                     merchants.add("m-" + population.nextInt(MERCHANT_POOL));
                 }
-                String accountId = "%s-acc-%04d".formatted(tenant, i);
                 List<String> payees = List.of("payee-" + accountId + "-1", "payee-" + accountId + "-2");
                 accounts.add(new Account(tenant, accountId, "%s-cus-%04d".formatted(tenant, i), home, typical,
                         List.copyOf(merchants), payees));
@@ -72,13 +76,18 @@ class TrafficGenerator {
         return normal(randomAccount(), at);
     }
 
+    /**
+     * A scenario's transactions, some of them in the future: the simulator publishes each one at its event time, so a
+     * burst takes as long as it lasts and detection latency measures the stream job, not a backdated timestamp
+     * (ADR 0025).
+     */
     List<Transaction> scenario(Scenario scenario, Account account, Instant now) {
         return switch (scenario) {
             case BURST -> {
                 List<Transaction> burst = new ArrayList<>();
                 for (int i = 0; i < 10; i++) {
                     burst.add(txn(account, BigDecimal.valueOf(1 + random.nextInt(5)), Channel.CARD_NOT_PRESENT,
-                            "US", newMerchant(), now.minusSeconds(20 - 2L * i)));
+                            "US", newMerchant(), now.plusSeconds(2L * i)));
                 }
                 yield burst;
             }
@@ -97,6 +106,26 @@ class TrafficGenerator {
 
     Account randomAccount() {
         return accounts.get(random.nextInt(accounts.size()));
+    }
+
+    /** {@code n} different accounts, at random. */
+    List<Account> distinctAccounts(int n) {
+        if (n > accounts.size()) {
+            throw new IllegalArgumentException("a burst of " + n + " needs at least as many accounts, not "
+                    + accounts.size());
+        }
+        List<Account> shuffled = new ArrayList<>(accounts);
+        Collections.shuffle(shuffled, random);
+        return List.copyOf(shuffled.subList(0, n));
+    }
+
+    /** A scenario that raises an alert (not the malformed message). */
+    Scenario randomAlertingScenario() {
+        Scenario scenario;
+        do {
+            scenario = randomScenario();
+        } while (scenario == Scenario.MALFORMED);
+        return scenario;
     }
 
     Scenario randomScenario() {

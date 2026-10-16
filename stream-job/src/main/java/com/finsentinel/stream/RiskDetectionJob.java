@@ -7,6 +7,7 @@ import com.finsentinel.common.Transaction;
 import com.finsentinel.contracts.HttpSchemaRegistry;
 import com.finsentinel.contracts.SchemaRegistry;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
+import org.apache.flink.configuration.CheckpointingOptions;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.RestOptions;
 import org.apache.flink.connector.base.DeliveryGuarantee;
@@ -38,6 +39,9 @@ public class RiskDetectionJob {
 
         Configuration flinkConf = new Configuration();
         flinkConf.set(RestOptions.PORT, config.webUiPort());
+        // On a file system, not in the JobManager's memory (5 MB of state per subtask at most).
+        flinkConf.set(CheckpointingOptions.CHECKPOINT_STORAGE, "filesystem");
+        flinkConf.set(CheckpointingOptions.CHECKPOINTS_DIRECTORY, config.checkpointDir());
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment(flinkConf);
         env.enableCheckpointing(config.checkpointInterval().toMillis());
         // Each operator instance builds its own client from the URL; the lambda is what gets serialized.
