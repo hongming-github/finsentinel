@@ -139,7 +139,7 @@ services:
   # ---------- stream (benchmarks / demos) ----------
 
   flink-jobmanager:
-    image: flink:2.3.0-java21
+    image: flink:2.2.1-java21
     profiles: [stream]
     ports:
       - "8081:8081"
@@ -154,7 +154,7 @@ services:
     mem_limit: 900m
 
   flink-taskmanager:
-    image: flink:2.3.0-java21
+    image: flink:2.2.1-java21
     profiles: [stream]
     depends_on:
       - flink-jobmanager
