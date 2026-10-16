@@ -45,7 +45,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class KeycloakRealmTest {
 
     @Container
-    static final GenericContainer<?> keycloak = new GenericContainer<>("quay.io/keycloak/keycloak:26.7.5")
+    static final GenericContainer<?> keycloak = new GenericContainer<>("quay.io/keycloak/keycloak:26.8.1")
             .withCommand("start-dev", "--import-realm")
             .withCopyFileToContainer(MountableFile.forHostPath("../deploy/keycloak/finsentinel-realm.json"),
                     "/opt/keycloak/data/import/finsentinel-realm.json")

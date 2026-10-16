@@ -37,7 +37,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class StartingOffsetsTest {
 
     @Container
-    static final KafkaContainer KAFKA = new KafkaContainer("apache/kafka:4.2.1");
+    static final KafkaContainer KAFKA = new KafkaContainer("apache/kafka:4.3.1");
 
     private static final String GROUP = "redeployed-job";
     private static final int RECORDS = 3;

@@ -28,14 +28,14 @@ public class TestcontainersConfig {
      */
     @Bean
     PostgreSQLContainer postgres() {
-        return new PostgreSQLContainer(DockerImageName.parse("pgvector/pgvector:0.8.6-pg17")
+        return new PostgreSQLContainer(DockerImageName.parse("pgvector/pgvector:0.8.7-pg17")
                 .asCompatibleSubstituteFor("postgres"));
     }
 
     @Bean
     @ServiceConnection
     KafkaContainer kafka() {
-        return new KafkaContainer(DockerImageName.parse("apache/kafka:4.2.1"));
+        return new KafkaContainer(DockerImageName.parse("apache/kafka:4.3.1"));
     }
 
     /** Off when a test brings its own identity provider ({@code finsentinel.test.external-issuer=true}). */
@@ -94,6 +94,6 @@ public class TestcontainersConfig {
     @Bean
     @ServiceConnection(name = "redis")
     GenericContainer<?> redis() {
-        return new GenericContainer<>(DockerImageName.parse("redis:8.2-alpine")).withExposedPorts(6379);
+        return new GenericContainer<>(DockerImageName.parse("redis:8.10-alpine")).withExposedPorts(6379);
     }
 }
