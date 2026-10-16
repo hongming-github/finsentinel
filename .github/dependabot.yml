@@ -52,11 +52,17 @@ updates:
       actions:
         update-types: [minor, patch]
 
+  # Images also pinned in the Testcontainers setup (TestcontainersConfig and a few tests): bump those in the same PR.
   - package-ecosystem: docker-compose
     directory: /deploy
     schedule:
       interval: weekly
       day: monday
+    ignore:
+      # The cluster runs our job jar, built against flink.version and a flink-connector-kafka for that minor: the
+      # image moves with the Maven upgrade (ADR 0022 "Upgrades"), patches only on their own.
+      - dependency-name: "flink"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
     groups:
       images-minor-and-patch:
         update-types: [minor, patch]
