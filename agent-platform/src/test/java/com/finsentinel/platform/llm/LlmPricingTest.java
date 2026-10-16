@@ -68,6 +68,27 @@ class LlmPricingTest {
 
         assertThat(usage.costUsd()).isEqualByComparingTo("0.00147");
         assertThat(usage.cachedInputTokens()).isEqualTo(2_000);
+        assertThat(usage.cacheWriteTokens()).isEqualTo(6_000);
+        assertThat(usage.plus(usage).cacheWriteTokens()).isEqualTo(12_000);
+        assertThat(usage.plus(LlmUsage.NONE).cacheWriteTokens()).as("a call without writes adds none")
+                .isEqualTo(6_000);
+    }
+
+    /**
+     * Over a tool-calling exchange Spring AI 2.0.1 sums each request's usage into one without the SDK's usage, with its
+     * own (never filled) cache-write field summed to 0: that is unknown, not zero writes.
+     */
+    @Test
+    void cacheWritesOfAToolCallingExchangeAreUnknownNotZero() {
+        ChatResponse summed = new ChatResponse(List.of(), ChatResponseMetadata.builder().model("gpt-6-luna")
+                .usage(new DefaultUsage(10_000, 1_000, 11_000, null, 2_000L, 0L)).build());
+
+        LlmUsage usage = LlmUsage.of(summed, "openai", 5, withLuna);
+
+        assertThat(usage.cacheWriteTokens()).isNull();
+        assertThat(usage.cachedInputTokens()).isEqualTo(2_000);
+        // Unknown writes are billed as plain input: 8,000 * 0.10 + 2,000 * 0.01 + 1,000 * 0.50 = 1,320 per million.
+        assertThat(usage.costUsd()).isEqualByComparingTo("0.00132");
     }
 
     @Test

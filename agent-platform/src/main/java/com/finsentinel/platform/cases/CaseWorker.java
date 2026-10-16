@@ -146,13 +146,13 @@ public class CaseWorker {
             InvestigationResult result = outcome.investigation();
             CaseRepository.Completion completion = cases.complete(claim, outcome.mode(), result, outcome.review());
             log.info("Case {} run {} ({} alerts, {}): {} {} {} risk={} review={} tools={} calls={} tokens={}/{} "
-                            + "cached={} cost=${} {}ms{}",
+                            + "cached={} written={} cost=${} {}ms{}",
                     c.caseId(), c.analysisRun(), caseAlerts.size(), context.rules(), outcome.mode(), completion,
                     result.report().disposition(), result.report().riskScore(),
                     outcome.review().verdict(),
                     result.toolCalls().size(),
                     result.llmCalls(), result.inputTokens(), result.outputTokens(), result.cachedInputTokens(),
-                    result.costUsd(), result.latencyMs(),
+                    result.cacheWriteTokens(), result.costUsd(), result.latencyMs(),
                     outcome.resumedAfter() == null ? "" : " resumed after " + outcome.resumedAfter());
             span.setAttribute("finsentinel.mode", outcome.mode().name());
             span.setAttribute("finsentinel.disposition", result.report().disposition().name());

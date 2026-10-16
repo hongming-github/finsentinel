@@ -56,6 +56,24 @@ class CaseWorkerTest {
         investigator.reset();
     }
 
+    /** Cached and written prompt tokens are how we see whether prompts reuse the provider's cache (ADR 0023). */
+    @Test
+    void promptCacheTokensAreStoredWithTheAnalysis() {
+        String caseId = newCase(Severity.HIGH);
+        investigator.respondWith(c -> {
+            InvestigationResult r = StubCaseInvestigator.defaultResult(c);
+            return new InvestigationResult(r.report(), r.toolCalls(), r.repairedIssues(), r.model(), 1_000, 50, 600,
+                    300, r.llmCalls(), r.latencyMs(), List.of(), null, null, List.of());
+        });
+
+        worker.runOnce();
+
+        assertThat(cases.analyses(tenant, caseId)).singleElement().satisfies(a -> {
+            assertThat(a.cachedInputTokens()).isEqualTo(600);
+            assertThat(a.cacheWriteTokens()).isEqualTo(300);
+        });
+    }
+
     @Test
     void plantedInstructionsTheToolsFlaggedAreRecordedOnTheCase() {
         String caseId = newCase(Severity.HIGH);

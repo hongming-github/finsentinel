@@ -63,11 +63,16 @@ public class LlmGateway {
                 .start();
         try (Observation.Scope ignored = observation.openScope()) {
             Answer<T> answer = route(model, system, user, tools, type);
+            // Per call, to see whether the shared prefix is read back (ADR 0023); counts only, never content.
+            log.debug("llm {}: input {} cached {} written {} output {}", answer.answeredBy(),
+                    answer.usage().inputTokens(), answer.usage().cachedInputTokens(),
+                    answer.usage().cacheWriteTokens(), answer.usage().outputTokens());
             observation.lowCardinalityKeyValue("finsentinel.model.answered_by", answer.answeredBy().toString());
             observation.lowCardinalityKeyValue("finsentinel.fallback", String.valueOf(!answer.answeredBy().equals(model)));
             observation.highCardinalityKeyValue("finsentinel.cost_usd", answer.usage().costUsd().toPlainString());
             observation.highCardinalityKeyValue("finsentinel.tokens", answer.usage().inputTokens() + "/"
-                    + answer.usage().outputTokens() + " cached " + answer.usage().cachedInputTokens());
+                    + answer.usage().outputTokens() + " cached " + answer.usage().cachedInputTokens() + " written "
+                    + answer.usage().cacheWriteTokens());
             return answer;
         } catch (RuntimeException e) {
             observation.error(e);

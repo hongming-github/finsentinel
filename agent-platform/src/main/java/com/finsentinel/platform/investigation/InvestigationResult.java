@@ -12,6 +12,7 @@ import java.util.Map;
  * @param repairedIssues    problems found in earlier drafts and fixed by a repair call; empty when the first
  *                          draft passed. Useful for spotting prompts or models that need tuning.
  * @param cachedInputTokens input tokens served from the provider's prompt cache (cheaper), when reported
+ * @param cacheWriteTokens  input tokens written to the provider's prompt cache, when reported
  * @param llmCalls          model calls made, including repairs (tool round trips inside one call not counted)
  * @param evidence          what the tools returned to a single investigator, for the reviewer; empty for a report
  *                          written from specialists' findings. Not stored with the analysis
@@ -28,6 +29,7 @@ public record InvestigationResult(
         Integer inputTokens,
         Integer outputTokens,
         Integer cachedInputTokens,
+        Integer cacheWriteTokens,
         int llmCalls,
         long latencyMs,
         List<ToolEvidence> evidence,
@@ -45,8 +47,17 @@ public record InvestigationResult(
     public InvestigationResult(CaseReport report, List<ToolCall> toolCalls, List<String> repairedIssues, String model,
                                Integer inputTokens, Integer outputTokens, Integer cachedInputTokens, int llmCalls,
                                long latencyMs) {
-        this(report, toolCalls, repairedIssues, model, inputTokens, outputTokens, cachedInputTokens, llmCalls,
+        this(report, toolCalls, repairedIssues, model, inputTokens, outputTokens, cachedInputTokens, null, llmCalls,
                 latencyMs, List.of(), BigDecimal.ZERO, Map.of(), List.of());
+    }
+
+    /** Without cache writes: stand-ins in tests, and results of providers that do not report them. */
+    public InvestigationResult(CaseReport report, List<ToolCall> toolCalls, List<String> repairedIssues, String model,
+                               Integer inputTokens, Integer outputTokens, Integer cachedInputTokens, int llmCalls,
+                               long latencyMs, List<ToolEvidence> evidence, BigDecimal costUsd,
+                               Map<String, BigDecimal> costByModel, List<String> untrustedInstructions) {
+        this(report, toolCalls, repairedIssues, model, inputTokens, outputTokens, cachedInputTokens, null, llmCalls,
+                latencyMs, evidence, costUsd, costByModel, untrustedInstructions);
     }
 
     static InvestigationResult of(CaseReport report, List<ToolCall> toolCalls, List<String> repairedIssues,
@@ -57,13 +68,14 @@ public record InvestigationResult(
     static InvestigationResult of(CaseReport report, List<ToolCall> toolCalls, List<String> repairedIssues,
                                   LlmUsage usage, List<ToolEvidence> evidence, List<String> untrustedInstructions) {
         return new InvestigationResult(report, toolCalls, repairedIssues, usage.model(), usage.inputTokens(),
-                usage.outputTokens(), usage.cachedInputTokens(), usage.calls(), usage.latencyMs(), evidence,
+                usage.outputTokens(), usage.cachedInputTokens(), usage.cacheWriteTokens(), usage.calls(),
+                usage.latencyMs(), evidence,
                 usage.costUsd(), usage.costByModel(), untrustedInstructions);
     }
 
     public LlmUsage usage() {
-        return new LlmUsage(model, inputTokens, outputTokens, cachedInputTokens, llmCalls, latencyMs, costUsd,
-                costByModel);
+        return new LlmUsage(model, inputTokens, outputTokens, cachedInputTokens, cacheWriteTokens, llmCalls, latencyMs,
+                costUsd, costByModel);
     }
 
     /** The same report and evidence, with the cost of the whole analysis (other agents included). */

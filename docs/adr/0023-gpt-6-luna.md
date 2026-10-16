@@ -63,6 +63,32 @@ NEEDS_REVIEW. All critical cases 3/3.
 
 **Smoke** before the evaluation: one case, Groq unset, $0.0008 against mini's $0.004-0.007.
 
+## Measured end to end (2026-10-16)
+
+Cache tokens are now stored per analysis (`case_analysis.cache_write_tokens`, V13, next to `cached_input_tokens`)
+and the evaluation report carries a prompt-token line. One run of the 17 golden cases on Luna
+(`docs/eval/2026-10-16-prompt-cache.md`, 17/17, $0.0197): **254,349 prompt tokens, 59% read from the cache**, at
+least 14% written. The gateway's per-call debug line splits it:
+
+| Calls | Count | Prompt tokens | Read from cache |
+|---|---|---|---|
+| tool-calling exchanges (investigator) | 18 | 218,067 | 69% |
+| single requests (reviewer) | 8 | 36,282 | **0%**, ~100% written |
+
+- **The reviewer never reuses its prefix**, because GPT-5.6+ caches a prefix only from 1,024 tokens on, and the
+  reviewer's system message (role prompt plus one playbook, no tool definitions in front) is shorter. Checked with
+  the real reviewer prompt on the raw API, two cases each: with the VELOCITY or the GEO_JUMP playbook 0 tokens
+  cached on the second case; with both GEO_JUMP and LARGE_AMOUNT (about 1,420 tokens) 1,420 cached. The
+  investigator clears the minimum because its ~1,000 tokens of tool definitions come first. So each review writes
+  its whole prompt at 1.25x and nothing reads it back: about 25% more than no caching on the reviewer's input,
+  roughly $0.0001 per review. Not worth padding the prompt or mixing other rules' playbooks into it (ADR 0007).
+  The report writer and the specialists of MULTI mode (not the default) are in the same position.
+- **Cache writes of tool-calling exchanges are lost by Spring AI 2.0.1.** It sums the usage of every request of an
+  exchange (cached tokens included, correctly) but drops the SDK's usage and sums its own empty cache-write field to
+  0. `LlmUsage.cacheWriteTokens` treats that as unknown (null) rather than zero, and such calls bill their writes at
+  the input rate: low by $0.025 per million written tokens, under $0.0001 a case. So the written share in the report
+  is a floor. The fix belongs upstream: map `prompt_tokens_details.cache_write_tokens` in `OpenAiChatModel`.
+
 ## Consequences
 
 - About a ninth of the model cost per analysis, and a better-ranked regulation search, for slower analyses (p50 up
@@ -71,7 +97,5 @@ NEEDS_REVIEW. All critical cases 3/3.
 - The comparison is not clean: the mini baseline predates the GEO_JUMP playbook fix, geo-velocity (ADR 0021) and this
   prompt restructuring, and has 16 cases. Re-running mini was skipped on purpose (the platform moves to the GPT-6
   family); the conclusion rests on Luna passing every case at a ninth of the cost, not on a precise delta.
-- Cache-write tokens are priced but not stored per analysis; the cached-token share of Luna runs is not yet measured
-  end to end (the evaluation report does not carry token counts).
 - `prompt_cache_key` is not used: OpenAI documents it as unnecessary for caching on GPT-5.6 and later. Explicit cache
   breakpoints are documented for the Responses API only; Spring AI 2.0 uses Chat Completions.

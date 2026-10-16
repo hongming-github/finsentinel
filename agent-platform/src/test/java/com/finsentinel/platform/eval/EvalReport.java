@@ -70,7 +70,10 @@ record EvalReport(String startedAt, String modes, int repeats, int runs, int ski
                 .append("| Cost total / per run | $").append(totalCostUsd.setScale(4, RoundingMode.HALF_UP)).append(" / $")
                 .append(meanCostUsd.setScale(4, RoundingMode.HALF_UP)).append(" |\n")
                 .append("| Latency p50 / p95 | ").append(p50LatencyMs).append(" ms / ").append(p95LatencyMs)
-                .append(" ms |\n\n")
+                .append(" ms |\n")
+                .append("| Prompt tokens: total / read from cache / written to cache (where reported) | ")
+                .append(promptCache())
+                .append(" |\n\n")
                 .append("| Case | Category | Critical | Passed | Verdicts | Failed checks |\n|---|---|---|---|---|---|\n");
         byCase.forEach((id, s) -> md.append("| ").append(id).append(" | ").append(s.category()).append(" | ")
                 .append(s.critical() ? "yes" : "").append(" | ").append(s.passed()).append("/").append(s.runs())
@@ -79,6 +82,22 @@ record EvalReport(String startedAt, String modes, int repeats, int runs, int ski
         md.append("\n| Category | Pass rate |\n|---|---|\n");
         passRateByCategory.forEach((c, r) -> md.append("| ").append(c).append(" | ").append(pct(r)).append(" |\n"));
         return md.toString();
+    }
+
+    /**
+     * Over the runs that reported tokens. Cached and written shares of the prompt tokens: a low cached share after a
+     * prompt change means the change broke the reusable prefix (ADR 0023). The written share is a floor: Spring AI
+     * 2.0.1 loses the write count of tool-calling exchanges (see {@code LlmUsage.cacheWriteTokens}).
+     */
+    String promptCache() {
+        List<RunRecord> counted = records.stream().filter(r -> r.inputTokens() != null).toList();
+        long input = counted.stream().mapToLong(RunRecord::inputTokens).sum();
+        if (input == 0) {
+            return "not reported";
+        }
+        long cached = counted.stream().mapToLong(r -> r.cachedInputTokens() == null ? 0 : r.cachedInputTokens()).sum();
+        long written = counted.stream().mapToLong(r -> r.cacheWriteTokens() == null ? 0 : r.cacheWriteTokens()).sum();
+        return "%,d / %s / %s".formatted(input, pct((double) cached / input), pct((double) written / input));
     }
 
     private static double rate(long part, long whole) {

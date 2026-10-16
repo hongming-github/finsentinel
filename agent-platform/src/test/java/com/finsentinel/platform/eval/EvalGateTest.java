@@ -41,7 +41,7 @@ class EvalGateTest {
     void budgetSkipsCostAndToolSelectionAreGated() {
         List<RunRecord> records = new ArrayList<>(List.of(
                 new RunRecord("a", "x", false, "SINGLE", 1, RunRecord.PASSED, "LIKELY_FRAUD", 90, List.of(), 4, 2,
-                        null, null, null, new BigDecimal("0.080"), 1000, List.of()),
+                        null, null, null, new BigDecimal("0.080"), 1000, null, null, null, List.of()),
                 RunRecord.skipped(new GoldenCase("a", "x", false, "d", "e", null, null, null), "SINGLE", 2)));
 
         assertThat(EvalGate.violations(report(records), THRESHOLDS)).containsExactlyInAnyOrder(
@@ -50,10 +50,23 @@ class EvalGateTest {
                 "mean cost per run $0.0800 above $0.0300");
     }
 
+    @Test
+    void reportShowsHowMuchOfThePromptCameFromTheCache() {
+        RunRecord a = new RunRecord("a", "x", false, "SINGLE", 1, RunRecord.PASSED, "LIKELY_FRAUD", 90, List.of(), 1, 1,
+                null, null, null, new BigDecimal("0.001"), 1000, 6_000, 4_000, 1_500, List.of());
+        RunRecord b = new RunRecord("b", "x", false, "SINGLE", 1, RunRecord.PASSED, "LIKELY_FRAUD", 90, List.of(), 1, 1,
+                null, null, null, new BigDecimal("0.001"), 1000, 4_000, 2_000, 1_500, List.of());
+
+        assertThat(report(List.of(a, b)).markdown())
+                .contains("| Prompt tokens: total / read from cache / written to cache (where reported) | "
+                        + "10,000 / 60% / 30% |");
+        assertThat(report(List.of(run("c", false, true, "0.001"))).promptCache()).isEqualTo("not reported");
+    }
+
     private static RunRecord run(String id, boolean critical, boolean passed, String cost) {
         return new RunRecord(id, "x", critical, "SINGLE", 1, passed ? RunRecord.PASSED : RunRecord.FAILED,
                 "LIKELY_FRAUD", 90, passed ? List.of() : List.of("disposition: wrong"), 1, 1, true, null, null,
-                new BigDecimal(cost), 1000, List.of());
+                new BigDecimal(cost), 1000, null, null, null, List.of());
     }
 
     private static EvalReport report(List<RunRecord> records) {

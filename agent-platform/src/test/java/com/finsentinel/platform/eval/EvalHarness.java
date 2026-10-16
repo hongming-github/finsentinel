@@ -69,7 +69,7 @@ final class EvalHarness {
         } catch (RuntimeException e) {
             return new RunRecord(c.id(), c.category(), c.critical(), mode.name(), repeat, RunRecord.FAILED, null,
                     null, List.of(ANALYSIS_FAILED + e.getMessage()), c.expect().requiredTools().size(), 0, null,
-                    null, null, null, (System.nanoTime() - started) / 1_000_000, List.of());
+                    null, null, null, (System.nanoTime() - started) / 1_000_000, null, null, null, List.of());
         }
         long latencyMs = (System.nanoTime() - started) / 1_000_000;
         CaseGrader.Grade grade = grader.grade(c, result);
@@ -85,7 +85,8 @@ final class EvalHarness {
         return new RunRecord(c.id(), c.category(), c.critical(), mode.name(), repeat,
                 grade.passed() ? RunRecord.PASSED : RunRecord.FAILED, result.report().disposition().name(),
                 result.report().riskScore(), grade.failed(), grade.requiredTools(), grade.requiredToolsCalled(),
-                grade.regulationsRelevant(), judgeScore, unsupported, cost, latencyMs, grade.passed() ? List.of() : explanation(result));
+                grade.regulationsRelevant(), judgeScore, unsupported, cost, latencyMs, result.inputTokens(),
+                result.cachedInputTokens(), result.cacheWriteTokens(), grade.passed() ? List.of() : explanation(result));
     }
 
     /**

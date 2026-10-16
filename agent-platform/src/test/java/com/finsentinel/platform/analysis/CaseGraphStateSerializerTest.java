@@ -57,6 +57,24 @@ class CaseGraphStateSerializerTest {
         assertThat(CaseGraphState.reviews(copy)).isEqualTo(1);
     }
 
+    /** A run checkpointed before cache-write tokens were recorded resumes with them unknown, not with an error. */
+    @Test
+    void checkpointsWrittenBeforeCacheWriteTokensStillLoad() {
+        CaseReport report = new CaseReport(Disposition.NEEDS_REVIEW, 50, "summary", List.of(), List.of(), List.of());
+        InvestigationResult withWrites = new InvestigationResult(report, List.of(), List.of(), "gpt-6-luna", 4033, 575,
+                1490, 2100, 2, 5673, List.of(), null, null, List.of());
+        String current = serializer.toJson(Map.of(CaseGraphState.INVESTIGATION, withWrites));
+        assertThat(current).contains("\"cacheWriteTokens\":2100");
+
+        String older = current.replace(",\"cacheWriteTokens\":2100", "");
+        OverAllState resumed = new OverAllState(serializer.fromJson(older));
+
+        assertThat(CaseGraphState.investigation(resumed)).hasValueSatisfying(r -> {
+            assertThat(r.cacheWriteTokens()).isNull();
+            assertThat(r.cachedInputTokens()).isEqualTo(1490);
+        });
+    }
+
     @Test
     void undeclaredKeysAreRejectedRatherThanReadBackAsMaps() {
         assertThatThrownBy(() -> serializer.toJson(Map.of("scratch", List.of(1, 2))))
