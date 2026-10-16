@@ -15,7 +15,7 @@ services:
   # ---------- core ----------
 
   kafka:
-    image: apache/kafka:4.2.1
+    image: apache/kafka:4.3.1
     profiles: [core]
     ports:
       - "9092:9092"
@@ -45,7 +45,7 @@ services:
 
   # One-shot: topics are created explicitly (auto-create is off) so partition counts are deliberate.
   kafka-init:
-    image: apache/kafka:4.2.1
+    image: apache/kafka:4.3.1
     profiles: [core]
     depends_on:
       kafka:
@@ -84,7 +84,7 @@ services:
     mem_limit: 512m
 
   postgres:
-    image: pgvector/pgvector:0.8.6-pg17
+    image: pgvector/pgvector:0.8.7-pg17
     profiles: [core]
     ports:
       - "5432:5432"
@@ -102,7 +102,7 @@ services:
     mem_limit: 512m
 
   redis:
-    image: redis:8.2-alpine
+    image: redis:8.10-alpine
     profiles: [core]
     ports:
       - "6380:6379"  # 6379 is often taken by other local projects
@@ -112,7 +112,7 @@ services:
   # Identity provider: realm "finsentinel" (users, roles, tenant claim, MCP clients) imported from keycloak/.
   # Development mode, in-memory database: the realm is re-imported on every start. 8080 is taken by other projects.
   keycloak:
-    image: quay.io/keycloak/keycloak:26.7.5
+    image: quay.io/keycloak/keycloak:26.8.1
     profiles: [core]
     ports:
       - "8094:8080"
