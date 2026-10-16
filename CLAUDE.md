@@ -145,6 +145,9 @@ committed, and how the user likes to work. Keep it updated at the end of each se
   `rules.geo-jump.max-speed-kmh` and the platform's `tools.travel-max-speed-kmh` stay equal. Agents read the verdict
   from `travel`; playbooks never list flight times.
 - Stateful Flink operators keep their `uid(...)`; never rename one without a savepoint migration plan.
+- Container images are pinned twice: `deploy/docker-compose.yml` (Dependabot updates it) and the Testcontainers
+  setup (`TestcontainersConfig` and a few tests, by hand). Keep them equal in the same change; the compose Flink
+  image moves only with `flink.version`.
 - Kafka sources that rebuild state from a compacted topic (account baselines) start from `earliest()` on a cold
   start; event streams (transactions) continue from the group's committed offsets. Test restarts the way they happen
   in production (same group, no savepoint), not with a fresh group (`StartingOffsetsTest`).
