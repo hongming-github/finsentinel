@@ -40,8 +40,14 @@ definitions, three different cases in a row, run twice with identical results; a
 | playbook as its own developer message | 2,611 written | 1,493 cached, ~1,110 written |
 | playbook appended to the system message (chosen) | 2,607 written | 1,489 cached, ~1,110 written |
 
-With the old structure Luna would have written the whole prompt at 1.25x for every case and read nothing back. A
-developer message works as well; the system message was chosen because Spring AI's `ChatClient` has no developer
+With the old structure Luna would have written the whole prompt at 1.25x for every case and read nothing back.
+**Why 0, measured on 2026-10-16:** both structures end their system block at a lookup boundary, but a prefix is only
+reused from 1,024 tokens on. Up to that boundary the old structure held the tool definitions and the role prompt,
+1,012 prompt tokens with a one-character user message (and less once OpenAI's hidden content, which does not count,
+is taken off): under the minimum, so the only other boundary, the end of the user message, included the case data.
+With the playbook in the system block the prefix is 1,561 tokens, over the minimum; the 1,489 cached match it less
+the hidden content. The playbook at the head of the user message could never be reused either way: the cache cannot
+be cut in the middle of a message. A developer message works as well; the system message was chosen because Spring AI's `ChatClient` has no developer
 role and older prefix-caching models are indifferent to it.
 
 **Evaluation** (`docs/eval/2026-10-15-luna.md`: 17 golden cases x 3, SINGLE, every role on Luna, Groq unset so no

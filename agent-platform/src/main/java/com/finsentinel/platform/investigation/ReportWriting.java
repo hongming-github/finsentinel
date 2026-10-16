@@ -34,10 +34,11 @@ final class ReportWriting {
     /**
      * The agent's system message: its role prompt, the playbook of each rule that fired (and only those), and what the
      * bank has not connected. Everything here is shared by many cases and nothing is case data, so the whole message
-     * is a reusable cache prefix. It must be its own message: from GPT-5.6 on, the provider writes the cache only at
-     * message boundaries (the end of the system block, the end of the latest user message), so a playbook at the head
-     * of the user message, ahead of the case data, was rewritten for every case and never read back (ADR 0011: 0 of
-     * 2,600 prompt tokens cached on a second case, 1,490 with the playbook in the system message).
+     * is a reusable cache prefix. It must be its own message, and long: from GPT-5.6 on, the provider reuses a prefix
+     * only up to a message boundary (the end of the system block, the end of an earlier message) and only from 1,024
+     * tokens on. With the playbook at the head of the user message the system block's prefix was about 1,000 tokens
+     * and nothing was read back (ADR 0023: 0 of 2,600 prompt tokens cached on a second case; 1,489 with the playbook
+     * in the system message, a 1,561-token prefix).
      */
     static String systemPrompt(String rolePrompt, CaseContext caseContext, Map<AlertRule, String> playbooks) {
         StringBuilder system = new StringBuilder(rolePrompt);

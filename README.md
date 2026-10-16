@@ -6,6 +6,27 @@ report for a compliance analyst.
 Built as a portfolio project covering the delivery work of a client-facing AI agent engineer: streaming data,
 agent orchestration, RAG, MCP integration with enterprise systems, evaluation, security, and multi-tenancy.
 
+## Measured
+
+Every number below was measured, on one laptop (8 cores, 16 GB, everything in Docker), with the run that produced it
+linked. The weak ones are included.
+
+| What | Result | How it was measured |
+|---|---|---|
+| Detection latency, payment to alert (p95) | 142 ms at 50 tps, 626 ms at 10,000 tps | Flink job, simulator traffic ([ADR 0025](docs/adr/0025-load-tests.md)) |
+| Stream catch-up throughput | 80,000 transactions/s on average | 4 million queued transactions, bound by 6 Kafka partitions, not CPU (ADR 0025) |
+| Agent quality, golden evaluation | 51/51 runs pass, tool selection 100% | 17 cases x 3 on gpt-6-luna ([report](docs/eval/2026-10-15-luna.md), [ADR 0023](docs/adr/0023-gpt-6-luna.md)) |
+| Model cost per case | $0.0012 in the evaluation, $0.003 end to end | End to end: 23 live alerts, review and repairs included (ADR 0025) |
+| Payment to report with a real model (p95) | **107 s** (analysis alone: 38 s) | 23 live alerts on gpt-6-luna, 8 workers; the model and queue rounds dominate, not detection (ADR 0025) |
+| Prompt tokens read from the provider's cache | 59%; the reviewer's **0%** | 17 cases; the reviewer's prefix is under the 1,024-token minimum ([report](docs/eval/2026-10-16-prompt-cache.md), ADR 0023) |
+| Regulation search, hit@5 / MRR | 0.94 / 0.91 | 32 questions over the MAS corpus, hybrid search and LLM rerank ([ADR 0007](docs/adr/0007-regulatory-rag.md), ADR 0023) |
+| Prompt injection in a payee name | Model alone cleared the case in **11 of 15** first drafts; the guard blocked all 11 | A flagged case can never be cleared, whatever the model says ([ADR 0016](docs/adr/0016-injection-defenses-and-audit-log.md)) |
+| Analyst API under load (p95) | 14-37 ms up to 385 requests/s; **fails at 500 visits/s** | Gatling; the audit log's per-bank chain lock and a 10-connection pool give out first (ADR 0025) |
+| Shared budget across two instances | Held at exactly 511 of 511 per hour | Counted in Postgres, not in memory (ADR 0025) |
+
+Load tests run the platform against `fake-llm`, a stand-in that speaks OpenAI's protocol, so they measure the platform,
+not a model ([ADR 0024](docs/adr/0024-phase-9-measurement.md)); the real-model rows say so.
+
 **Data path**: detection, the lake and the batch baselines.
 
 ```mermaid
