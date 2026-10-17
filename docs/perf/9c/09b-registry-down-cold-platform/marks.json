@@ -1,0 +1,33 @@
+{
+  "name": "registry-down-cold",
+  "marks": {
+    "start": "2026-10-16T17:02:10.923+00:00",
+    "inject": "2026-10-16T17:03:40.932+00:00",
+    "heal": "2026-10-16T17:07:49.863+00:00",
+    "end": "2026-10-16T17:28:51.894+00:00"
+  },
+  "commands": [
+    {
+      "t": "2026-10-16T17:05:49.854+00:00",
+      "command": "docker stop finsentinel-schema-registry-1 && kill $(cat target/stack/platform.pid) && sleep 5 && target/stack/start-platform.sh",
+      "exit": 0,
+      "output": "finsentinel-schema-registry-1\nplatform not healthy after 120 s\n"
+    },
+    {
+      "t": "2026-10-16T17:07:50.052+00:00",
+      "command": "docker start finsentinel-schema-registry-1",
+      "exit": 0,
+      "output": "finsentinel-schema-registry-1\n"
+    }
+  ],
+  "baseline_backlog_max": 6,
+  "needed": [
+    "platform",
+    "mcp-banking",
+    "mcp-compliance",
+    "fake-llm",
+    "postgres"
+  ],
+  "flink": true,
+  "interval_s": 5
+}

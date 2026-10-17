@@ -23,6 +23,10 @@ linked. The weak ones are included.
 | Prompt injection in a payee name | Model alone cleared the case in **11 of 15** first drafts; the guard blocked all 11 | A flagged case can never be cleared, whatever the model says ([ADR 0016](docs/adr/0016-injection-defenses-and-audit-log.md)) |
 | Analyst API under load (p95) | 14-37 ms up to 385 requests/s; **fails at 500 visits/s** | Gatling; the audit log's per-bank chain lock and a 10-connection pool give out first (ADR 0025) |
 | Shared budget across two instances | Held at exactly 511 of 511 per hour | Counted in Postgres, not in memory (ADR 0025) |
+| Recovery from 12 injected faults | Nothing lost in 11; a **150 s Postgres outage dead-lettered 1 alert**; the platform **cannot start while the schema registry is down** | One fault at a time under steady traffic, loss counted from Kafka offsets and the database ([ADR 0026](docs/adr/0026-chaos-drills.md), [results](docs/perf/2026-10-17-phase-9c.md)) |
+| Flink TaskManager killed | Restored from its checkpoint, 38/38 fraud scenarios detected, one duplicate alert stored once | Compose cluster; the JobManager noticed after 34 s (ADR 0026) |
+| Large amounts after a cold Flink restart | **36/76** detected in 12 min without batch baselines; 27/27 with them | Rule history lost with the process; the batch baseline stands in (ADR 0026) |
+| Platform instance killed mid-analysis | Resumed from checkpoints, no duplicate report, but the claimed cases waited **5 min** | The claim timeout; no heartbeat yet (ADR 0026) |
 
 Load tests run the platform against `fake-llm`, a stand-in that speaks OpenAI's protocol, so they measure the platform,
 not a model ([ADR 0024](docs/adr/0024-phase-9-measurement.md)); the real-model rows say so.
@@ -231,6 +235,15 @@ scripts/perf/flink-rate.py --interval 10                             # Flink's r
 scripts/stack.sh traffic --tps=20 --fraud-every=0 --burst=120 --duration=25   # 120 alerts at once, for the queue
 ./mvnw -pl load-test gatling:test -Dgatling.simulationClass=com.finsentinel.loadtest.AnalystApiSimulation \
   -Danalyst.users-per-second=50                                      # or McpSimulation; settings: load-test.properties
+```
+
+Chaos drills (phase 9C, ADR 0026; results in `docs/perf/2026-10-17-phase-9c.md`) inject one fault while traffic runs
+and record what was lost, dead-lettered or failed and how long recovery took, with Grafana screenshots:
+
+```bash
+scripts/stack.sh traffic --tps=20 --fraud-every=3 > target/stack/traffic.log 2>&1 &   # steady traffic, its log read back
+scripts/perf/drill.py run postgres-down --out docs/perf/9c/07b-postgres-down-150s --sim-log target/stack/traffic.log \
+  --hold 150 --inject "docker stop finsentinel-postgres-1" --heal "docker start finsentinel-postgres-1"
 ```
 
 ### LLM cost

@@ -1,0 +1,155 @@
+{
+  "name": "mcp-banking-down",
+  "marks": {
+    "start": "2026-10-16T16:13:52.858+00:00",
+    "inject": "2026-10-16T16:15:22.862+00:00",
+    "heal": "2026-10-16T16:17:22.897+00:00",
+    "recovered": "2026-10-16T16:17:33.123+00:00",
+    "end": "2026-10-16T16:18:35.744+00:00"
+  },
+  "fault_held_s": 120.0,
+  "recovery": {
+    "first_analysis_after_heal_s": 5.2,
+    "recovered_after_heal_s": 10.2,
+    "backlog_baseline_max": 6,
+    "backlog_max": 6,
+    "flink_restarts": 0
+  },
+  "detection": {
+    "alerting_scenarios": 49,
+    "detected": 49,
+    "missed": [],
+    "no_alert_by_design": 1,
+    "malformed_sent": 19
+  },
+  "llm": {
+    "main_provider_failures": 0,
+    "fallback_answers": 0,
+    "no_provider_answered": 0,
+    "last_fallback_after_heal_s": null
+  },
+  "messages": {
+    "offsets": {
+      "case.events.v1": 101,
+      "risk.alerts.v2": 100,
+      "risk.alerts.v2.DLT": 0,
+      "txn.transactions.dlq.v2": 19,
+      "txn.transactions.v2": 5978
+    },
+    "txn_rows_stored": 5957,
+    "alert_rows_stored": 99,
+    "window": {
+      "start": "2026-10-16T16:13:52.858+00:00",
+      "end": "2026-10-16T16:18:33.225+00:00"
+    },
+    "exact": {
+      "from": "2026-10-16T16:13:52.858+00:00",
+      "to": "2026-10-16T16:18:05.744+00:00",
+      "txn_records_on_topic": 5379,
+      "malformed_on_topic": 17,
+      "txn_rows_by_event_time": 5362,
+      "txn_missing": 0,
+      "alert_records_on_topic": 91,
+      "alert_rows_by_detection": 91,
+      "alert_redeliveries": 0
+    }
+  },
+  "cases": {
+    "events": {
+      "ALERT_ADDED>ANALYSIS": 2,
+      "ANALYSED>AWAITING_DECISION": 101,
+      "OPENED>ANALYSIS": 34,
+      "REOPENED>ANALYSIS": 64,
+      "UNTRUSTED_INSTRUCTIONS>ANALYSIS": 2
+    },
+    "failed_case_ids": []
+  },
+  "latency_payment_to_report": {
+    "before": {
+      "alerts": 33,
+      "unanalysed": 0,
+      "p50_s": 4.5,
+      "p95_s": 23.9,
+      "max_s": 43.1
+    },
+    "during": {
+      "alerts": 41,
+      "unanalysed": 0,
+      "p50_s": 3.9,
+      "p95_s": 15.8,
+      "max_s": 17.8
+    },
+    "after": {
+      "alerts": 26,
+      "unanalysed": 0,
+      "p50_s": 3.7,
+      "p95_s": 11.8,
+      "max_s": 13.5
+    }
+  },
+  "tools": [
+    {
+      "phase": "after",
+      "tool": "getAlertTransactions",
+      "calls": 25,
+      "empty": 0,
+      "p95_ms": 10
+    },
+    {
+      "phase": "before",
+      "tool": "getAlertTransactions",
+      "calls": 34,
+      "empty": 0,
+      "p95_ms": 12
+    },
+    {
+      "phase": "during",
+      "tool": "getAlertTransactions",
+      "calls": 42,
+      "empty": 0,
+      "p95_ms": 4
+    },
+    {
+      "phase": "after",
+      "tool": "getCustomerProfile",
+      "calls": 25,
+      "empty": 2,
+      "p95_ms": 350
+    },
+    {
+      "phase": "before",
+      "tool": "getCustomerProfile",
+      "calls": 34,
+      "empty": 0,
+      "p95_ms": 96
+    },
+    {
+      "phase": "during",
+      "tool": "getCustomerProfile",
+      "calls": 42,
+      "empty": 42,
+      "p95_ms": 24
+    },
+    {
+      "phase": "after",
+      "tool": "searchRegulations",
+      "calls": 25,
+      "empty": 0,
+      "p95_ms": 21
+    },
+    {
+      "phase": "before",
+      "tool": "searchRegulations",
+      "calls": 34,
+      "empty": 0,
+      "p95_ms": 25
+    },
+    {
+      "phase": "during",
+      "tool": "searchRegulations",
+      "calls": 42,
+      "empty": 0,
+      "p95_ms": 14
+    }
+  ]
+}

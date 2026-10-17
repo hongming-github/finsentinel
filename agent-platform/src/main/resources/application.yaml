@@ -248,6 +248,16 @@ management:
         # the obs profile: --management.otlp.metrics.export.enabled=true
         #                  --management.otlp.metrics.export.url=http://localhost:4318/v1/metrics
         enabled: false
+  metrics:
+    distribution:
+      # Micrometer's histograms stop at 30 s by default, so a payment-to-report time of three minutes read as 30 s in
+      # the chaos drills (phase 9C). A slow provider or a backed-up queue takes minutes.
+      maximum-expected-value:
+        finsentinel.pipeline: 15m
+        finsentinel.llm.ask: 5m
+      # The gateway's observation has no histogram otherwise: no per-model p95 on the dashboard.
+      percentiles-histogram:
+        finsentinel.llm.ask: true
   endpoints:
     web:
       exposure:

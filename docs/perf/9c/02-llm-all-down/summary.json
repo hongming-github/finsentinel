@@ -1,0 +1,129 @@
+{
+  "name": "llm-all-down",
+  "marks": {
+    "start": "2026-10-16T15:40:39.384+00:00",
+    "inject": "2026-10-16T15:42:09.391+00:00",
+    "heal": "2026-10-16T15:44:09.431+00:00",
+    "recovered": "2026-10-16T15:49:34.835+00:00",
+    "end": "2026-10-16T15:50:54.755+00:00"
+  },
+  "fault_held_s": 120.0,
+  "recovery": {
+    "first_analysis_after_heal_s": 5.1,
+    "recovered_after_heal_s": 325.4,
+    "backlog_baseline_max": 4,
+    "backlog_max": 28,
+    "flink_restarts": 0
+  },
+  "detection": {
+    "alerting_scenarios": 123,
+    "detected": 123,
+    "missed": [],
+    "no_alert_by_design": 3,
+    "malformed_sent": 55
+  },
+  "llm": {
+    "main_provider_failures": 0,
+    "fallback_answers": 0,
+    "no_provider_answered": 0,
+    "last_fallback_after_heal_s": null
+  },
+  "messages": {
+    "offsets": {
+      "case.events.v1": 191,
+      "risk.alerts.v2": 198,
+      "risk.alerts.v2.DLT": 0,
+      "txn.transactions.dlq.v2": 55,
+      "txn.transactions.v2": 12862
+    },
+    "txn_rows_stored": 12784,
+    "alert_rows_stored": 197,
+    "window": {
+      "start": "2026-10-16T15:40:39.384+00:00",
+      "end": "2026-10-16T15:50:49.896+00:00"
+    },
+    "exact": {
+      "from": "2026-10-16T15:40:39.384+00:00",
+      "to": "2026-10-16T15:50:24.755+00:00",
+      "txn_records_on_topic": 12303,
+      "malformed_on_topic": 53,
+      "txn_rows_by_event_time": 12250,
+      "txn_missing": 0,
+      "alert_records_on_topic": 187,
+      "alert_rows_by_detection": 187,
+      "alert_redeliveries": 0
+    }
+  },
+  "cases": {
+    "events": {
+      "ALERT_ADDED>ANALYSIS": 6,
+      "ANALYSED>AWAITING_DECISION": 185,
+      "ANALYSIS_ATTEMPT_FAILED>ANALYSIS": 19,
+      "FAILED>FAILED": 7,
+      "OPENED>ANALYSIS": 118,
+      "REOPENED>ANALYSIS": 76
+    },
+    "failed_case_ids": [
+      "07f9294c-facd-4bb8-8368-ae8875f5487a",
+      "1d952a2a-6d39-43f3-ae67-f57056fea346",
+      "368f7c80-0447-4b8a-a590-f224519d53d2",
+      "711de2ed-940c-4989-9353-fe183605d2d5",
+      "78bb44c0-27ef-4dd5-b42d-e6bb55a9741b",
+      "d86062cf-0e61-4d73-a3e5-05ee9182a568",
+      "fee65bf8-148c-4810-9096-e41284afaa67"
+    ]
+  },
+  "latency_payment_to_report": {
+    "before": {
+      "alerts": 30,
+      "unanalysed": 1,
+      "p50_s": 3.2,
+      "p95_s": 176.5,
+      "max_s": 176.7
+    },
+    "during": {
+      "alerts": 34,
+      "unanalysed": 2,
+      "p50_s": 125.9,
+      "p95_s": 594.9,
+      "max_s": 930.2
+    },
+    "after": {
+      "alerts": 136,
+      "unanalysed": 0,
+      "p50_s": 5.2,
+      "p95_s": 115.8,
+      "max_s": 131.5
+    }
+  },
+  "tools": [
+    {
+      "phase": "after",
+      "tool": "getAlertTransactions",
+      "calls": 157,
+      "empty": 0,
+      "p95_ms": 6
+    },
+    {
+      "phase": "before",
+      "tool": "getAlertTransactions",
+      "calls": 27,
+      "empty": 0,
+      "p95_ms": 5
+    },
+    {
+      "phase": "after",
+      "tool": "searchRegulations",
+      "calls": 157,
+      "empty": 0,
+      "p95_ms": 22
+    },
+    {
+      "phase": "before",
+      "tool": "searchRegulations",
+      "calls": 27,
+      "empty": 0,
+      "p95_ms": 22
+    }
+  ]
+}

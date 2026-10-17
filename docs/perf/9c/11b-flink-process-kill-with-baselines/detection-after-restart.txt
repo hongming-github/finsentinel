@@ -1,0 +1,4 @@
+Scenarios injected after the cold restart at 18:02:01 UTC (batch baselines published), detected/injected per minute since it
+BURST         0:4/4 2:5/5 3:3/3   total 12/12
+GEO_JUMP      0:2/2 1:5/5 2:3/3 3:1/1   total 11/11
+LARGE_AMOUNT  0:6/6 1:11/11 2:6/6 3:4/4   total 27/27

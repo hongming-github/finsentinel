@@ -11,3 +11,6 @@ HANDOFF.md
 
 # Trivy vulnerability database cache (CI)
 .trivy-cache/
+
+# Python bytecode from the scripts in scripts/perf
+__pycache__/

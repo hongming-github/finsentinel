@@ -1,0 +1,28 @@
+{
+  "name": "control",
+  "marks": {
+    "start": "2026-10-16T15:29:02.600+00:00",
+    "inject": "2026-10-16T15:30:02.604+00:00",
+    "heal": "2026-10-16T15:30:02.604+00:00",
+    "recovered": "2026-10-16T15:31:02.682+00:00",
+    "end": "2026-10-16T15:31:37.645+00:00"
+  },
+  "commands": [
+    {
+      "t": "2026-10-16T15:30:02.623+00:00",
+      "command": "true",
+      "exit": 0,
+      "output": ""
+    }
+  ],
+  "baseline_backlog_max": 4,
+  "needed": [
+    "platform",
+    "mcp-banking",
+    "mcp-compliance",
+    "fake-llm",
+    "postgres"
+  ],
+  "flink": true,
+  "interval_s": 5
+}

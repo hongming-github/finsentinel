@@ -1,0 +1,174 @@
+{
+  "name": "flink-kill",
+  "marks": {
+    "start": "2026-10-16T17:40:11.092+00:00",
+    "inject": "2026-10-16T17:41:41.099+00:00",
+    "heal": "2026-10-16T17:42:11.192+00:00",
+    "recovered": "2026-10-16T17:42:36.300+00:00",
+    "end": "2026-10-16T17:44:10.841+00:00"
+  },
+  "fault_held_s": 30.1,
+  "recovery": {
+    "first_analysis_after_heal_s": 10.1,
+    "recovered_after_heal_s": 25.1,
+    "backlog_baseline_max": 3,
+    "backlog_max": 7,
+    "flink_restarts": 0
+  },
+  "detection": {
+    "alerting_scenarios": 37,
+    "detected": 34,
+    "missed": [
+      {
+        "t": "2026-10-16T17:41:49.000+00:00",
+        "offset_s": 8,
+        "scenario": "LARGE_AMOUNT",
+        "account": "harbour/harbour-acc-0421"
+      },
+      {
+        "t": "2026-10-16T17:41:58.000+00:00",
+        "offset_s": 17,
+        "scenario": "LARGE_AMOUNT",
+        "account": "harbour/harbour-acc-0227"
+      },
+      {
+        "t": "2026-10-16T17:42:34.000+00:00",
+        "offset_s": 53,
+        "scenario": "LARGE_AMOUNT",
+        "account": "harbour/harbour-acc-0328"
+      }
+    ],
+    "no_alert_by_design": 0,
+    "malformed_sent": 20
+  },
+  "llm": {
+    "main_provider_failures": 0,
+    "fallback_answers": 0,
+    "no_provider_answered": 0,
+    "last_fallback_after_heal_s": null
+  },
+  "messages": {
+    "offsets": {
+      "case.events.v1": 76,
+      "risk.alerts.v2": 78,
+      "risk.alerts.v2.DLT": 0,
+      "txn.transactions.dlq.v2": 22,
+      "txn.transactions.v2": 4947
+    },
+    "txn_rows_stored": 4928,
+    "alert_rows_stored": 78,
+    "window": {
+      "start": "2026-10-16T17:40:11.092+00:00",
+      "end": "2026-10-16T17:44:06.421+00:00"
+    },
+    "exact": {
+      "from": "2026-10-16T17:40:11.092+00:00",
+      "to": "2026-10-16T17:43:40.841+00:00",
+      "txn_records_on_topic": 4395,
+      "malformed_on_topic": 18,
+      "txn_rows_by_event_time": 4377,
+      "txn_missing": 0,
+      "alert_records_on_topic": 66,
+      "alert_rows_by_detection": 66,
+      "alert_records_not_stored": 0
+    }
+  },
+  "cases": {
+    "events": {
+      "ALERT_ADDED>ANALYSIS": 3,
+      "ANALYSED>AWAITING_DECISION": 78,
+      "OPENED>ANALYSIS": 7,
+      "REOPENED>ANALYSIS": 71,
+      "UNTRUSTED_INSTRUCTIONS>ANALYSIS": 3
+    },
+    "failed_case_ids": []
+  },
+  "latency_payment_to_report": {
+    "before": {
+      "alerts": 31,
+      "unanalysed": 0,
+      "p50_s": 3.2,
+      "p95_s": 5.1,
+      "max_s": 8.5
+    },
+    "during": {
+      "alerts": 0,
+      "unanalysed": 0,
+      "p50_s": null,
+      "p95_s": null,
+      "max_s": null
+    },
+    "after": {
+      "alerts": 50,
+      "unanalysed": 0,
+      "p50_s": 4.4,
+      "p95_s": 39.0,
+      "max_s": 71.3
+    }
+  },
+  "tools": [
+    {
+      "phase": "after",
+      "tool": "getAlertTransactions",
+      "calls": 44,
+      "empty": 0,
+      "p95_ms": 9
+    },
+    {
+      "phase": "before",
+      "tool": "getAlertTransactions",
+      "calls": 31,
+      "empty": 0,
+      "p95_ms": 29
+    },
+    {
+      "phase": "during",
+      "tool": "getAlertTransactions",
+      "calls": 3,
+      "empty": 0,
+      "p95_ms": 3
+    },
+    {
+      "phase": "after",
+      "tool": "getCustomerProfile",
+      "calls": 44,
+      "empty": 0,
+      "p95_ms": 84
+    },
+    {
+      "phase": "before",
+      "tool": "getCustomerProfile",
+      "calls": 31,
+      "empty": 0,
+      "p95_ms": 39
+    },
+    {
+      "phase": "during",
+      "tool": "getCustomerProfile",
+      "calls": 3,
+      "empty": 0,
+      "p95_ms": 293
+    },
+    {
+      "phase": "after",
+      "tool": "searchRegulations",
+      "calls": 44,
+      "empty": 0,
+      "p95_ms": 10
+    },
+    {
+      "phase": "before",
+      "tool": "searchRegulations",
+      "calls": 31,
+      "empty": 0,
+      "p95_ms": 7
+    },
+    {
+      "phase": "during",
+      "tool": "searchRegulations",
+      "calls": 3,
+      "empty": 0,
+      "p95_ms": 3
+    }
+  ]
+}

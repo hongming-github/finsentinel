@@ -23,6 +23,7 @@ class FakeLlmTest {
     private static final String TOOLS = """
             [{"type":"function","function":{"name":"getAccountProfile","parameters":{"type":"object"}}},
              {"type":"function","function":{"name":"getAlertTransactions","parameters":{"type":"object"}}},
+             {"type":"function","function":{"name":"getCustomerProfile","parameters":{"type":"object"}}},
              {"type":"function","function":{"name":"searchRegulations","parameters":{"type":"object"}}}]""";
     /** The shape Spring AI generates for a record: nested records as $defs, nullable fields as type arrays. */
     private static final String REPORT_SCHEMA = """
@@ -66,7 +67,7 @@ class FakeLlmTest {
         JsonNode choice = response.path("choices").get(0);
         assertThat(choice.path("finish_reason").asString()).isEqualTo("tool_calls");
         assertThat(choice.path("message").path("tool_calls").findValuesAsString("name"))
-                .containsExactly("getAlertTransactions", "searchRegulations");
+                .containsExactly("getAlertTransactions", "getCustomerProfile", "searchRegulations");
         assertThat(response.path("model").asString()).isEqualTo("fake-llm");
         assertThat(response.path("usage").path("prompt_tokens").asInt()).isPositive();
     }

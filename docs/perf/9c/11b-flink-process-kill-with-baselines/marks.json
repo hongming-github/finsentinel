@@ -1,0 +1,34 @@
+{
+  "name": "flink-kill-with-baselines",
+  "marks": {
+    "start": "2026-10-16T18:00:01.331+00:00",
+    "inject": "2026-10-16T18:01:31.334+00:00",
+    "heal": "2026-10-16T18:02:01.424+00:00",
+    "recovered": "2026-10-16T18:02:11.500+00:00",
+    "end": "2026-10-16T18:07:15.747+00:00"
+  },
+  "commands": [
+    {
+      "t": "2026-10-16T18:01:31.413+00:00",
+      "command": "kill -9 $(pgrep -f \"[R]iskDetectionJob\"); pkill -9 -P $(cat target/stack/flink.pid) 2>/dev/null; kill -9 $(cat target/stack/flink.pid) 2>/dev/null; true",
+      "exit": 0,
+      "output": ""
+    },
+    {
+      "t": "2026-10-16T18:02:05.701+00:00",
+      "command": "target/stack/flink-start.sh",
+      "exit": 0,
+      "output": "flink running\n"
+    }
+  ],
+  "baseline_backlog_max": 10,
+  "needed": [
+    "platform",
+    "mcp-banking",
+    "mcp-compliance",
+    "fake-llm",
+    "postgres"
+  ],
+  "flink": true,
+  "interval_s": 5
+}

@@ -1,0 +1,34 @@
+{
+  "name": "platform-kill",
+  "marks": {
+    "start": "2026-10-16T17:32:10.562+00:00",
+    "inject": "2026-10-16T17:34:10.537+00:00",
+    "heal": "2026-10-16T17:34:31.272+00:00",
+    "recovered": "2026-10-16T17:34:45.738+00:00",
+    "end": "2026-10-16T17:35:47.577+00:00"
+  },
+  "commands": [
+    {
+      "t": "2026-10-16T17:34:26.262+00:00",
+      "command": "target/stack/kill-platform.sh",
+      "exit": 0,
+      "output": ""
+    },
+    {
+      "t": "2026-10-16T17:34:37.551+00:00",
+      "command": "curl -s -X DELETE localhost:8096/admin/behaviour; target/stack/start-platform.sh",
+      "exit": 0,
+      "output": "{}up platform\n"
+    }
+  ],
+  "baseline_backlog_max": 6,
+  "needed": [
+    "platform",
+    "mcp-banking",
+    "mcp-compliance",
+    "fake-llm",
+    "postgres"
+  ],
+  "flink": true,
+  "interval_s": 5
+}

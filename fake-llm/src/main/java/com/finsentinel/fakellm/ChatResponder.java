@@ -18,8 +18,9 @@ import java.util.regex.Pattern;
 /**
  * Answers an OpenAI Chat Completions request the way a cooperative model would, without one:
  * <ol>
- *   <li>Offered tools and no tool results yet: call the alert's transactions and, when offered, the regulation search
- *       (both read-only; arguments the tools treat as "as much as allowed").</li>
+ *   <li>Offered tools and no tool results yet: call the alert's transactions and, when offered, the customer profile
+ *       (an outside system behind mcp-banking, so the chaos drills reach it) and the regulation search (all read-only;
+ *       arguments the tools treat as "as much as allowed").</li>
  *   <li>Otherwise: the final answer, generated from the requested JSON schema, citing only transaction ids and chunk
  *       ids that tool results in this conversation returned, so the platform's validator accepts it.</li>
  * </ol>
@@ -31,7 +32,8 @@ final class ChatResponder {
     static final String MODEL = "fake-llm";
     static final String DISPOSITION = "NEEDS_REVIEW";
     static final int RISK_SCORE = 50;
-    private static final List<String> FIRST_TOOLS = List.of("getAlertTransactions", "searchRegulations");
+    private static final List<String> FIRST_TOOLS = List.of("getAlertTransactions", "getCustomerProfile",
+            "searchRegulations");
     private static final String SEARCH_QUERY = "customer liability and reporting duties for a suspicious payment";
     private static final Pattern PASSAGE_ID = Pattern.compile("^\\[([^\\]\\s]+)]$", Pattern.MULTILINE);
     private static final Pattern NOTED_TXNS = Pattern.compile("transactions \\[([^\\]]*)]");
