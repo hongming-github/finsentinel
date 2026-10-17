@@ -1,5 +1,7 @@
 package com.finsentinel.platform.observability;
 
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.SpanContext;
 import io.opentelemetry.api.trace.propagation.W3CTraceContextPropagator;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.propagation.TextMapGetter;
@@ -49,5 +51,11 @@ public final class Traces {
             return Context.root();
         }
         return W3C.extract(Context.root(), Map.of(HEADER, traceparent), GETTER);
+    }
+
+    /** The trace id (32 hex digits) a {@code traceparent} names, for links into Tempo; null for null or garbage. */
+    public static String traceId(String traceparent) {
+        SpanContext span = Span.fromContext(context(traceparent)).getSpanContext();
+        return span.isValid() ? span.getTraceId() : null;
     }
 }

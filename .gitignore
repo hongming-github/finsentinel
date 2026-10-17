@@ -14,3 +14,7 @@ HANDOFF.md
 
 # Python bytecode from the scripts in scripts/perf
 __pycache__/
+
+# Web console (ADR 0027)
+console/node_modules/
+console/dist/

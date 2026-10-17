@@ -4,6 +4,7 @@
 #   docker compose -f deploy/docker-compose.yml --profile core --profile systems up -d  # + fake bank systems
 #   docker compose -f deploy/docker-compose.yml --profile core --profile stream up -d
 #   docker compose -f deploy/docker-compose.yml --profile obs up -d
+#   docker compose -f deploy/docker-compose.yml --profile kafka-ui up -d   # topics, messages, lag (with core)
 #
 # Flink runs inside the IDE (embedded MiniCluster) during development; the `stream` profile is
 # for benchmarks and demos only.
@@ -182,6 +183,24 @@ services:
       - ./grafana/dashboards.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/finsentinel.yaml:ro
       - ./grafana/dashboards:/otel-lgtm/finsentinel-dashboards:ro
     mem_limit: 1200m
+
+  # ---------- kafka-ui ----------
+
+  # Topics, messages (Avro decoded through the registry), consumer groups and lag, for demos (ADR 0027). Read-only and
+  # without sign-in: a local tool, like Grafana here. Its own profile so the obs profile stays light.
+  kafka-ui:
+    image: kafbat/kafka-ui:v1.5.0
+    profiles: [kafka-ui]
+    ports:
+      - "8098:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: finsentinel
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:19092
+      KAFKA_CLUSTERS_0_SCHEMAREGISTRY: http://schema-registry:8080/apis/ccompat/v7
+      KAFKA_CLUSTERS_0_READONLY: "true"
+      DYNAMIC_CONFIG_ENABLED: "false"
+      JAVA_OPTS: -Xms128m -Xmx320m
+    mem_limit: 512m
 
 volumes:
   kafka-data:

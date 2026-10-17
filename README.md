@@ -103,7 +103,7 @@ schema registry, Spark baselines, end-to-end tracing). See [docs/roadmap.md](doc
 ## Stack
 
 Java 21 · Spring Boot 4.1 · Spring AI 2.0 · Kafka 4.2 · Flink 2.2 · Spark 4.2 · Postgres 17 + pgvector ·
-Redis · Keycloak · OpenTelemetry / Grafana LGTM · Testcontainers
+Redis · Keycloak · OpenTelemetry / Grafana LGTM · Testcontainers · React 19 + Vite (console)
 
 ## Modules
 
@@ -120,6 +120,7 @@ Redis · Keycloak · OpenTelemetry / Grafana LGTM · Testcontainers
 | `mcp-compliance` | MCP server for the screening vendor: counterparty watchlists, including the inter-bank mule account list. Stateless. |
 | `fake-llm` | OpenAI-compatible stand-in for load tests and drills: speaks the tool-calling protocol, answers any structured-output schema, injects latency and errors per provider (ADR 0024). No Spring. |
 | `load-test` | Gatling simulations of the analyst case API and the MCP endpoint, with realm tokens (ADR 0025). Compiled by the build, run by hand. No Spring. |
+| `console/` | Web console (React, Vite, TypeScript): case queue and case detail, alerts, LLM cost, audit log, the health of every process, and links from a case to its trace and logs. Signs in with Keycloak (PKCE); not part of the Maven build (ADR 0027). |
 | `examples/mcp-client-python` | A LangGraph analyst assistant in Python that uses the platform only through its MCP server. |
 | `deploy/systems/` | WireMock stand-ins for those systems, with id-pattern stories (travel notice, account takeover, mule payee, a prompt-injected CRM note). |
 | `knowledge/` | `sources.json` lists the MAS documents; `scripts/fetch-knowledge.sh` downloads them (not committed). |
@@ -160,6 +161,35 @@ TOKEN=$(curl -s localhost:8094/realms/finsentinel/protocol/openid-connect/token 
 curl -s -H "Authorization: Bearer $TOKEN" 'localhost:8090/api/tenants/straits/cases?stage=AWAITING_DECISION' | jq
 curl -s -H "Authorization: Bearer $TOKEN" localhost:8090/api/tenants/straits/cases/<caseId> | jq
 ```
+
+### Console
+
+A web console over the same API (ADR 0027): sign in through Keycloak (authorization code with PKCE, client
+`finsentinel-console`), and the tenant and roles come from your token. Analysts see their bank's queue, each case with
+its report, evidence, tool calls, review, cost, alerts and events, and decide with `If-Match` (a 409 says the case
+changed since you read it). Supervisors also see LLM cost and the audit log with its hash-chain check. The overview
+shows the health of every process; a case links to its trace in Tempo, its log lines in Loki and the pipeline
+dashboard over its life.
+
+```bash
+scripts/stack.sh up                                   # the stack, profile load: fake-llm, traces and logs to Grafana
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 scripts/stack.sh flink       # another terminal; traced detection
+scripts/stack.sh traffic --tps=10 --fraud-every=3 --otlp=http://localhost:4318  # another terminal; traced payments
+scripts/stack.sh console                              # http://localhost:8097 (Node 22.22+); alice, bob or sam
+docker compose -f deploy/docker-compose.yml --profile core --profile kafka-ui up -d kafka-ui   # optional, :8098
+cd console && npm test && npm run screenshots         # unit tests; screenshots of every page into docs/console/
+```
+
+The browser talks to the console's own origin only: Vite proxies `/api/` to the platform and one health URL per
+process, so the platform needs no CORS rule. Logs go to Loki only in profile `load`, where every account is simulated.
+
+| Overview (supervisor) | Case detail (analyst) |
+|---|---|
+| ![Overview](docs/console/06-overview-supervisor.png) | ![Case detail](docs/console/03-case-detail.png) |
+| **A case's trace in Tempo**: simulator, Flink, platform, graph nodes, MCP | **LLM usage** |
+| ![Trace](docs/console/09-tempo-trace.png) | ![LLM usage](docs/console/07-usage.png) |
+
+More in [docs/console/](docs/console/): queue, alerts, audit log, Loki, the analyst's view of a supervisor page.
 
 ### Case API
 
@@ -323,6 +353,8 @@ configuration and add the `--add-opens` flags from `stream-job/pom.xml` (`flink.
 | Keycloak | 8094 |
 | Schema registry (Apicurio) | 8095 |
 | fake-llm (profile `load`) | 8096 |
+| Web console (`scripts/stack.sh console`) | 8097 |
+| Kafka UI (`kafka-ui` profile) | 8098 |
 | Grafana (`obs` profile), OTLP gRPC / HTTP | 3000, 4317 / 4318 |
 | Flink UI (local run) | 8082 |
 | Flink UI (`stream` profile) | 8081 |
@@ -373,3 +405,6 @@ proposes updates weekly.
 - [0022 CI quality and security gates](docs/adr/0022-ci-quality-and-security-gates.md)
 - [0023 GPT-6 Luna as the default model](docs/adr/0023-gpt-6-luna.md)
 - [0024 Phase 9 foundation: fake LLM, pipeline metrics, stack script](docs/adr/0024-phase-9-measurement.md)
+- [0025 Load tests: Gatling for the APIs, the simulator for the stream](docs/adr/0025-load-tests.md)
+- [0026 Chaos drills under steady traffic](docs/adr/0026-chaos-drills.md)
+- [0027 A web console over the tenant-scoped API, signed in with PKCE](docs/adr/0027-web-console.md)

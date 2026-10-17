@@ -43,6 +43,9 @@
         <!-- The version Spring Boot 4.1.1 manages, so the platform and the plain-Java processes run one OpenTelemetry.
              Only the telemetry module uses it: a BOM here would override Boot's management in the platform. -->
         <opentelemetry.version>1.62.0</opentelemetry.version>
+        <!-- Logback to OpenTelemetry logs for the platform (ADR 0027): the release built against the OpenTelemetry above.
+             Boot does not manage it. -->
+        <opentelemetry-logback-appender.version>2.28.1-alpha</opentelemetry-logback-appender.version>
         <kafka.version>4.2.1</kafka.version>
         <!-- Security fixes (ADR 0022 "Upgrades"). Jackson 2 stays on the 2.21 line that Spark 4.2.0
              (jackson-module-scala must match databind's minor) and Spring Boot 4.1.1 use; Jackson 3 on Boot's 3.1 line.

@@ -19,11 +19,18 @@ import org.testcontainers.utility.MountableFile;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.SecureRandom;
 import java.time.Duration;
+import java.util.Base64;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import static com.finsentinel.platform.TestTokens.bearer;
@@ -106,6 +113,89 @@ class KeycloakRealmTest {
                 .andExpect(status().isUnauthorized());
     }
 
+    /**
+     * The console's sign-in (ADR 0027) the way a browser does it: authorization code with PKCE, a public client, no
+     * password grant. The token reaches the same rules as any analyst's.
+     */
+    @Test
+    void theConsoleSignsInWithPkceOnly() throws Exception {
+        String alice = consoleSignIn("alice");
+        assertThat(claims(alice)).containsEntry("tenant", "straits").containsEntry("azp", CONSOLE);
+        assertThat(claims(alice).get("aud").toString()).contains("finsentinel-platform");
+        mvc.perform(get("/api/tenants/straits/cases").with(bearer(alice))).andExpect(status().isOk());
+        mvc.perform(get("/api/tenants/harbour/cases").with(bearer(alice))).andExpect(status().isNotFound());
+
+        try (HttpClient http = HttpClient.newHttpClient()) {
+            // No code challenge, or a redirect anywhere but the console: Keycloak refuses before any login page.
+            HttpResponse<String> noChallenge = http.send(authorize(CONSOLE_REDIRECT, null),
+                    HttpResponse.BodyHandlers.ofString());
+            assertThat(noChallenge.headers().firstValue("Location")).hasValueSatisfying(l -> assertThat(l)
+                    .startsWith(CONSOLE_REDIRECT).contains("error=invalid_request").contains("code_challenge_method"));
+            HttpResponse<String> elsewhere = http.send(authorize("http://evil.example/callback",
+                    challenge("x".repeat(43))), HttpResponse.BodyHandlers.ofString());
+            assertThat(elsewhere.statusCode()).isEqualTo(400);
+            assertThat(elsewhere.body()).contains("redirect_uri");
+            // The password grant stays with the development CLI.
+            HttpResponse<String> password = http.send(HttpRequest.newBuilder(URI.create(issuer() + "/protocol/openid-connect/token"))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .POST(HttpRequest.BodyPublishers.ofString(form(Map.of("grant_type", "password", "client_id", CONSOLE,
+                            "username", "alice", "password", "alice")))).build(), HttpResponse.BodyHandlers.ofString());
+            assertThat(password.statusCode()).isEqualTo(400);
+            assertThat(password.body()).contains("unauthorized_client");
+        }
+    }
+
+    private static final String CONSOLE = "finsentinel-console";
+    private static final String CONSOLE_REDIRECT = "http://localhost:8097/callback";
+    private static final Pattern LOGIN_FORM = Pattern.compile("action=\"([^\"]+)\"");
+
+    /**
+     * Login page, form post with the user's password, the code from the redirect, then the code with the verifier.
+     * The login cookies are carried by hand: Keycloak marks them Secure, which a browser still sends to localhost but
+     * Java's CookieManager never sends over http.
+     */
+    private String consoleSignIn(String user) throws Exception {
+        byte[] random = new byte[32];
+        new SecureRandom().nextBytes(random);
+        String verifier = Base64.getUrlEncoder().withoutPadding().encodeToString(random);
+        try (HttpClient http = HttpClient.newHttpClient()) {
+            HttpResponse<String> page = http.send(authorize(CONSOLE_REDIRECT, challenge(verifier)),
+                    HttpResponse.BodyHandlers.ofString());
+            Matcher action = LOGIN_FORM.matcher(page.body());
+            assertThat(action.find()).as(page.body()).isTrue();
+            String cookies = page.headers().allValues("Set-Cookie").stream()
+                    .map(c -> c.substring(0, c.indexOf(';'))).collect(Collectors.joining("; "));
+            HttpResponse<String> login = http.send(HttpRequest.newBuilder(URI.create(action.group(1).replace("&amp;", "&")))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("Cookie", cookies)
+                    .POST(HttpRequest.BodyPublishers.ofString(form(Map.of("username", user, "password", user)))).build(),
+                    HttpResponse.BodyHandlers.ofString());
+            String location = login.headers().firstValue("Location").orElseThrow(() -> new AssertionError(login.body()));
+            assertThat(location).startsWith(CONSOLE_REDIRECT);
+            String code = location.replaceAll(".*[?&]code=([^&]+).*", "$1");
+            return token(Map.of("grant_type", "authorization_code", "client_id", CONSOLE, "code", code,
+                    "redirect_uri", CONSOLE_REDIRECT, "code_verifier", verifier));
+        }
+    }
+
+    private static HttpRequest authorize(String redirect, String challenge) {
+        String query = "client_id=" + CONSOLE + "&response_type=code&scope=openid&redirect_uri="
+                + URLEncoder.encode(redirect, StandardCharsets.UTF_8)
+                + (challenge == null ? "" : "&code_challenge=" + challenge + "&code_challenge_method=S256");
+        return HttpRequest.newBuilder(URI.create(issuer() + "/protocol/openid-connect/auth?" + query)).GET().build();
+    }
+
+    private static String challenge(String verifier) throws Exception {
+        byte[] sha = MessageDigest.getInstance("SHA-256").digest(verifier.getBytes(StandardCharsets.US_ASCII));
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(sha);
+    }
+
+    private static String form(Map<String, String> fields) {
+        return fields.entrySet().stream()
+                .map(e -> e.getKey() + "=" + URLEncoder.encode(e.getValue(), StandardCharsets.UTF_8))
+                .collect(Collectors.joining("&"));
+    }
+
     private static String issuer() {
         return "http://" + keycloak.getHost() + ":" + keycloak.getMappedPort(8080) + "/realms/finsentinel";
     }
@@ -118,8 +208,8 @@ class KeycloakRealmTest {
         return token(Map.of("grant_type", "client_credentials", "client_id", client, "client_secret", secret));
     }
 
-    private String token(Map<String, String> form) throws Exception {
-        String body = form.entrySet().stream().map(e -> e.getKey() + "=" + e.getValue()).collect(Collectors.joining("&"));
+    private String token(Map<String, String> fields) throws Exception {
+        String body = form(fields);
         try (HttpClient http = HttpClient.newHttpClient()) {
             HttpResponse<String> response = http.send(HttpRequest.newBuilder(URI.create(issuer() + "/protocol/openid-connect/token"))
                     .header("Content-Type", "application/x-www-form-urlencoded")

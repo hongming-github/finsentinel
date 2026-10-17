@@ -3,6 +3,7 @@ package com.finsentinel.platform.cases;
 import com.finsentinel.platform.alert.AlertProperties;
 import com.finsentinel.platform.alert.AlertRepository;
 import com.finsentinel.platform.alert.StoredAlert;
+import com.finsentinel.platform.observability.Traces;
 import com.finsentinel.platform.security.Caller;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Analyst-facing case API. The path names the tenant; {@code TenantPathFilter} has already checked it is the caller's
@@ -48,7 +50,7 @@ class CaseController {
                 .map(c -> ResponseEntity.ok()
                         .eTag("\"" + c.version() + "\"")
                         .body(new CaseDetail(c, alerts.findByCase(tenantId, caseId), cases.analyses(tenantId, caseId),
-                                cases.events(tenantId, caseId))))
+                                cases.events(tenantId, caseId), traces(cases.runTrace(tenantId, caseId)))))
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
@@ -87,10 +89,23 @@ class CaseController {
         };
     }
 
+    /** Trace ids only (no span ids or flags): what a link into Tempo needs. */
+    private static CaseTraces traces(CaseRepository.RunTrace run) {
+        return new CaseTraces(Traces.traceId(run.parent()),
+                run.alerts().stream().map(Traces::traceId).filter(Objects::nonNull).distinct().toList());
+    }
+
     record DecisionRequest(Decision decision, String note) {
     }
 
     record CaseDetail(FraudCase fraudCase, List<StoredAlert> alerts, List<CaseRepository.CaseAnalysis> analyses,
-                      List<CaseEvent> events) {
+                      List<CaseEvent> events, CaseTraces traces) {
+    }
+
+    /**
+     * Where to look the case up in the trace backend (ADR 0020): the trace the current analysis run continues and
+     * the traces its alerts arrived in, oldest first. Null and empty when nothing was traced.
+     */
+    record CaseTraces(String currentRun, List<String> alerts) {
     }
 }

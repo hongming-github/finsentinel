@@ -8,6 +8,7 @@
 #   scripts/stack.sh down      stop the processes this script started (Docker keeps running; "down --all" stops it too)
 #   scripts/stack.sh flink     the Flink job in an embedded MiniCluster, in the foreground (web UI :8082)
 #   scripts/stack.sh traffic [args]   the simulator in the foreground, e.g. --tps=50 --fraud-every=2
+#   scripts/stack.sh console   the web console in the foreground (http://localhost:8097, ADR 0027; needs Node)
 #
 # Logs and pid files go to target/stack/. Needs Docker, JDK 21 and a prior ./mvnw install -DskipTests.
 set -euo pipefail
@@ -17,11 +18,15 @@ RUN=target/stack
 COMPOSE=(docker compose -f deploy/docker-compose.yml --profile core --profile systems --profile obs)
 mkdir -p "$RUN"
 
+# Traces of the MCP servers to the obs collector, so a case's trace in Tempo reaches the bank systems (the platform's
+# profile "load" sets its own, logs included).
+TRACES=--management.opentelemetry.tracing.export.otlp.endpoint=http://localhost:4318/v1/traces
+
 # name|command|health URL
 PROCESSES=(
   "fake-llm|./mvnw -q -pl fake-llm exec:java|http://localhost:8096/health"
-  "mcp-banking|java -jar mcp-banking/target/mcp-banking-0.1.0-SNAPSHOT.jar|http://localhost:8091/actuator/health"
-  "mcp-compliance|java -jar mcp-compliance/target/mcp-compliance-0.1.0-SNAPSHOT.jar|http://localhost:8092/actuator/health"
+  "mcp-banking|java -jar mcp-banking/target/mcp-banking-0.1.0-SNAPSHOT.jar $TRACES|http://localhost:8091/actuator/health"
+  "mcp-compliance|java -jar mcp-compliance/target/mcp-compliance-0.1.0-SNAPSHOT.jar $TRACES|http://localhost:8092/actuator/health"
   "platform|java -jar agent-platform/target/agent-platform-0.1.0-SNAPSHOT.jar --spring.profiles.active=load|http://localhost:8090/actuator/health"
 )
 
@@ -95,5 +100,6 @@ case "${1:-}" in
   down) shift; down "${1:-}" ;;
   flink) ./mvnw -pl stream-job exec:exec ;;
   traffic) shift; ./mvnw -pl txn-simulator exec:java -Dexec.args="$*" ;;
-  *) sed -n '2,13p' "$0"; exit 1 ;;
+  console) cd console && { [[ -d node_modules ]] || npm ci; } && npm run dev ;;
+  *) sed -n '2,14p' "$0"; exit 1 ;;
 esac

@@ -119,6 +119,39 @@
       ]
     },
     {
+      "clientId": "finsentinel-console",
+      "name": "FinSentinel console (browser app: authorization code with PKCE, ADR 0027)",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "http://localhost:8097/callback"
+      ],
+      "webOrigins": [
+        "http://localhost:8097"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:8097/"
+      },
+      "defaultClientScopes": [
+        "finsentinel"
+      ],
+      "optionalClientScopes": [],
+      "protocolMappers": [
+        {
+          "name": "audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "finsentinel-platform",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
       "clientId": "analyst-assistant",
       "name": "Analyst assistant (MCP client example), acting for one bank",
       "secret": "analyst-assistant-dev-secret",

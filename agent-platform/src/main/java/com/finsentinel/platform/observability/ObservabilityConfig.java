@@ -3,11 +3,13 @@ package com.finsentinel.platform.observability;
 import io.micrometer.observation.ObservationPredicate;
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.trace.Tracer;
+import io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender;
+import org.springframework.beans.factory.InitializingBean;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-/** Tracing set-up beyond what Spring Boot configures (ADR 0020). */
+/** Tracing and log export set-up beyond what Spring Boot configures (ADR 0020, ADR 0027). */
 @Configuration(proxyBeanMethods = false)
 class ObservabilityConfig {
 
@@ -25,5 +27,15 @@ class ObservabilityConfig {
     @Bean
     ObservationPredicate noScheduledPollTraces() {
         return (name, context) -> !name.equals("tasks.scheduled.execution");
+    }
+
+    /**
+     * Hands Boot's OpenTelemetry to the Logback appender of logback-spring.xml, which exists in profile "load" only:
+     * log lines carry account ids, so they leave the process only where every account is simulated. Elsewhere there
+     * is no such appender and this does nothing.
+     */
+    @Bean
+    InitializingBean logExport(ObjectProvider<OpenTelemetry> openTelemetry) {
+        return () -> openTelemetry.ifAvailable(OpenTelemetryAppender::install);
     }
 }

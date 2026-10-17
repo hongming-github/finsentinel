@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Spring Boot's console logging, plus in profile "load" an OpenTelemetry appender that sends each line, with the
+     trace and span it was written in, over OTLP to Loki (ADR 0027). Only there: log lines carry account ids, and in
+     that profile every account is simulated. The endpoint is in application-load.yaml. -->
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+    <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+    <springProfile name="load">
+        <appender name="OTEL" class="io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender"/>
+        <root level="INFO">
+            <appender-ref ref="OTEL"/>
+        </root>
+    </springProfile>
+</configuration>

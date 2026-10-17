@@ -8,6 +8,7 @@ import com.finsentinel.contracts.AvroSerde;
 import com.finsentinel.contracts.Contracts;
 import com.finsentinel.contracts.avro.AlertEvent;
 import com.finsentinel.platform.PlatformTest;
+import com.finsentinel.platform.TestTokens;
 import com.finsentinel.platform.TestTracing;
 import com.finsentinel.platform.cases.CaseWorker;
 import io.opentelemetry.api.common.AttributeKey;
@@ -22,6 +23,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.test.web.servlet.MockMvc;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -33,6 +35,10 @@ import static com.finsentinel.platform.TestData.alert;
 import static com.finsentinel.platform.TestData.uniqueTenant;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.hamcrest.Matchers.contains;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * One trace from the stream job's detection span through the queue to the analysis and its graph nodes (ADR 0020).
@@ -59,6 +65,8 @@ class TracingIntegrationTest {
     SdkTracerProvider tracerProvider;
     @Autowired
     Environment environment;
+    @Autowired
+    MockMvc mvc;
 
     @Test
     void anAnalysisContinuesTheTraceOfTheAlertThatStartedItsRunAndLinksTheCasesOtherAlerts() {
@@ -92,6 +100,23 @@ class TracingIntegrationTest {
                     assertThat(link.getTraceId()).isEqualTo(TRACE_1);
                     assertThat(link.getSpanId()).isEqualTo(intake1.getSpanId());
                 });
+    }
+
+    @Test
+    void theCaseDetailNamesTheTracesToOpenInTempo() throws Exception {
+        String tenant = uniqueTenant();
+        String account = "acc-" + UUID.randomUUID();
+        String caseId = deliver(alert(tenant, account, AlertRule.VELOCITY, Severity.MEDIUM, List.of("t-1"),
+                Instant.now()), TRACE_1, DETECTION_1);
+        deliver(alert(tenant, account, AlertRule.LARGE_AMOUNT, Severity.HIGH, List.of("t-2"), Instant.now()),
+                TRACE_2, DETECTION_2);
+
+        // The current run continues the latest alert's trace; ids only, never the whole traceparent.
+        mvc.perform(get("/api/tenants/{t}/cases/{id}", tenant, caseId)
+                        .with(TestTokens.bearer(TestTokens.analyst(tenant))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.traces.currentRun").value(TRACE_2))
+                .andExpect(jsonPath("$.traces.alerts").value(contains(TRACE_1, TRACE_2)));
     }
 
     @Test

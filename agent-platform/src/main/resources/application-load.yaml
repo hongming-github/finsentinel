@@ -32,3 +32,14 @@ management:
         enabled: true
         url: http://localhost:4318/v1/metrics
         step: 10s
+  # Traces and logs to the same collector, so the console (ADR 0027) can link a case to its trace in Tempo and its log
+  # lines in Loki. Logs leave the process only in this profile (logback-spring.xml): every account here is simulated.
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: http://localhost:4318/v1/traces
+    logging:
+      export:
+        otlp:
+          endpoint: http://localhost:4318/v1/logs
