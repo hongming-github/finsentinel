@@ -37,7 +37,7 @@
 
         <spring-boot.version>4.1.1</spring-boot.version>
         <spring-ai.version>2.0.1</spring-ai.version>
-        <flink.version>2.2.1</flink.version>
+        <flink.version>2.3.0</flink.version>
         <flink-connector-kafka.version>5.0.0-2.2</flink-connector-kafka.version>
         <spark.version>4.2.0</spark.version>
         <!-- The version Spring Boot 4.1.1 manages, so the platform and the plain-Java processes run one OpenTelemetry.
@@ -46,20 +46,20 @@
         <!-- Logback to OpenTelemetry logs for the platform (ADR 0027): the release built against the OpenTelemetry above.
              Boot does not manage it. -->
         <opentelemetry-logback-appender.version>2.28.1-alpha</opentelemetry-logback-appender.version>
-        <kafka.version>4.2.1</kafka.version>
+        <kafka.version>4.4.0</kafka.version>
         <!-- Security fixes (ADR 0022 "Upgrades"). Jackson 2 stays on the 2.21 line that Spark 4.2.0
              (jackson-module-scala must match databind's minor) and Spring Boot 4.1.1 use; Jackson 3 on Boot's 3.1 line.
              The Spring modules import these ahead of the Boot BOM, which would otherwise win (see agent-platform). -->
-        <jackson2.version>2.21.7</jackson2.version>
-        <jackson3.version>3.1.7</jackson3.version>
+        <jackson2.version>2.22.3</jackson2.version>
+        <jackson3.version>3.2.3</jackson3.version>
         <netty.version>4.2.17.Final</netty.version>
         <lz4.version>1.11.4</lz4.version>
         <tomcat.version>11.0.26</tomcat.version>
         <avro.version>1.12.2</avro.version>
         <testcontainers.version>2.0.5</testcontainers.version>
         <slf4j.version>2.0.20</slf4j.version>
-        <log4j.version>2.25.5</log4j.version>
-        <junit.version>6.0.3</junit.version>
+        <log4j.version>2.26.1</log4j.version>
+        <junit.version>6.1.3</junit.version>
         <assertj.version>3.27.7</assertj.version>
         <!-- Compiler warnings fail the build (-Xlint, see the compiler plugin); -Dmaven.compiler.failOnWarning=false lists
              them all at once. -->
