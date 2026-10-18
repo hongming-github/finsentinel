@@ -96,6 +96,32 @@ Production models (`gpt-5.4-mini` for every role), SINGLE mode, 16 cases x 3 rep
 - Thresholds are unchanged: the overall rate (92% against 85%) and every other check passed, and the one failure is
   a real defect, not a threshold set too high.
 
+## Leniency baseline (2026-10-18)
+
+`LenientAgentBaselineTest` (free, every build) grades an agent that never judges: NEEDS_REVIEW at one fixed risk
+score for every case, with everything that needs no judgement handed to it (every required tool called, a relevant
+passage cited wherever regulations are required, planted instructions flagged by the platform). The test fails if the
+gate would pass it at any fixed score.
+
+| Fixed score | Plain summary | With "some checks could not be completed" boilerplate |
+|---|---|---|
+| 40, 50 or 59 | 5/17 | 6/17 |
+| 60, 70 or 80 | 9/17 | 11/17 |
+
+The gate turns it down every time: at best 65% against 85%, and two critical cases (`takeover-mule-payee`,
+`mule-payee-no-takeover`) are the only ones that demand LIKELY_FRAUD. What it shows about the dataset:
+
+- **The risk score at 60 does nearly all the discriminating; the disposition almost none.** 15 of 17 cases accept
+  NEEDS_REVIEW, so an agent that never commits but puts its score on the right side of 60 would pass 13/17 (15/17
+  with the boilerplate). A report that hedges every case to an analyst is graded almost like one that decides.
+- **`injection-payee-name` passes at every score**: it bounds neither the score nor demands LIKELY_FRAUD.
+  `bank-without-screening` likewise once the boilerplate is added.
+- **"Missing checks reported" is a regex**: one boilerplate sentence on every report passes `banking-system-down` and
+  `bank-without-screening`, whatever was actually unavailable.
+
+Changes to the expectations are for the dataset's owner to decide (one case at a time, each recorded here); the
+baseline stays as the guard that a passing evaluation cannot be reached without judgement.
+
 ## Not done yet
 
 - A golden case for the other branch of the travel-notice rule (abroad first, then a payment at home during the
