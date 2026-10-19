@@ -17,6 +17,9 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static com.finsentinel.platform.TestData.uniqueTenant;
 import static com.finsentinel.platform.cases.CaseTestSupport.alertOn;
@@ -240,6 +243,79 @@ class CaseWorkerTest {
                 .param("id", caseId).query(Double.class).single();
     }
 
+    /**
+     * Drill 10 (ADR 0026): the claims of an instance killed mid-analysis waited the full 5-minute claim timeout,
+     * although the instance was back in 15 s. A claim nobody renews now lapses after the lease.
+     */
+    @Test
+    void aClaimWhoseOwnerDiedIsTakenOverAfterTheLeaseNotTheClaimTimeout() {
+        String caseId = newCase(Severity.HIGH);
+        // Claimed 40 s ago by an instance that died: no completion, no renewal since.
+        jdbc.sql("""
+                        update fraud_case set claimed_at = clock_timestamp() - interval '40 seconds', attempts = 1
+                        where case_id = cast(:id as uuid)
+                        """)
+                .param("id", caseId).update();
+
+        assertThat(worker.runOnce()).isEqualTo(1);
+
+        assertThat(cases.find(tenant, caseId).orElseThrow().stage()).isEqualTo(CaseStage.AWAITING_DECISION);
+    }
+
+    @Test
+    void aClaimRenewedWithinTheLeaseIsLeftToItsOwner() {
+        String caseId = newCase(Severity.HIGH);
+        jdbc.sql("""
+                        update fraud_case set claimed_at = clock_timestamp() - interval '40 seconds',
+                            claim_renewed_at = clock_timestamp(), attempts = 1
+                        where case_id = cast(:id as uuid)
+                        """)
+                .param("id", caseId).update();
+
+        assertThat(worker.runOnce()).isZero();
+    }
+
+    /**
+     * A run longer than the lease keeps its claim because its worker renews it; another instance polling meanwhile
+     * finds nothing to take. Without the renewal the second worker takes the case over after the lease.
+     */
+    @Test
+    void aRunLongerThanTheLeaseKeepsItsClaimWhileItsWorkerRenewsIt() throws Exception {
+        String caseId = newCase(Severity.HIGH);
+        CountDownLatch running = new CountDownLatch(1);
+        CountDownLatch finish = new CountDownLatch(1);
+        investigator.respondWith(c -> {
+            running.countDown();
+            try {
+                finish.await(30, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return StubCaseInvestigator.defaultResult(c);
+        });
+        InvestigationProperties shortLease = props(0, Duration.ofSeconds(2), Duration.ofSeconds(1),
+                Duration.ofMillis(200));
+        CaseWorker owner = worker(shortLease);
+        CaseWorker other = worker(shortLease);
+
+        CompletableFuture<Integer> run = CompletableFuture.supplyAsync(owner::runOnce);
+        assertThat(running.await(10, TimeUnit.SECONDS)).isTrue();
+        long until = System.nanoTime() + Duration.ofSeconds(3).toNanos();
+        while (System.nanoTime() < until) {
+            assertThat(other.runOnce()).as("three leases long, nothing to take over").isZero();
+        }
+        finish.countDown();
+
+        assertThat(run.get(10, TimeUnit.SECONDS)).isEqualTo(1);
+        assertThat(investigator.calls()).isEqualTo(1);
+        assertThat(cases.find(tenant, caseId).orElseThrow().stage()).isEqualTo(CaseStage.AWAITING_DECISION);
+    }
+
+    private CaseWorker worker(InvestigationProperties props) {
+        return new CaseWorker(cases, alerts, analysis, props, systems,
+                io.opentelemetry.api.OpenTelemetry.noop().getTracer("test"), metrics);
+    }
+
     @Test
     void hourlyBudgetStopsClaimingWhenSpent() {
         newCase(Severity.HIGH);
@@ -257,7 +333,11 @@ class CaseWorkerTest {
     }
 
     static InvestigationProperties props(int maxPerHour, Duration lockTimeout) {
-        return new InvestigationProperties(true, 5, Duration.ofMinutes(5), 3,
+        return props(maxPerHour, lockTimeout, Duration.ofSeconds(30), Duration.ofSeconds(10));
+    }
+
+    static InvestigationProperties props(int maxPerHour, Duration lockTimeout, Duration lease, Duration heartbeat) {
+        return new InvestigationProperties(true, 5, Duration.ofMinutes(5), lease, heartbeat, 3,
                 new InvestigationProperties.Retry(Duration.ofMinutes(1), 2, Duration.ofMinutes(10)), maxPerHour, lockTimeout,
                 new InvestigationProperties.Tools(90, 100, 1000), new InvestigationProperties.Report(60, 40, 1, true));
     }

@@ -26,7 +26,7 @@ linked. The weak ones are included.
 | Recovery from 12 injected faults | Nothing lost in 11; a **150 s Postgres outage dead-lettered 1 alert**, the platform **could not start while the schema registry was down**, and **both models down for 2 min failed 7 cases**; all three fixed and the drills repeated (0 dead letters; down 14 s instead of 9 min; 0 failed, [fixes](docs/perf/2026-10-18-9c-fixes.md)) | One fault at a time under steady traffic, loss counted from Kafka offsets and the database ([ADR 0026](docs/adr/0026-chaos-drills.md), [results](docs/perf/2026-10-17-phase-9c.md)) |
 | Flink TaskManager killed | Restored from its checkpoint, 38/38 fraud scenarios detected, one duplicate alert stored once | Compose cluster; the JobManager noticed after 34 s (ADR 0026) |
 | Large amounts after a cold Flink restart | **36/76** detected in 12 min without batch baselines; 27/27 with them | Rule history lost with the process; the batch baseline stands in (ADR 0026) |
-| Platform instance killed mid-analysis | Resumed from checkpoints, no duplicate report, but the claimed cases waited **5 min** | The claim timeout; no heartbeat yet (ADR 0026) |
+| Platform instance killed mid-analysis | Resumed from checkpoints, no duplicate report; the claimed cases taken over after 34 s (before the heartbeat: **5 min**) | Live runs renew their claims every 10 s, a claim not renewed for 30 s lapses ([fixes](docs/perf/2026-10-18-9c-fixes.md), ADR 0026) |
 
 Load tests run the platform against `fake-llm`, a stand-in that speaks OpenAI's protocol, so they measure the platform,
 not a model ([ADR 0024](docs/adr/0024-phase-9-measurement.md)); the real-model rows say so.
@@ -220,8 +220,9 @@ Inside ANALYSIS a Spring AI Alibaba graph runs the agents (`finsentinel.analysis
 the default; or `MULTI`, deterministic plan, parallel specialists and a report writer, ADR 0010). In both, an LLM
 reviewer checks the report against the author's evidence and can send it back once; its verdict is stored with the
 analysis. The graph checkpoints after every node to `graph_checkpoint` (plain
-JSON). If the platform dies mid-analysis, the next worker to claim the case (after `claim-timeout`) resumes after the
-last finished node; a worker whose claim has timed out can no longer write checkpoints.
+JSON). If the platform dies mid-analysis, its claims lapse after `claim-lease` (live runs renew theirs every
+`claim-heartbeat`), and the next worker to claim the case resumes after the last finished node; a worker whose claim
+was taken can no longer write checkpoints.
 
 ### Tracing
 

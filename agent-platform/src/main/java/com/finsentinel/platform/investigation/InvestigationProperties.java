@@ -9,7 +9,9 @@ import java.time.Duration;
  *
  * @param enabled      scheduled polling on/off; tests and cost-conscious local runs turn it off
  * @param batchSize    alerts claimed per poll, which is also the max concurrent LLM investigations
- * @param claimTimeout a claim older than this is considered abandoned and may be taken again
+ * @param claimTimeout the longest one analysis may hold its claim, renewed or not; then it may be taken again
+ * @param claimLease   a claim not renewed for this long has lapsed (its owner died) and may be taken again
+ * @param claimHeartbeat how often a running analysis renews its claim; well under the lease
  * @param maxAttempts  after this many failed attempts the alert is marked FAILED
  * @param retry        pauses between a case's failed attempts
  * @param maxPerHour   spend circuit breaker: investigations started per rolling hour; 0 = unlimited.
@@ -19,7 +21,8 @@ import java.time.Duration;
  * @param report       acceptance rules for the agent's report
  */
 @ConfigurationProperties("finsentinel.investigation")
-public record InvestigationProperties(boolean enabled, int batchSize, Duration claimTimeout, int maxAttempts,
+public record InvestigationProperties(boolean enabled, int batchSize, Duration claimTimeout, Duration claimLease,
+                                      Duration claimHeartbeat, int maxAttempts,
                                       Retry retry, int maxPerHour, Duration claimLockTimeout, Tools tools,
                                       Report report) {
 
@@ -28,6 +31,11 @@ public record InvestigationProperties(boolean enabled, int batchSize, Duration c
         require(maxAttempts > 0, "max-attempts must be positive");
         require(maxPerHour >= 0, "max-per-hour must be 0 (unlimited) or positive");
         require(claimTimeout != null && !claimTimeout.isNegative() && !claimTimeout.isZero(), "claim-timeout must be positive");
+        require(claimLease != null && claimLease.isPositive() && claimLease.compareTo(claimTimeout) <= 0,
+                "claim-lease must be positive and at most claim-timeout");
+        require(claimHeartbeat != null && claimHeartbeat.isPositive()
+                        && claimHeartbeat.multipliedBy(2).compareTo(claimLease) <= 0,
+                "claim-heartbeat must be positive and at most half of claim-lease");
         require(claimLockTimeout != null && !claimLockTimeout.isNegative() && !claimLockTimeout.isZero(),
                 "claim-lock-timeout must be positive");
         require(retry != null, "retry settings are required");

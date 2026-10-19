@@ -1,0 +1,12 @@
+               case_id                |              at               |   type   |     to_stage      
+--------------------------------------+-------------------------------+----------+-------------------
+ 7640a17a-0051-4c2e-8359-ec1ec7eecb5f | 2026-10-19 09:13:38.664485+00 | REOPENED | ANALYSIS
+ 7640a17a-0051-4c2e-8359-ec1ec7eecb5f | 2026-10-19 09:14:14.349246+00 | ANALYSED | AWAITING_DECISION
+ 7640a17a-0051-4c2e-8359-ec1ec7eecb5f | 2026-10-19 09:14:28.425797+00 | REOPENED | ANALYSIS
+ 7640a17a-0051-4c2e-8359-ec1ec7eecb5f | 2026-10-19 09:15:55.18425+00  | ANALYSED | AWAITING_DECISION
+ 98779398-f89d-40f8-be36-97acdd1873db | 2026-10-19 09:13:35.665135+00 | REOPENED | ANALYSIS
+ 98779398-f89d-40f8-be36-97acdd1873db | 2026-10-19 09:14:14.347567+00 | ANALYSED | AWAITING_DECISION
+ 98779398-f89d-40f8-be36-97acdd1873db | 2026-10-19 09:15:13.006571+00 | REOPENED | ANALYSIS
+ 98779398-f89d-40f8-be36-97acdd1873db | 2026-10-19 09:15:18.203742+00 | ANALYSED | AWAITING_DECISION
+(8 rows)
+

@@ -27,7 +27,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -72,14 +76,15 @@ public class CaseWorker {
     /** One poll cycle. Public so tests can drive the queue deterministically. */
     public int runOnce() {
         // Queue work spans every bank: the system scope, the only place outside tests that uses it.
-        int abandoned = Tenancy.callAsSystem(() -> cases.failAbandoned(props.claimTimeout(), props.maxAttempts()));
+        int abandoned = Tenancy.callAsSystem(() -> cases.failAbandoned(props.claimTimeout(), props.claimLease(),
+                props.maxAttempts()));
         if (abandoned > 0) {
             log.warn("Marked {} abandoned analyses as FAILED", abandoned);
         }
         CaseRepository.ClaimBatch batch;
         try {
             batch = Tenancy.callAsSystem(() -> cases.claimWithinBudget(props.batchSize(), props.claimTimeout(),
-                    props.maxAttempts(), props.maxPerHour(), props.claimLockTimeout()));
+                    props.claimLease(), props.maxAttempts(), props.maxPerHour(), props.claimLockTimeout()));
         } catch (DataAccessException e) {
             if (!CaseRepository.isLockTimeout(e)) {
                 throw e;
@@ -96,6 +101,7 @@ public class CaseWorker {
         List<Future<?>> runs = new ArrayList<>(claims.size());
         try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
             claims.forEach(claim -> runs.add(executor.submit(() -> process(claim))));
+            renewWhileRunning(claims, runs);
         }
         // Closing the executor waited for every run. A failure outside the analysis's own handling (the database gone
         // while recording a failure) would otherwise vanish with its future; the claim times out and is retried.
@@ -106,6 +112,48 @@ public class CaseWorker {
             }
         }
         return claims.size();
+    }
+
+    /**
+     * Renews the claims of the runs still going, every heartbeat, until all are done (drill 10, ADR 0026). Only a live
+     * process renews, so a killed one's claims lapse after the lease. A renewal that fails (the database gone) is
+     * skipped: the claim may lapse and be taken over, and fencing then stops this run from writing.
+     */
+    private void renewWhileRunning(List<CaseClaim> claims, List<Future<?>> runs) {
+        long heartbeatNanos = props.claimHeartbeat().toNanos();
+        while (true) {
+            long next = System.nanoTime() + heartbeatNanos;
+            for (Future<?> run : runs) {
+                long wait = next - System.nanoTime();
+                if (wait <= 0) {
+                    break;
+                }
+                try {
+                    run.get(wait, TimeUnit.NANOSECONDS);
+                } catch (TimeoutException e) {
+                    break;
+                } catch (ExecutionException | CancellationException e) {
+                    // Reported once all runs are done.
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+            List<CaseClaim> running = new ArrayList<>();
+            for (int i = 0; i < runs.size(); i++) {
+                if (!runs.get(i).isDone()) {
+                    running.add(claims.get(i));
+                }
+            }
+            if (running.isEmpty()) {
+                return;
+            }
+            try {
+                Tenancy.callAsSystem(() -> cases.renew(running));
+            } catch (DataAccessException e) {
+                log.warn("Could not renew {} claims: {}", running.size(), e.toString());
+            }
+        }
     }
 
     /** In the claimed case's tenant scope: everything the analysis reads or writes belongs to that bank. */
