@@ -218,6 +218,11 @@ finsentinel:
     compliance-url: http://localhost:8092
     connect-timeout: 2s
     request-timeout: 8s
+    # Per system, as for model providers: after failure-threshold failed calls in a row its calls fail at once for
+    # open-for, then one call tries. A slow system otherwise costs every call its full timeout (ADR 0026, drill 05).
+    circuit:
+      failure-threshold: 3
+      open-for: 30s
     # Outside systems each bank has connected (BANKING: CRM and core banking; COMPLIANCE: watchlist screening). Agents
     # get only the tools of their bank's systems, and the brief says which checks are not available.
     connected-default: [BANKING, COMPLIANCE]

@@ -23,7 +23,7 @@ linked. The weak ones are included.
 | Prompt injection in a payee name | Model alone cleared the case in **11 of 15** first drafts; the guard blocked all 11 | A flagged case can never be cleared, whatever the model says ([ADR 0016](docs/adr/0016-injection-defenses-and-audit-log.md)) |
 | Analyst API under load (p95) | 14-37 ms up to 385 requests/s; **fails at 500 visits/s** | Gatling; the audit log's per-bank chain lock and a 10-connection pool give out first (ADR 0025) |
 | Shared budget across two instances | Held at exactly 511 of 511 per hour | Counted in Postgres, not in memory (ADR 0025) |
-| Recovery from 12 injected faults | Nothing lost in 11; a **150 s Postgres outage dead-lettered 1 alert**, the platform **could not start while the schema registry was down**, and **both models down for 2 min failed 7 cases**; all three fixed and the drills repeated (0 dead letters; down 14 s instead of 9 min; 0 failed, [fixes](docs/perf/2026-10-18-9c-fixes.md)) | One fault at a time under steady traffic, loss counted from Kafka offsets and the database ([ADR 0026](docs/adr/0026-chaos-drills.md), [results](docs/perf/2026-10-17-phase-9c.md)) |
+| Recovery from 12 injected faults | Nothing lost in 11; a **150 s Postgres outage dead-lettered 1 alert**, the platform **could not start while the schema registry was down**, **both models down for 2 min failed 7 cases**, and **slow outside systems cost every call 5 s**; all fixed and the drills repeated (0 dead letters; down 14 s instead of 9 min; 0 failed; backlog back in 5.5 s instead of 120 s, [fixes](docs/perf/2026-10-18-9c-fixes.md)) | One fault at a time under steady traffic, loss counted from Kafka offsets and the database ([ADR 0026](docs/adr/0026-chaos-drills.md), [results](docs/perf/2026-10-17-phase-9c.md)) |
 | Flink TaskManager killed | Restored from its checkpoint, 38/38 fraud scenarios detected, one duplicate alert stored once | Compose cluster; the JobManager noticed after 34 s (ADR 0026) |
 | Large amounts after a cold Flink restart | **36/76** detected in 12 min without batch baselines; 27/27 with them | Rule history lost with the process; the batch baseline stands in (ADR 0026) |
 | Platform instance killed mid-analysis | Resumed from checkpoints, no duplicate report; the claimed cases taken over after 34 s (before the heartbeat: **5 min**) | Live runs renew their claims every 10 s, a claim not renewed for 30 s lapses ([fixes](docs/perf/2026-10-18-9c-fixes.md), ADR 0026) |
@@ -286,7 +286,9 @@ Every analysis records its cost at list prices (all model calls, reranking inclu
 and cost and latency by analysis mode. Each agent role has its own model (`finsentinel.llm.models`); transfer and HIGH
 cases can be escalated to a stronger model (`finsentinel.llm.escalation`, off by default: ADR 0011). Every model call
 goes through one gateway: when a provider fails (error, rate limit, out of credit) the call falls back to
-`groq:openai/gpt-oss-120b` (needs `GROQ_API_KEY`), with a circuit breaker per provider (ADR 0012).
+`groq:openai/gpt-oss-120b` (needs `GROQ_API_KEY`), with a circuit breaker per provider (ADR 0012). Outside systems
+(CRM, core banking, screening) have one each too: after three failed calls in a row their tools answer `Unavailable` at
+once for 30 s instead of each waiting out a slow system (ADR 0026).
 
 Regulation search results are cached in Redis by exact question (normalised case and spacing), keyed by corpus
 version and search settings; the report shows the hit rate and what the hits saved. Not by embedding similarity: a

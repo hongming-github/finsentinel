@@ -40,6 +40,8 @@ compliance search to external agents).
   AI's MCP client starter, which connects at startup and hands every server tool to the model.
 - **Degradation.** Connections are made on first use and dropped after a failure. A system that is down or
   answers with an error becomes an `Unavailable` tool result; the agent carries on and names the missing check.
+  Since ADR 0026 each system has a circuit breaker: after repeated failures its calls are `Unavailable` at once for a
+  while instead of each waiting out a slow system.
   Verified with the packaged jar: banking server stopped, case still analysed, summary says CRM and security events
   were not checked.
 - **Untrusted text.** CRM staff notes reach the model labelled as staff notes; the prompt says notes never change

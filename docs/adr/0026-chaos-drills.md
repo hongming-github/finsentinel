@@ -86,7 +86,9 @@ in `docs/perf/2026-10-18-9c-fixes.md`:
 4. **Claim heartbeat**: renew claims of live runs and shorten the lease, fencing unchanged; a test that kills a run's
    owner and measures the takeover. **Done 2026-10-19**: 10 s heartbeat, 30 s lease; drill 10 repeated, the killed
    instance's cases analysed 33.7 s after their claim instead of 5 minutes.
-5. **Circuit breaker per outside system** in `ExternalSystems`.
+5. **Circuit breaker per outside system** in `ExternalSystems`. **Done 2026-10-19** (in `McpServerConnection`, one
+   per system): drill 05 repeated, 29 of 37 CRM calls failed at once instead of waiting 5 s, backlog back to baseline
+   5.5 s after the repair instead of 120 s.
 6. **Worker pool** (ADR 0025 Next), then repeat drills 2, 3 and 7b to measure the drain.
 7. Local Flink: restore the latest retained checkpoint in `scripts/stack.sh flink`; compose `stream` profile: a
    shared checkpoint volume and a REST port that does not override the cluster's.

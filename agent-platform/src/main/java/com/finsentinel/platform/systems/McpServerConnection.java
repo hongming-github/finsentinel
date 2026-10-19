@@ -3,6 +3,7 @@ package com.finsentinel.platform.systems;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
 import com.finsentinel.platform.observability.Traces;
+import com.finsentinel.platform.resilience.CircuitBreaker;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
 import io.modelcontextprotocol.common.McpTransportContext;
 import io.modelcontextprotocol.json.jackson3.JacksonMcpJsonMapper;
@@ -26,7 +27,8 @@ import java.util.function.Supplier;
  * One MCP server, connected on first use. The platform starts and keeps working when a server is down: a failed call
  * drops the connection, and the next call connects again. Thread-safe. Every request carries the platform's own
  * access token; no token (identity provider down) fails the call like a server that is down. Every call is a client
- * span whose context goes to the server in the {@code traceparent} header (ADR 0020).
+ * span whose context goes to the server in the {@code traceparent} header (ADR 0020). After repeated failures the
+ * system's circuit opens and calls fail at once instead of each waiting out a slow or dead system (drill 05, ADR 0026).
  */
 class McpServerConnection implements AutoCloseable {
 
@@ -37,11 +39,13 @@ class McpServerConnection implements AutoCloseable {
     private final JsonMapper json;
     private final Supplier<String> bearerToken;
     private final Tracer tracer;
+    private final CircuitBreaker breaker;
     private McpSyncClient client;
 
     McpServerConnection(String name, URI url, Duration connectTimeout, Duration requestTimeout, JsonMapper json,
-                        Supplier<String> bearerToken, Tracer tracer) {
+                        Supplier<String> bearerToken, Tracer tracer, CircuitBreaker breaker) {
         this.tracer = tracer;
+        this.breaker = breaker;
         this.name = name;
         this.url = url;
         this.connectTimeout = connectTimeout;
@@ -59,14 +63,27 @@ class McpServerConnection implements AutoCloseable {
                 .setAttribute("finsentinel.system", name)
                 .startSpan();
         try (Scope ignored = span.makeCurrent()) {
+            if (!breaker.allowsCall()) {
+                span.setAttribute("finsentinel.circuit_open", true);
+                throw new SystemUnavailableException(name, tool + ": circuit open after repeated failures");
+            }
             McpSchema.CallToolResult result;
             try {
                 result = client().callTool(McpSchema.CallToolRequest.builder(tool).arguments(arguments).build());
             } catch (RuntimeException e) {
                 disconnect();
+                breaker.failure();
                 throw new SystemUnavailableException(name, tool + ": " + e);
             }
-            return parse(name, tool, result, type, json);
+            T answer;
+            try {
+                answer = parse(name, tool, result, type, json);
+            } catch (SystemUnavailableException e) {
+                breaker.failure();
+                throw e;
+            }
+            breaker.success();
+            return answer;
         } catch (SystemUnavailableException e) {
             span.setStatus(StatusCode.ERROR, e.getMessage());
             throw e;

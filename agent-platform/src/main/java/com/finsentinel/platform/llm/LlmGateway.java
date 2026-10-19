@@ -1,5 +1,6 @@
 package com.finsentinel.platform.llm;
 
+import com.finsentinel.platform.resilience.CircuitBreaker;
 import io.micrometer.observation.Observation;
 
 import org.slf4j.Logger;
