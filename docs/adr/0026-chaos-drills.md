@@ -81,7 +81,8 @@ in `docs/perf/2026-10-18-9c-fixes.md`:
    server stay up and the listeners retry. **Done 2026-10-19**: drill 9b repeated, the platform down 14 s instead of
    9 minutes and the first analysis 36 s after the registry returned (before: 327 s).
 3. **Back off between analysis attempts** (`next_attempt_at`), so a provider outage of minutes does not use up the
-   attempts.
+   attempts. **Done 2026-10-19**: drill 02 repeated with 0 cases FAILED (before: 7); the backlog drains more slowly
+   (509 s instead of 325 s) because failed cases wait out their pause.
 4. **Claim heartbeat**: renew claims of live runs and shorten the lease, fencing unchanged; a test that kills a run's
    owner and measures the takeover.
 5. **Circuit breaker per outside system** in `ExternalSystems`.

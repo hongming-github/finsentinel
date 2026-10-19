@@ -173,7 +173,7 @@ public class CaseWorker {
             log.warn("Analysis of case {} failed: {}", c.caseId(), e.toString());
             span.recordException(e);
             span.setStatus(StatusCode.ERROR, e.toString());
-            cases.fail(claim, props.maxAttempts(), e.toString());
+            cases.fail(claim, props.maxAttempts(), props.retry().pauseAfter(c.attempts()), e.toString());
         }
     }
 

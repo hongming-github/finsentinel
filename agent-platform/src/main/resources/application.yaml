@@ -98,6 +98,11 @@ finsentinel:
     poll-interval: 5s
     claim-timeout: 5m
     max-attempts: 3
+    # Between failed attempts (ADR 0026): 1 min, then 2 min, so three attempts outlast a model outage of 3 minutes.
+    retry:
+      pause: 1m
+      multiplier: 2
+      max-pause: 10m
     max-per-hour: 60
     # Claims hold the lock for milliseconds; waiting longer than this means something is stuck.
     claim-lock-timeout: 2s

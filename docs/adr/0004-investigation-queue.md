@@ -17,7 +17,8 @@ listener, a second Kafka topic, or a queue table.
 - A claim older than `claim-timeout` is taken back, so a crashed worker's alerts are retried.
 - `claimed_at` is a **fencing token**: a worker writes its report only if the row still carries the
   `claimed_at` it claimed with. A worker that hung past its timeout cannot overwrite the newer attempt.
-- Failures return the alert to NEW until `max-attempts`, then FAILED.
+- Failures return the alert to NEW until `max-attempts`, then FAILED. (Since ADR 0026, on cases: each failed attempt
+  waits a growing pause, `next_attempt_at`, before the next claim.)
 - **Spend circuit breaker:** at most `max-per-hour` investigations start per rolling hour. When it is
   reached, alerts stay queued and a warning is logged.
 

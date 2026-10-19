@@ -21,6 +21,7 @@ import java.util.UUID;
 import static com.finsentinel.platform.TestData.uniqueTenant;
 import static com.finsentinel.platform.cases.CaseTestSupport.alertOn;
 import static com.finsentinel.platform.cases.CaseTestSupport.eventTypes;
+import static com.finsentinel.platform.cases.CaseTestSupport.makeDue;
 import static com.finsentinel.platform.cases.CaseTestSupport.outboxTypes;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -130,7 +131,9 @@ class CaseWorkerTest {
 
         worker.runOnce();
         assertThat(cases.find(tenant, caseId).orElseThrow().stage()).isEqualTo(CaseStage.ANALYSIS);
+        makeDue(jdbc, caseId);
         worker.runOnce();
+        makeDue(jdbc, caseId);
         worker.runOnce();
 
         assertThat(cases.find(tenant, caseId).orElseThrow().stage()).isEqualTo(CaseStage.FAILED);
@@ -199,6 +202,44 @@ class CaseWorkerTest {
         assertThat(eventTypes(cases, tenant, caseId)).contains("ANALYSIS_SUPERSEDED");
     }
 
+    /**
+     * Drill 02 (ADR 0026): attempts on consecutive polls, seconds apart, used up all three within a model outage of
+     * half a minute and the case failed for good. Each failed attempt now waits a growing pause.
+     */
+    @Test
+    void aFailedAttemptWaitsAGrowingPauseSoAnOutageOfMinutesDoesNotFailTheCase() {
+        String caseId = newCase(Severity.HIGH);
+        investigator.respondWith(c -> {
+            throw new IllegalStateException("no provider answered");
+        });
+
+        worker.runOnce();
+        assertThat(worker.runOnce()).as("the next poll leaves the case alone").isZero();
+        assertThat(secondsUntilNextAttempt(caseId)).isBetween(55.0, 60.0);
+
+        makeDue(jdbc, caseId);
+        worker.runOnce();
+        assertThat(secondsUntilNextAttempt(caseId)).as("doubled").isBetween(115.0, 120.0);
+
+        investigator.reset();
+        makeDue(jdbc, caseId);
+        worker.runOnce();
+
+        assertThat(cases.find(tenant, caseId).orElseThrow().stage()).isEqualTo(CaseStage.AWAITING_DECISION);
+        assertThat(eventTypes(cases, tenant, caseId))
+                .containsExactly("OPENED", "ANALYSIS_ATTEMPT_FAILED", "ANALYSIS_ATTEMPT_FAILED", "ANALYSED");
+        assertThat(jdbc.sql("select next_attempt_at is null from fraud_case where case_id = cast(:id as uuid)")
+                .param("id", caseId).query(Boolean.class).single()).as("no pause left once analysed").isTrue();
+    }
+
+    private double secondsUntilNextAttempt(String caseId) {
+        return jdbc.sql("""
+                        select extract(epoch from next_attempt_at - clock_timestamp()) from fraud_case
+                        where case_id = cast(:id as uuid)
+                        """)
+                .param("id", caseId).query(Double.class).single();
+    }
+
     @Test
     void hourlyBudgetStopsClaimingWhenSpent() {
         newCase(Severity.HIGH);
@@ -216,7 +257,8 @@ class CaseWorkerTest {
     }
 
     static InvestigationProperties props(int maxPerHour, Duration lockTimeout) {
-        return new InvestigationProperties(true, 5, Duration.ofMinutes(5), 3, maxPerHour, lockTimeout,
+        return new InvestigationProperties(true, 5, Duration.ofMinutes(5), 3,
+                new InvestigationProperties.Retry(Duration.ofMinutes(1), 2, Duration.ofMinutes(10)), maxPerHour, lockTimeout,
                 new InvestigationProperties.Tools(90, 100, 1000), new InvestigationProperties.Report(60, 40, 1, true));
     }
 }

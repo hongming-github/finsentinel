@@ -11,6 +11,7 @@ import java.time.Duration;
  * @param batchSize    alerts claimed per poll, which is also the max concurrent LLM investigations
  * @param claimTimeout a claim older than this is considered abandoned and may be taken again
  * @param maxAttempts  after this many failed attempts the alert is marked FAILED
+ * @param retry        pauses between a case's failed attempts
  * @param maxPerHour   spend circuit breaker: investigations started per rolling hour; 0 = unlimited.
  *                     An upstream alert storm must not turn directly into an unbounded LLM bill.
  * @param claimLockTimeout longest wait for the cross-instance claim lock before skipping a poll
@@ -19,7 +20,8 @@ import java.time.Duration;
  */
 @ConfigurationProperties("finsentinel.investigation")
 public record InvestigationProperties(boolean enabled, int batchSize, Duration claimTimeout, int maxAttempts,
-                                      int maxPerHour, Duration claimLockTimeout, Tools tools, Report report) {
+                                      Retry retry, int maxPerHour, Duration claimLockTimeout, Tools tools,
+                                      Report report) {
 
     public InvestigationProperties {
         require(batchSize > 0, "batch-size must be positive");
@@ -28,8 +30,32 @@ public record InvestigationProperties(boolean enabled, int batchSize, Duration c
         require(claimTimeout != null && !claimTimeout.isNegative() && !claimTimeout.isZero(), "claim-timeout must be positive");
         require(claimLockTimeout != null && !claimLockTimeout.isNegative() && !claimLockTimeout.isZero(),
                 "claim-lock-timeout must be positive");
+        require(retry != null, "retry settings are required");
         require(tools != null, "tools settings are required");
         require(report != null, "report settings are required");
+    }
+
+    /**
+     * A failed attempt waits {@code pause}, then {@code multiplier} times longer after each further failure, at most
+     * {@code maxPause}, so the attempts span minutes and outlast a provider outage of a few minutes (drill 02, ADR 0026).
+     *
+     * @param pause      wait after the first failed attempt
+     * @param multiplier growth of the wait after each further failure
+     * @param maxPause   longest wait
+     */
+    public record Retry(Duration pause, double multiplier, Duration maxPause) {
+
+        public Retry {
+            require(pause != null && pause.isPositive(), "retry.pause must be positive");
+            require(multiplier >= 1, "retry.multiplier must be at least 1");
+            require(maxPause != null && maxPause.compareTo(pause) >= 0, "retry.max-pause must be at least retry.pause");
+        }
+
+        /** The wait before the next attempt, after {@code failedAttempts} attempts (1 or more) have failed. */
+        public Duration pauseAfter(int failedAttempts) {
+            double millis = pause.toMillis() * Math.pow(multiplier, Math.max(0, failedAttempts - 1));
+            return millis >= maxPause.toMillis() ? maxPause : Duration.ofMillis(Math.round(millis));
+        }
     }
 
     /**

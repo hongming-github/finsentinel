@@ -100,6 +100,7 @@ public class CaseRepository {
                             analysis_run = analysis_run + 1,
                             attempts = case when stage = 'ANALYSIS' then attempts else 0 end,
                             claimed_at = case when stage = 'ANALYSIS' then claimed_at end,
+                            next_attempt_at = case when stage = 'ANALYSIS' then next_attempt_at end,
                             trace_parent = :traceParent,
                             version = version + 1,
                             updated_at = now()
@@ -181,7 +182,7 @@ public class CaseRepository {
         return new ClaimBatch(claim(limit, claimTimeout, maxAttempts), false);
     }
 
-    /** HIGH priority first, then oldest; also takes back claims that timed out. */
+    /** HIGH priority first, then oldest; also takes back claims that timed out. Skips cases waiting out a pause. */
     List<CaseClaim> claim(int limit, Duration claimTimeout, int maxAttempts) {
         return jdbc.sql("""
                         update fraud_case
@@ -190,6 +191,7 @@ public class CaseRepository {
                             select case_id from fraud_case
                             where stage = 'ANALYSIS' and attempts < :maxAttempts
                               and (claimed_at is null or claimed_at < now() - make_interval(secs => :timeoutSecs))
+                              and (next_attempt_at is null or next_attempt_at <= now())
                             order by %s, opened_at
                             limit :limit
                             for update skip locked)
@@ -232,7 +234,7 @@ public class CaseRepository {
         deleteCheckpoints(claimed.caseId(), claimed.analysisRun());
         if (currentRun.get() != claimed.analysisRun()) {
             jdbc.sql("""
-                            update fraud_case set claimed_at = null, attempts = 0, updated_at = now()
+                            update fraud_case set claimed_at = null, attempts = 0, next_attempt_at = null, updated_at = now()
                             where case_id = :caseId
                             """)
                     .param("caseId", UUID.fromString(claimed.caseId()))
@@ -243,7 +245,8 @@ public class CaseRepository {
         }
         jdbc.sql("""
                         update fraud_case
-                        set stage = 'AWAITING_DECISION', claimed_at = null, attempts = 0, analyst_note = null,
+                        set stage = 'AWAITING_DECISION', claimed_at = null, attempts = 0, next_attempt_at = null,
+                            analyst_note = null,
                             version = version + 1, updated_at = now()
                         where case_id = :caseId
                         """)
@@ -257,18 +260,24 @@ public class CaseRepository {
         return Completion.READY_FOR_DECISION;
     }
 
-    /** Releases a failed claim: back to the queue, or FAILED when attempts are used up. */
+    /**
+     * Releases a failed claim: back to the queue, not to be claimed again before {@code pause} has passed, or FAILED
+     * when attempts are used up.
+     */
     @Transactional
-    public void fail(CaseClaim claim, int maxAttempts, String error) {
+    public void fail(CaseClaim claim, int maxAttempts, Duration pause, String error) {
         FraudCase claimed = claim.fraudCase();
         Optional<String> stage = jdbc.sql("""
                         update fraud_case
                         set stage = case when attempts >= :maxAttempts then 'FAILED' else stage end,
+                            next_attempt_at = case when attempts >= :maxAttempts then null
+                                                   else clock_timestamp() + make_interval(secs => :pauseSecs) end,
                             claimed_at = null, version = version + 1, updated_at = now()
                         where case_id = :caseId and stage = 'ANALYSIS' and claimed_at = :claimedAt
                         returning stage
                         """)
                 .param("maxAttempts", maxAttempts)
+                .param("pauseSecs", pause.toMillis() / 1000.0)
                 .param("caseId", UUID.fromString(claimed.caseId()))
                 .param("claimedAt", Timestamp.from(claim.claimedAt()))
                 .query(String.class)
@@ -282,7 +291,8 @@ public class CaseRepository {
     @Transactional
     public int failAbandoned(Duration claimTimeout, int maxAttempts) {
         List<FraudCase> abandoned = jdbc.sql("""
-                        update fraud_case set stage = 'FAILED', claimed_at = null, version = version + 1, updated_at = now()
+                        update fraud_case set stage = 'FAILED', claimed_at = null, next_attempt_at = null,
+                            version = version + 1, updated_at = now()
                         where stage = 'ANALYSIS' and attempts >= :maxAttempts
                           and claimed_at < now() - make_interval(secs => :timeoutSecs)
                         returning *
@@ -324,7 +334,8 @@ public class CaseRepository {
                             analysis_run = analysis_run + case when :to = 'ANALYSIS' then 1 else 0 end,
                             analyst_note = case when :to = 'ANALYSIS' then :note end,
                             trace_parent = case when :to = 'ANALYSIS' then :traceParent else trace_parent end,
-                            attempts = 0, claimed_at = null, version = version + 1, updated_at = now()
+                            attempts = 0, next_attempt_at = null, claimed_at = null, version = version + 1,
+                            updated_at = now()
                         where tenant_id = :tenantId and case_id = :caseId and version = :version
                           and stage in ('AWAITING_DECISION', 'FAILED')
                         returning *
