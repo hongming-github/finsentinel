@@ -87,7 +87,8 @@ All on one laptop (8 cores, 16 GB, Docker Desktop); details and every table in `
   passed, after which the agents are told the evidence is missing). A claim-query predicate keeps it multi-instance
   safe.
 - **A worker pool instead of batches**: claim whenever a slot frees up, so one slow analysis does not hold back the
-  rest; then measure 8-16 concurrent analyses with a real model against provider rate limits.
+  rest; then measure 8-16 concurrent analyses with a real model against provider rate limits. (The pool is done, ADR
+  0026: `batch-size` became `concurrency`, still 2. The real-model measurement is not.)
 - **Audit log throughput**: append through a per-bank single writer that chains a batch of entries per transaction,
   or chain per (bank, shard) and anchor the shard heads; a bigger connection pool only moves the knee.
 - **Transaction copy**: `COPY` or partitioned `txn` by day, and concurrency matched to partitions; or let the alert

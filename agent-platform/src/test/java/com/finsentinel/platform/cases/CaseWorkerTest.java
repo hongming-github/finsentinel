@@ -27,6 +27,7 @@ import static com.finsentinel.platform.cases.CaseTestSupport.eventTypes;
 import static com.finsentinel.platform.cases.CaseTestSupport.makeDue;
 import static com.finsentinel.platform.cases.CaseTestSupport.outboxTypes;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 @PlatformTest
 class CaseWorkerTest {
@@ -309,6 +310,46 @@ class CaseWorkerTest {
         assertThat(run.get(10, TimeUnit.SECONDS)).isEqualTo(1);
         assertThat(investigator.calls()).isEqualTo(1);
         assertThat(cases.find(tenant, caseId).orElseThrow().stage()).isEqualTo(CaseStage.AWAITING_DECISION);
+    }
+
+    /**
+     * ADR 0025 Next, drills 2, 3 and 7b (ADR 0026): the worker claimed a batch and waited for all of it, so one slow
+     * analysis held every slot of the batch, and nothing more was claimed until the next poll. Now a freed slot claims
+     * the next case at once, while the slow one goes on.
+     */
+    @Test
+    void aSlowAnalysisDoesNotHoldUpTheCasesBehindIt() throws Exception {
+        String slow = newCase(Severity.HIGH);
+        List<String> quick = new java.util.ArrayList<>();
+        for (int i = 0; i < 5; i++) {
+            quick.add(newCase(Severity.MEDIUM));
+        }
+        CountDownLatch finishSlow = new CountDownLatch(1);
+        investigator.respondWith(c -> {
+            if (c.caseId().equals(slow)) {
+                try {
+                    finishSlow.await(30, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            return StubCaseInvestigator.defaultResult(c);
+        });
+        CaseWorker pool = worker(props(0, Duration.ofSeconds(2)));
+
+        CompletableFuture<Void> poll = CompletableFuture.runAsync(pool::poll);
+        try {
+            await().pollInSameThread().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
+                    assertThat(quick).as("all five analysed while the slow one runs (five slots)")
+                            .allSatisfy(id -> assertThat(cases.find(tenant, id).orElseThrow().stage())
+                                    .isEqualTo(CaseStage.AWAITING_DECISION)));
+            assertThat(cases.find(tenant, slow).orElseThrow().stage()).isEqualTo(CaseStage.ANALYSIS);
+        } finally {
+            finishSlow.countDown();
+        }
+        poll.get(10, TimeUnit.SECONDS);
+        await().pollInSameThread().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
+                assertThat(cases.find(tenant, slow).orElseThrow().stage()).isEqualTo(CaseStage.AWAITING_DECISION));
     }
 
     private CaseWorker worker(InvestigationProperties props) {

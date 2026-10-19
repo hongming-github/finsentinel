@@ -8,7 +8,7 @@ import java.time.Duration;
  * Bound from {@code finsentinel.investigation.*} in application.yaml. Invalid values fail at startup.
  *
  * @param enabled      scheduled polling on/off; tests and cost-conscious local runs turn it off
- * @param batchSize    alerts claimed per poll, which is also the max concurrent LLM investigations
+ * @param concurrency  analyses running at once on this instance (its worker pool); bounds model calls in flight
  * @param claimTimeout the longest one analysis may hold its claim, renewed or not; then it may be taken again
  * @param claimLease   a claim not renewed for this long has lapsed (its owner died) and may be taken again
  * @param claimHeartbeat how often a running analysis renews its claim; well under the lease
@@ -21,13 +21,13 @@ import java.time.Duration;
  * @param report       acceptance rules for the agent's report
  */
 @ConfigurationProperties("finsentinel.investigation")
-public record InvestigationProperties(boolean enabled, int batchSize, Duration claimTimeout, Duration claimLease,
+public record InvestigationProperties(boolean enabled, int concurrency, Duration claimTimeout, Duration claimLease,
                                       Duration claimHeartbeat, int maxAttempts,
                                       Retry retry, int maxPerHour, Duration claimLockTimeout, Tools tools,
                                       Report report) {
 
     public InvestigationProperties {
-        require(batchSize > 0, "batch-size must be positive");
+        require(concurrency > 0, "concurrency must be positive");
         require(maxAttempts > 0, "max-attempts must be positive");
         require(maxPerHour >= 0, "max-per-hour must be 0 (unlimited) or positive");
         require(claimTimeout != null && !claimTimeout.isNegative() && !claimTimeout.isZero(), "claim-timeout must be positive");

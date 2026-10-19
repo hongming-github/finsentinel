@@ -89,6 +89,7 @@ in `docs/perf/2026-10-18-9c-fixes.md`:
 5. **Circuit breaker per outside system** in `ExternalSystems`. **Done 2026-10-19** (in `McpServerConnection`, one
    per system): drill 05 repeated, 29 of 37 CRM calls failed at once instead of waiting 5 s, backlog back to baseline
    5.5 s after the repair instead of 120 s.
-6. **Worker pool** (ADR 0025 Next), then repeat drills 2, 3 and 7b to measure the drain.
+6. **Worker pool** (ADR 0025 Next), then repeat drills 2, 3 and 7b to measure the drain. **Done 2026-10-19**: at the
+   same 2 analyses at once, back to baseline 13 s, 107 s and 11.5 s after the repair (before: 391 s, 325 s, 420 s).
 7. Local Flink: restore the latest retained checkpoint in `scripts/stack.sh flink`; compose `stream` profile: a
    shared checkpoint volume and a REST port that does not override the cluster's.

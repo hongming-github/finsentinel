@@ -94,7 +94,9 @@ spring:
 finsentinel:
   investigation:
     enabled: true
-    batch-size: 2
+    # Analyses at once on this instance: a pool, a finished run claims the next case at once (ADR 0026). The poll only
+    # picks up work when the slots fell idle.
+    concurrency: 2
     poll-interval: 5s
     # A running analysis renews its claim every heartbeat; one not renewed for the lease (its instance died) is taken
     # over, one held longer than the timeout (stuck) too. claimed_at stays the fencing token (ADR 0026, drill 10).
