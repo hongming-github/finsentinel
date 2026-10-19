@@ -78,7 +78,8 @@ in `docs/perf/2026-10-18-9c-fixes.md`:
    drill 07b repeated with 0 dead letters and 0 transactions missing (before: 1 alert and 1 transaction); see
    `docs/perf/2026-10-18-9c-fixes.md`.
 2. **Start without the registry**: resolve writer schemas on first use, so the process, the analyst API and the MCP
-   server stay up and the listeners retry.
+   server stay up and the listeners retry. **Done 2026-10-19**: drill 9b repeated, the platform down 14 s instead of
+   9 minutes and the first analysis 36 s after the registry returned (before: 327 s).
 3. **Back off between analysis attempts** (`next_attempt_at`), so a provider outage of minutes does not use up the
    attempts.
 4. **Claim heartbeat**: renew claims of live runs and shorten the lease, fencing unchanged; a test that kills a run's

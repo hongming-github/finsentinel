@@ -10,8 +10,9 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * The Avro contracts the platform consumes (ADR 0018). The serdes are built at startup, so a platform whose schemas
- * are not registered fails to start instead of failing on the first message.
+ * The Avro contracts the platform consumes (ADR 0018). The serdes are built without asking the registry, so the
+ * platform starts and serves its API while the registry is down; the listeners fail on a message whose writer schema
+ * they have not seen and retry until the registry answers (drill 9b, ADR 0026).
  */
 @Configuration(proxyBeanMethods = false)
 class MessagingConfig {
@@ -23,11 +24,11 @@ class MessagingConfig {
 
     @Bean
     AvroSerde<AlertEvent> alertSerde(SchemaRegistry registry) {
-        return AvroSerde.forSubject(registry, Contracts.ALERTS_SUBJECT, AlertEvent.class);
+        return AvroSerde.forReading(registry, Contracts.ALERTS_SUBJECT, AlertEvent.class);
     }
 
     @Bean
     AvroSerde<TransactionEvent> transactionSerde(SchemaRegistry registry) {
-        return AvroSerde.forSubject(registry, Contracts.TRANSACTIONS_SUBJECT, TransactionEvent.class);
+        return AvroSerde.forReading(registry, Contracts.TRANSACTIONS_SUBJECT, TransactionEvent.class);
     }
 }

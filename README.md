@@ -23,7 +23,7 @@ linked. The weak ones are included.
 | Prompt injection in a payee name | Model alone cleared the case in **11 of 15** first drafts; the guard blocked all 11 | A flagged case can never be cleared, whatever the model says ([ADR 0016](docs/adr/0016-injection-defenses-and-audit-log.md)) |
 | Analyst API under load (p95) | 14-37 ms up to 385 requests/s; **fails at 500 visits/s** | Gatling; the audit log's per-bank chain lock and a 10-connection pool give out first (ADR 0025) |
 | Shared budget across two instances | Held at exactly 511 of 511 per hour | Counted in Postgres, not in memory (ADR 0025) |
-| Recovery from 12 injected faults | Nothing lost in 11; a **150 s Postgres outage dead-lettered 1 alert** (fixed: 0 on the repeat, [fixes](docs/perf/2026-10-18-9c-fixes.md)); the platform **cannot start while the schema registry is down** | One fault at a time under steady traffic, loss counted from Kafka offsets and the database ([ADR 0026](docs/adr/0026-chaos-drills.md), [results](docs/perf/2026-10-17-phase-9c.md)) |
+| Recovery from 12 injected faults | Nothing lost in 11; a **150 s Postgres outage dead-lettered 1 alert** and the platform **could not start while the schema registry was down**; both fixed and the drills repeated (0 dead letters; down 14 s instead of 9 min, [fixes](docs/perf/2026-10-18-9c-fixes.md)) | One fault at a time under steady traffic, loss counted from Kafka offsets and the database ([ADR 0026](docs/adr/0026-chaos-drills.md), [results](docs/perf/2026-10-17-phase-9c.md)) |
 | Flink TaskManager killed | Restored from its checkpoint, 38/38 fraud scenarios detected, one duplicate alert stored once | Compose cluster; the JobManager noticed after 34 s (ADR 0026) |
 | Large amounts after a cold Flink restart | **36/76** detected in 12 min without batch baselines; 27/27 with them | Rule history lost with the process; the batch baseline stands in (ADR 0026) |
 | Platform instance killed mid-analysis | Resumed from checkpoints, no duplicate report, but the claimed cases waited **5 min** | The claim timeout; no heartbeat yet (ADR 0026) |
@@ -86,8 +86,8 @@ down database would back-pressure the detection job, and fraud detection must ke
 database does not. Each consumer group can also be replayed on its own.
 
 Transactions and alerts are Avro, with schemas in an Apicurio registry (Confluent-compatible API and wire format).
-Schemas are registered on purpose, never by producers; every service fails to start if its schema is not registered,
-and the registry refuses a change that cannot read earlier data (BACKWARD_TRANSITIVE). An unreadable message goes to
+Schemas are registered on purpose, never by producers; every producer fails to start if its schema is not registered
+(the platform, a consumer, starts without the registry and its listeners wait for it), and the registry refuses a change that cannot read earlier data (BACKWARD_TRANSITIVE). An unreadable message goes to
 the DLQ/DLT as the bytes that arrived; anything else (a registry or database outage) is retried until it succeeds,
 never dead-lettered (ADR 0018, 0026).
 
