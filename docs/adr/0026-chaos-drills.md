@@ -70,10 +70,13 @@ From `docs/perf/2026-10-17-phase-9c.md` (1,301 fraud scenarios across the drills
 
 ## Next
 
-In order of consequence, each with a test that fails without the fix:
+In order of consequence, each with a test that fails without the fix and the drill repeated; before and after numbers
+in `docs/perf/2026-10-18-9c-fixes.md`:
 
 1. **Never dead-letter on infrastructure errors**: retry without a limit (backoff, listener paused) and dead-letter
-   only `InvalidMessageException`; a test where Postgres is gone for longer than the retries.
+   only `InvalidMessageException`; a test where Postgres is gone for longer than the retries. **Done 2026-10-18**:
+   drill 07b repeated with 0 dead letters and 0 transactions missing (before: 1 alert and 1 transaction); see
+   `docs/perf/2026-10-18-9c-fixes.md`.
 2. **Start without the registry**: resolve writer schemas on first use, so the process, the analyst API and the MCP
    server stay up and the listeners retry.
 3. **Back off between analysis attempts** (`next_attempt_at`), so a provider outage of minutes does not use up the

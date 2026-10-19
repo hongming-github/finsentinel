@@ -37,7 +37,9 @@ contract they can read and test against, and a change process that refuses break
 - **Bad message vs registry outage**: a message that can never be read (not the wire format, unknown schema id, bytes
   that do not decode) is `InvalidMessageException` and goes to the DLQ/DLT. A registry that cannot answer is not the
   message's fault: the exception propagates, so Flink fails the task and restarts from the last checkpoint, and the
-  platform's listener retries. Good data is never discarded because a dependency was down. Schemas by id are cached
+  platform's listener retries until it succeeds (without a limit since ADR 0026; before that it gave up after two
+  retries and dead-lettered the record, which drill 07b caught). Good data is never discarded because a dependency was
+  down. Schemas by id are cached
   for the life of the process, so a running consumer only needs the registry for ids it has not seen.
 - **Where decoding happens**: Flink's source hands on raw bytes (`RawValue`), and `ParseTransactions` decodes, so an
   unreadable message is routed to the DLQ (as the original bytes) instead of failing the source. The platform's Kafka

@@ -230,8 +230,11 @@ finsentinel:
     timeout: 5s
   alerts:
     max-page-size: 200
+    # A failing record is retried until it succeeds (only unreadable ones are dead-lettered, ADR 0018, 0026):
+    # 1 s, 2 s, 4 s ... then every 10 s, so it goes through within 10 s of an outage ending.
     retry-interval: 1s
-    retry-attempts: 2
+    retry-multiplier: 2
+    retry-max-interval: 10s
 
 management:
   tracing:
