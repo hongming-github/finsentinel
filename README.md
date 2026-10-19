@@ -96,9 +96,10 @@ fraud does not shift it), then publishes the baselines back to Flink. Until an a
 (a redeployed job, an account idle past the state TTL), the large-amount rule judges it against that baseline, and the
 alert says so (ADR 0019).
 
-**Status:** phases 1–6 of 9 done (data path, investigation agent, regulatory RAG, case orchestration and MCP, LLM
-gateway, tenancy and security); phase 7 evaluation harness built (baseline pending); phase 8 done (Avro contracts and
-schema registry, Spark baselines, end-to-end tracing). See [docs/roadmap.md](docs/roadmap.md).
+**Status:** phases 1–8 done (data path, investigation agent, regulatory RAG, case orchestration and MCP, LLM
+gateway, tenancy and security, evaluation with a baseline, Avro contracts, Spark baselines, end-to-end tracing);
+phase 9 measurement, load tests and chaos drills done, plus a web console; the demo is next. See
+[docs/roadmap.md](docs/roadmap.md).
 
 ## Stack
 
@@ -275,6 +276,45 @@ scripts/stack.sh traffic --tps=20 --fraud-every=3 > target/stack/traffic.log 2>&
 scripts/perf/drill.py run postgres-down --out docs/perf/9c/07b-postgres-down-150s --sim-log target/stack/traffic.log \
   --hold 150 --inject "docker stop finsentinel-postgres-1" --heal "docker start finsentinel-postgres-1"
 ```
+
+### Regulatory retrieval (RAG)
+
+Four public MAS documents (EUPG, the Shared Responsibility Framework, Notice 626, TRM Guidelines; about 160 pages) are
+indexed as 625 chunks (ADR 0007):
+
+- **One chunk per numbered paragraph** (`EUPG §4.7`), never fixed-size windows: a citation must point to a paragraph a
+  compliance officer can find. The work is in recovering that structure from the PDF: text read in visual order,
+  footnotes and markers dropped by font size, section numbers that must be the next one (footnotes look like
+  headings), paragraph numbers that must ascend and open a sentence (cross-references wrap onto line starts),
+  unnumbered headings handed to the paragraph they introduce, definitions split per term, running footers matched
+  without their page numbers. Each rule has a unit test on plain strings.
+- **Embedded with their place**: `EUPG §4.7 (section / sub-section)` before the text, because a paragraph rarely names
+  its document or topic. The keyword side indexes the section title too.
+- **Hybrid retrieval with a listwise rerank**: 20 pgvector (HNSW, cosine) and 20 Postgres full-text candidates, fused
+  by reciprocal rank (ranks only, so cosine and `ts_rank` never need normalising), graded 0-3 by `gpt-6-luna` in one
+  call. A failed embedding or rerank degrades the ranking, never the search, and is not cached.
+- **The agent writes the queries**: one short question about one topic per call, at most three per case. There is no
+  separate rewriting step (multi-query, HyDE): the caller has already turned the case into regulatory questions,
+  the rerank closed the paraphrase gap (0.73 to 0.91 hit@5 on paraphrased questions), and a non-deterministic rewrite
+  would defeat the exact-match cache. A conversational client would need question condensation first.
+- **Grounded output**: three passages of at most 900 characters reach the agent (five full ones diluted the case
+  evidence enough to flip an impossible-travel fraud to "legitimate"); every regulatory statement must cite chunk ids
+  that a search of this case returned, checked by the report validator, and a suspicious transfer must carry them.
+- **Access**: the corpus is public text and the one deliberate exception to row-level security. Private documents
+  would need a tenant (and ACL) column under a row-level security policy, filtering inside the vector query (pgvector
+  0.8 iterative scans) rather than after it, and the tenant in the search cache key, which is global today.
+
+| Retrieval mode, 32 questions | hit@5 / MRR |
+|---|---|
+| vector | 0.84 / 0.70 |
+| keyword | 0.59 / 0.50 |
+| hybrid (RRF) | 0.78 / 0.64 |
+| hybrid + rerank | **0.94 / 0.91** |
+
+Hybrid alone does not beat vector here; the rerank is what pays (vector plus rerank has not been measured).
+Known gaps, found by comparing with a clause-level diff of the same MAS documents: footnotes and amendment notes are
+dropped rather than kept as metadata, there is no content-conservation check between extracted text and chunks, and
+paragraph numbers are recognised from text alone, not page geometry.
 
 ### LLM cost
 
