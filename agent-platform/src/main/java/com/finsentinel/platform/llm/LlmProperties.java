@@ -64,11 +64,11 @@ public record LlmProperties(Map<String, Provider> providers, Models models, Esca
         }
     }
 
-    public record Models(String investigator, String specialist, String writer, String reviewer) {
+    public record Models(String investigator, String specialist, String writer, String reviewer, String assistant) {
 
         public Models {
-            require(investigator != null && specialist != null && writer != null && reviewer != null,
-                    "a model for every role is required");
+            require(investigator != null && specialist != null && writer != null && reviewer != null
+                    && assistant != null, "a model for every role is required");
         }
 
         Map<AgentRole, String> byRole() {
@@ -77,6 +77,7 @@ public record LlmProperties(Map<String, Provider> providers, Models models, Esca
             out.put(AgentRole.SPECIALIST, specialist);
             out.put(AgentRole.WRITER, writer);
             out.put(AgentRole.REVIEWER, reviewer);
+            out.put(AgentRole.ASSISTANT, assistant);
             return out;
         }
     }

@@ -188,6 +188,19 @@ button.ghost { background: none; border: 1px solid var(--line); border-radius: 6
 .decision textarea { flex: 1; min-width: 260px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
 .radio { display: flex; gap: 6px; align-items: center; cursor: pointer; }
 
+/* The case assistant (ADR 0028). */
+.chat { display: flex; flex-direction: column; gap: 12px; }
+.turn { display: flex; flex-direction: column; gap: 6px; }
+.bubble { border-radius: 10px; padding: 9px 12px; max-width: 860px; }
+.bubble.q { align-self: flex-end; background: var(--accent-soft); white-space: pre-wrap; }
+.bubble.a { align-self: flex-start; background: var(--panel-2); }
+.bubble .answer { white-space: pre-wrap; }
+.bubble .meta { margin-top: 6px; }
+.bubble .flag { margin-top: 6px; }
+.chip.reg { background: var(--info-soft); color: var(--info); }
+.chat-input { display: flex; gap: 10px; align-items: flex-end; }
+.chat-input textarea { flex: 1; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font: inherit; resize: vertical; }
+
 .bars { display: flex; flex-direction: column; gap: 8px; }
 .bar-row { display: grid; grid-template-columns: 160px 1fr 80px; gap: 10px; align-items: center; }
 .bar { height: 10px; background: var(--panel-2); border-radius: 999px; overflow: hidden; }

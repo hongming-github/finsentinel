@@ -8,6 +8,7 @@ import { caseWindow, lokiCaseLogs, lokiTraceLogs, pipelineDashboard, tempoTrace 
 import { useSession } from '../session'
 import type { CaseAnalysis, CaseDetail, CaseEvent, Decision } from '../types'
 import { Badge, Card, DispositionBadge, External, Loading, Problem, SeverityBadge, Stat, StageBadge } from '../ui'
+import { AssistantPanel } from './Assistant'
 
 export function CaseDetailPage() {
   const session = useSession()
@@ -106,6 +107,8 @@ export function CaseDetailPage() {
       ) : (
         <div className="notice">{c.stage === 'FAILED' ? 'The analysis gave up; no report was stored (only validated reports are).' : 'No analysis yet: the case is waiting in the queue.'}</div>
       )}
+
+      {isAnalyst(session) && <AssistantPanel tenant={session.tenant} caseId={c.caseId} caseVersion={c.version} />}
 
       <Alerts detail={detail} />
       <Events events={detail.events} />

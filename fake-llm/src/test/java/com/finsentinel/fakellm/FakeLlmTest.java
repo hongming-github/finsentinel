@@ -118,6 +118,34 @@ class FakeLlmTest {
         assertThat(grades.path("grades").findValuesAsString("id")).containsExactly("srf-2024:6.2", "eupg-2024:4.7");
     }
 
+    /** The case assistant (ADR 0028): the question comes back condensed, regulatory ones with a search question. */
+    @Test
+    void theAssistantsQuestionIsCondensedAndAnsweredWithoutCitations() throws Exception {
+        String condenseSchema = """
+                "response_format":{"type":"json_schema","json_schema":{"name":"Condensed","schema":{"type":"object",
+                 "properties":{"standaloneQuestion":{"type":"string"},"needsRegulations":{"type":"boolean"},
+                 "searchQuery":{"type":"string"}}}}}""";
+        JsonNode regulatory = content(chat("/v1", "{\"model\":\"gpt-6-luna\",\"messages\":[{\"role\":\"user\","
+                + "\"content\":\"The conversation so far: ...\\n\\nThe analyst's latest question:\\nWhat does the EUPG "
+                + "say?\"}]," + condenseSchema + "}"));
+        JsonNode plain = content(chat("/v1", "{\"model\":\"gpt-6-luna\",\"messages\":[{\"role\":\"user\","
+                + "\"content\":\"The analyst's latest question:\\nWhy this score?\"}]," + condenseSchema + "}"));
+        JsonNode answer = content(chat("/v1", """
+                {"model":"gpt-6-luna","messages":[{"role":"user","content":"facts"},{"role":"assistant","content":"a"},
+                  {"role":"user","content":"And then?"}],
+                 "response_format":{"type":"json_schema","json_schema":{"name":"Answer","schema":{"type":"object",
+                 "properties":{"answer":{"type":"string"},"citedTxnIds":{"type":"array","items":{"type":"string"}},
+                 "citedChunkIds":{"type":"array","items":{"type":"string"}}}}}}}"""));
+
+        assertThat(regulatory.path("standaloneQuestion").asString()).isEqualTo("What does the EUPG say?");
+        assertThat(regulatory.path("needsRegulations").asBoolean()).isTrue();
+        assertThat(regulatory.path("searchQuery").asString()).isNotBlank();
+        assertThat(plain.path("needsRegulations").asBoolean()).isFalse();
+        assertThat(plain.path("searchQuery").asString()).isEmpty();
+        assertThat(answer.path("answer").asString()).startsWith("Synthetic answer by fake-llm");
+        assertThat(answer.path("citedTxnIds").isEmpty()).isTrue();
+    }
+
     /** The platform's two-step path: tools end in notes, a second call without tools turns them into the schema. */
     @Test
     void notesOfTheToolCallAreTheEvidenceOfTheStructuringCall() throws Exception {

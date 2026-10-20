@@ -40,6 +40,7 @@ class RowLevelSecurityTest {
 
     private final String bankA = uniqueTenant();
     private final String bankB = uniqueTenant();
+    private String caseA;
     private String caseB;
 
     @BeforeEach
@@ -47,7 +48,7 @@ class RowLevelSecurityTest {
         Instant now = Instant.now();
         transactions.insertAll(List.of(txn(bankA, "acc-a", "10.00", Channel.CARD_PRESENT, "SG", "m-1", now),
                 txn(bankB, "acc-b", "20.00", Channel.CARD_PRESENT, "SG", "m-1", now)));
-        intake.accept(alert(bankA, "acc-a", AlertRule.GEO_JUMP, Severity.HIGH, List.of("t-a"), now));
+        caseA = intake.accept(alert(bankA, "acc-a", AlertRule.GEO_JUMP, Severity.HIGH, List.of("t-a"), now)).orElseThrow();
         caseB = intake.accept(alert(bankB, "acc-b", AlertRule.GEO_JUMP, Severity.HIGH, List.of("t-b"), now)).orElseThrow();
     }
 
@@ -86,6 +87,46 @@ class RowLevelSecurityTest {
                 .rootCause().hasMessageContaining("no tenant set for this database session");
         assertThat(Tenancy.within(null, () -> jdbc.sql("select count(*) from kb_document").query(Long.class).single()))
                 .as("the public regulatory corpus is global").isNotNull();
+    }
+
+    /** The case assistant's tables (ADR 0028): tenant rows, fixed to a case of their bank, turns append-only. */
+    @Test
+    void conversationsBelongToACaseOfTheirBankAndTheirTurnsCannotBeRewritten() {
+        UUID conversation = UUID.randomUUID();
+        Tenancy.run(bankA, () -> insertConversation(conversation, bankA, caseA));
+        Tenancy.run(bankA, () -> jdbc.sql("""
+                        insert into conversation_turn (conversation_id, seq, question, standalone_question, answer,
+                            cited_txn_ids, cited_chunk_ids, untrusted_instructions, case_version, llm_calls, cost_usd,
+                            latency_ms, created_at)
+                        values (:id, 1, 'q', 'q', 'a', '[]', '[]', '[]', 1, 1, 0, 1, now())
+                        """).param("id", conversation).update());
+
+        assertThat(Tenancy.call(bankB, () -> jdbc.sql("select count(*) from conversation_turn")
+                .query(Long.class).single())).as("another bank sees no turn of it").isZero();
+        assertThatThrownBy(() -> Tenancy.run(bankA, () -> insertConversation(UUID.randomUUID(), bankA, caseB)))
+                .as("bank A cannot open a conversation on bank B's case").rootCause()
+                .hasMessageContaining("is not a case of tenant");
+        assertThatThrownBy(() -> Tenancy.run(bankA, () -> jdbc.sql(
+                        "update conversation set analyst_subject = 'someone-else' where conversation_id = :id")
+                .param("id", conversation).update()))
+                .as("tenant, case and analyst are fixed").rootCause().hasMessageContaining("permission denied");
+        assertThatThrownBy(() -> Tenancy.run(bankA, () -> jdbc.sql(
+                        "update conversation_turn set answer = 'edited' where conversation_id = :id")
+                .param("id", conversation).update()))
+                .rootCause().hasMessageContaining("permission denied");
+        assertThatThrownBy(() -> Tenancy.callAsSystem(() -> jdbc.sql(
+                        "delete from conversation_turn where conversation_id = :id")
+                .param("id", conversation).update()))
+                .rootCause().hasMessageContaining("permission denied");
+    }
+
+    private void insertConversation(UUID id, String tenant, String caseId) {
+        jdbc.sql("""
+                        insert into conversation (conversation_id, tenant_id, case_id, analyst_subject, analyst_username,
+                                                  created_at, updated_at)
+                        values (:id, :tenant, :caseId, 'sub', 'ana', now(), now())
+                        """)
+                .param("id", id).param("tenant", tenant).param("caseId", UUID.fromString(caseId)).update();
     }
 
     @Test

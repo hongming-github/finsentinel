@@ -45,7 +45,8 @@ class SecurityTest {
 
     /** Every tenant-scoped endpoint, GET unless it is the decision. */
     private static final List<String> TENANT_PATHS = List.of("/api/tenants/%s/cases", "/api/tenants/%s/cases/c-1",
-            "/api/tenants/%s/alerts", "/api/tenants/%s/llm-usage");
+            "/api/tenants/%s/alerts", "/api/tenants/%s/llm-usage", "/api/tenants/%s/cases/c-1/conversations",
+            "/api/tenants/%s/cases/c-1/conversations/v-1");
 
     @Autowired
     MockMvc mvc;
@@ -58,6 +59,8 @@ class SecurityTest {
             mvc.perform(get(path.formatted(tenant))).andExpect(status().isUnauthorized());
         }
         mvc.perform(decision(tenant)).andExpect(status().isUnauthorized());
+        mvc.perform(startConversation(tenant)).andExpect(status().isUnauthorized());
+        mvc.perform(question(tenant)).andExpect(status().isUnauthorized());
         mvc.perform(get("/actuator/metrics")).andExpect(status().isUnauthorized());
         mvc.perform(get("/actuator/health")).andExpect(status().isOk());
     }
@@ -111,6 +114,15 @@ class SecurityTest {
                 .andExpect(status().isForbidden());
         mvc.perform(get("/actuator/metrics").with(bearer(analyst))).andExpect(status().isForbidden());
         mvc.perform(get("/actuator/metrics").with(bearer(supervisor))).andExpect(status().isOk());
+        // The case assistant is the analyst's: supervisors and the MCP assistant client cannot use it.
+        mvc.perform(get("/api/tenants/{t}/cases/c-1/conversations", tenant).with(bearer(analyst)))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/tenants/{t}/cases/c-1/conversations", tenant).with(bearer(supervisor)))
+                .andExpect(status().isForbidden());
+        mvc.perform(startConversation(tenant).with(bearer(supervisor))).andExpect(status().isForbidden());
+        mvc.perform(question(tenant).with(bearer(supervisor))).andExpect(status().isForbidden());
+        mvc.perform(question(tenant).with(bearer(assistant))).andExpect(status().isForbidden());
+        mvc.perform(question(tenant).with(bearer(analyst))).andExpect(status().isNotFound());
     }
 
     @Test
@@ -123,6 +135,8 @@ class SecurityTest {
             mvc.perform(get(path.formatted(victim)).with(bearer(token))).andExpect(status().isNotFound());
         }
         mvc.perform(decision(victim).with(bearer(attackerAnalyst))).andExpect(status().isNotFound());
+        mvc.perform(startConversation(victim).with(bearer(attackerAnalyst))).andExpect(status().isNotFound());
+        mvc.perform(question(victim).with(bearer(attackerAnalyst))).andExpect(status().isNotFound());
         // Encoded the way a client might try to slip past a string comparison.
         mvc.perform(get(URI.create("/api/tenants/" + victim.replace("t-", "t%2D") + "/cases")).with(bearer(attackerAnalyst)))
                 .andExpect(status().isNotFound());
@@ -144,6 +158,8 @@ class SecurityTest {
         String analyst = TestTokens.analyst(tenant);
         mvc.perform(get("/api/anything").with(bearer(analyst))).andExpect(status().isForbidden());
         mvc.perform(post("/api/tenants/{t}/cases", tenant).with(bearer(analyst))).andExpect(status().isForbidden());
+        mvc.perform(get("/api/tenants/{t}/cases/c-1/conversations/v-1/turns", tenant).with(bearer(analyst)))
+                .andExpect(status().isForbidden());
         mvc.perform(get("/actuator/env").with(bearer(analyst))).andExpect(status().isForbidden());
     }
 
@@ -151,6 +167,16 @@ class SecurityTest {
         return post("/api/tenants/{t}/cases/{id}/decision", tenant, "c-1")
                 .contentType(MediaType.APPLICATION_JSON).content("{\"decision\":\"FALSE_POSITIVE\"}")
                 .header("If-Match", "\"1\"");
+    }
+
+    private static MockHttpServletRequestBuilder startConversation(String tenant) {
+        return post("/api/tenants/{t}/cases/{id}/conversations", tenant, "c-1");
+    }
+
+    private static MockHttpServletRequestBuilder question(String tenant) {
+        return post("/api/tenants/{t}/cases/{id}/conversations/{c}/turns", tenant, "c-1", "v-1")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"question\":\"why?\"}")
+                .header("If-Match", "\"0\"");
     }
 
     private static String signedWithAnotherKey(JWTClaimsSet claims) {

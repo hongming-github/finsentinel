@@ -16,13 +16,16 @@ import java.lang.annotation.Target;
  * so tests can also reach it as a client would (the MCP endpoint). Scheduled investigation
  * polling and knowledge sync are off, reranking is off, and embeddings are faked: normal tests never call a
  * model API, every agent (investigator, specialists, writer, reviewer) is a stub, and the external systems are
- * fakes. Analyses run in SINGLE mode unless a test asks for MULTI. Live tests opt back in with
- * {@code finsentinel.test.fake-ai=false}. Requests authenticate with {@link TestTokens}.
+ * fakes; so is the case assistant's model. Analyses run in SINGLE mode unless a test asks for MULTI. Live tests opt
+ * back in with {@code finsentinel.test.fake-ai=false}. Requests authenticate with {@link TestTokens}.
  */
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "finsentinel.investigation.enabled=false",
+        // Every analysis here is a stub. The suite runs more than the default 60 an hour, which the budget would then
+        // refuse; the budget itself is tested with its own settings (CaseWorkerTest, ConcurrentCaseClaimTest).
+        "finsentinel.investigation.max-per-hour=100000",
         "finsentinel.knowledge.sync-on-startup=false",
         "finsentinel.outbox.enabled=false",
         "finsentinel.knowledge.search.rerank.enabled=false",
@@ -32,6 +35,7 @@ import java.lang.annotation.Target;
 @AutoConfigureMockMvc
 @ExtendWith(SystemScopeExtension.class)
 @Import({TestcontainersConfig.class, StubCaseInvestigator.class, StubSpecialistAgents.class, StubReportWriter.class,
-        StubCaseReviewer.class, FakeEmbedder.class, FakeExternalSystems.class, TestTracing.class})
+        StubCaseReviewer.class, StubAssistantModel.class, FakeEmbedder.class, FakeExternalSystems.class,
+        TestTracing.class})
 public @interface PlatformTest {
 }

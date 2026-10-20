@@ -1,4 +1,4 @@
-package com.finsentinel.platform.mcp;
+package com.finsentinel.platform.budget;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
@@ -12,11 +12,11 @@ import java.time.Duration;
  * A fixed window allows up to twice the limit across a window boundary; that is acceptable for a cost guard.
  */
 @Component
-class RateLimiter {
+public class RateLimiter {
 
     private final JdbcClient jdbc;
 
-    RateLimiter(JdbcClient jdbc) {
+    public RateLimiter(JdbcClient jdbc) {
         this.jdbc = jdbc;
     }
 

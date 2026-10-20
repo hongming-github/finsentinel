@@ -8,6 +8,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.AdvisorParams;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.ResponseEntity;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.tool.ToolCallback;
@@ -15,6 +18,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -56,6 +60,19 @@ public class LlmGateway {
      * @return the answer, its cost, and the model that actually answered
      */
     public <T> Answer<T> ask(ModelRef model, String system, String user, List<ToolCallback> tools, Class<T> type) {
+        return ask(model, system, List.of(LlmMessage.user(user)), tools, type);
+    }
+
+    /**
+     * A call with several messages after the system message (a conversation), the last one the user's.
+     *
+     * @param model the model for this call; the fallback model takes over if its provider fails
+     */
+    public <T> Answer<T> ask(ModelRef model, String system, List<LlmMessage> messages, List<ToolCallback> tools,
+                             Class<T> type) {
+        if (messages.isEmpty() || messages.getLast().role() != LlmMessage.Role.USER) {
+            throw new IllegalArgumentException("a call ends with the user's message");
+        }
         // One span per call (ADR 0020), around the fallback too: the provider's own chat and tool spans nest inside.
         // Model names and cost only: prompts and answers are case material and stay out of traces.
         Observation observation = Observation.createNotStarted("finsentinel.llm.ask", providers.observations())
@@ -63,7 +80,7 @@ public class LlmGateway {
                 .lowCardinalityKeyValue("finsentinel.model.requested", model.toString())
                 .start();
         try (Observation.Scope ignored = observation.openScope()) {
-            Answer<T> answer = route(model, system, user, tools, type);
+            Answer<T> answer = route(model, system, messages, tools, type);
             // Per call, to see whether the shared prefix is read back (ADR 0023); counts only, never content.
             log.debug("llm {}: input {} cached {} written {} output {}", answer.answeredBy(),
                     answer.usage().inputTokens(), answer.usage().cachedInputTokens(),
@@ -83,7 +100,8 @@ public class LlmGateway {
         }
     }
 
-    private <T> Answer<T> route(ModelRef model, String system, String user, List<ToolCallback> tools, Class<T> type) {
+    private <T> Answer<T> route(ModelRef model, String system, List<LlmMessage> messages, List<ToolCallback> tools,
+                                Class<T> type) {
         List<ModelRef> route = model.provider().equals(fallback.provider()) ? List.of(model) : List.of(model, fallback);
         RuntimeException lastFailure = null;
         for (ModelRef ref : route) {
@@ -94,7 +112,7 @@ public class LlmGateway {
                 continue;
             }
             try {
-                Answer<T> answer = call(provider, ref, system, user, tools, type);
+                Answer<T> answer = call(provider, ref, system, messages, tools, type);
                 breaker.success();
                 if (!ref.equals(model)) {
                     log.warn("{} answered in place of {} (provider failure or open circuit)", ref, model);
@@ -112,15 +130,15 @@ public class LlmGateway {
     public record Answer<T>(T value, LlmUsage usage, ModelRef answeredBy) {
     }
 
-    private <T> Answer<T> call(LlmProviders.Provider provider, ModelRef ref, String system, String user,
+    private <T> Answer<T> call(LlmProviders.Provider provider, ModelRef ref, String system, List<LlmMessage> messages,
                                List<ToolCallback> tools, Class<T> type) {
         long start = System.nanoTime();
         try {
             if (!tools.isEmpty() && !provider.config().structuredOutputWithTools()) {
-                return inTwoSteps(provider, ref, system, user, tools, type, start);
+                return inTwoSteps(provider, ref, system, messages, tools, type, start);
             }
             // Schema enforced by the provider, with or without tools.
-            ChatClient.ChatClientRequestSpec request = prompt(provider, ref, system, user)
+            ChatClient.ChatClientRequestSpec request = prompt(provider, ref, system, messages)
                     .advisors(AdvisorParams.ENABLE_NATIVE_STRUCTURED_OUTPUT);
             if (!tools.isEmpty()) {
                 request = request.tools(tools.toArray());
@@ -150,14 +168,14 @@ public class LlmGateway {
      * format in the prompt instead made gpt-oss "call a tool named json", which Groq rejects: every analysis failed
      * (phase 7 evaluation). The caller's validation still checks every id against what the tools returned.
      */
-    private <T> Answer<T> inTwoSteps(LlmProviders.Provider provider, ModelRef ref, String system, String user,
-                                     List<ToolCallback> tools, Class<T> type, long start) {
-        ChatResponse investigation = prompt(provider, ref, system, user + NOTES_INSTRUCTION)
+    private <T> Answer<T> inTwoSteps(LlmProviders.Provider provider, ModelRef ref, String system,
+                                     List<LlmMessage> messages, List<ToolCallback> tools, Class<T> type, long start) {
+        ChatResponse investigation = prompt(provider, ref, system, appended(messages, NOTES_INSTRUCTION))
                 .tools(tools.toArray()).call().chatResponse();
         String notes = investigation == null || investigation.getResult() == null ? ""
                 : investigation.getResult().getOutput().getText();
         ResponseEntity<ChatResponse, T> structured = prompt(provider, ref, system,
-                user + "\n\nYour notes:\n" + notes + STRUCTURE_INSTRUCTION)
+                appended(messages, "\n\nYour notes:\n" + notes + STRUCTURE_INSTRUCTION))
                 .advisors(AdvisorParams.ENABLE_NATIVE_STRUCTURED_OUTPUT)
                 .call().responseEntity(ProviderOutputConverter.of(type, provider.config()));
         long latency = (System.nanoTime() - start) / 1_000_000;
@@ -168,8 +186,22 @@ public class LlmGateway {
 
     /** Only the model is set per call: ChatClient starts from the provider's configured options and combines this. */
     private static ChatClient.ChatClientRequestSpec prompt(LlmProviders.Provider provider, ModelRef ref, String system,
-                                                           String user) {
-        return provider.chat().prompt().system(system).user(user).options(ChatOptions.builder().model(ref.model()));
+                                                           List<LlmMessage> messages) {
+        if (messages.size() == 1) {
+            return provider.chat().prompt().system(system).user(messages.getFirst().text())
+                    .options(ChatOptions.builder().model(ref.model()));
+        }
+        List<Message> conversation = messages.stream().<Message>map(m -> m.role() == LlmMessage.Role.USER
+                ? new UserMessage(m.text()) : new AssistantMessage(m.text())).toList();
+        return provider.chat().prompt().system(system).messages(conversation)
+                .options(ChatOptions.builder().model(ref.model()));
+    }
+
+    /** The messages with {@code suffix} added to the last (the user's). */
+    private static List<LlmMessage> appended(List<LlmMessage> messages, String suffix) {
+        List<LlmMessage> out = new ArrayList<>(messages.subList(0, messages.size() - 1));
+        out.add(LlmMessage.user(messages.getLast().text() + suffix));
+        return out;
     }
 
     private static <T> T entity(ResponseEntity<ChatResponse, T> response, Class<T> type) {

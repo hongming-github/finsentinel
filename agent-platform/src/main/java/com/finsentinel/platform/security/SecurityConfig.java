@@ -25,7 +25,7 @@ import org.springframework.security.web.access.intercept.AuthorizationFilter;
  * someone opens it on purpose.
  *
  * <ul>
- *   <li>analyst: reads its bank's cases and alerts, decides cases</li>
+ *   <li>analyst: reads its bank's cases and alerts, decides cases, asks the case assistant about them</li>
  *   <li>supervisor: reads its bank's cases and alerts, the LLM cost report and the audit log; does not decide</li>
  *   <li>assistant: an analyst's AI assistant, MCP only</li>
  * </ul>
@@ -74,6 +74,11 @@ class SecurityConfig {
                                 "/api/tenants/*/audit/verify").hasRole(SUPERVISOR)
                         .requestMatchers(HttpMethod.GET, "/api/tenants/*/cases", "/api/tenants/*/cases/*",
                                 "/api/tenants/*/alerts").hasAnyRole(ANALYST, SUPERVISOR)
+                        // The case assistant (ADR 0028): an analyst's own conversations about a case.
+                        .requestMatchers(HttpMethod.GET, "/api/tenants/*/cases/*/conversations",
+                                "/api/tenants/*/cases/*/conversations/*").hasRole(ANALYST)
+                        .requestMatchers(HttpMethod.POST, "/api/tenants/*/cases/*/conversations",
+                                "/api/tenants/*/cases/*/conversations/*/turns").hasRole(ANALYST)
                         .anyRequest().denyAll())
                 .oauth2ResourceServer(rs -> rs.jwt(jwt -> jwt.jwtAuthenticationConverter(authentication())))
                 .addFilterAfter(new TenantPathFilter(), AuthorizationFilter.class)

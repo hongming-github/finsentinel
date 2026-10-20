@@ -144,3 +144,44 @@ export interface AuditVerification {
   firstBrokenId: number | null
   intact: boolean
 }
+
+// The case assistant (agent-platform: ConversationController, ADR 0028).
+
+export interface Conversation {
+  conversationId: string
+  tenantId: string
+  caseId: string
+  analystSubject: string
+  analystUsername: string
+  turns: number
+  summary: string | null
+  summaryThrough: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ConversationTurn {
+  seq: number
+  question: string
+  standaloneQuestion: string
+  searchQuery: string | null
+  answer: string
+  citedTxnIds: string[]
+  citedChunkIds: string[]
+  untrustedInstructions: string[]
+  caseVersion: number
+  model: string | null
+  inputTokens: number | null
+  outputTokens: number | null
+  cachedInputTokens: number | null
+  cacheWriteTokens: number | null
+  llmCalls: number
+  costUsd: number
+  latencyMs: number
+  createdAt: string
+}
+
+export interface ConversationView {
+  conversation: Conversation
+  turns: ConversationTurn[]
+}
