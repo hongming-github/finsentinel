@@ -6,7 +6,8 @@
 #   scripts/stack.sh up        start what is not running; waits until each process answers
 #   scripts/stack.sh status    what is up
 #   scripts/stack.sh down      stop the processes this script started (Docker keeps running; "down --all" stops it too)
-#   scripts/stack.sh flink     the Flink job in an embedded MiniCluster, in the foreground (web UI :8082)
+#   scripts/stack.sh flink [args]   the Flink job in an embedded MiniCluster, in the foreground (web UI :8082); it
+#                              starts from its latest checkpoint (--checkpoint.restore=none for a cold start)
 #   scripts/stack.sh traffic [args]   the simulator in the foreground, e.g. --tps=50 --fraud-every=2
 #   scripts/stack.sh console   the web console in the foreground (http://localhost:8097, ADR 0027; needs Node)
 #
@@ -98,7 +99,7 @@ case "${1:-}" in
   up) up ;;
   status) status ;;
   down) shift; down "${1:-}" ;;
-  flink) ./mvnw -pl stream-job exec:exec ;;
+  flink) shift; ./mvnw -pl stream-job exec:exec -Djob.args="$*" ;;
   traffic) shift; ./mvnw -pl txn-simulator exec:java -Dexec.args="$*" ;;
   console) cd console && { [[ -d node_modules ]] || npm ci; } && npm run dev ;;
   *) sed -n '2,14p' "$0"; exit 1 ;;

@@ -24,8 +24,8 @@ linked. The weak ones are included.
 | Analyst API under load (p95) | 14-37 ms up to 385 requests/s; **fails at 500 visits/s** | Gatling; the audit log's per-bank chain lock and a 10-connection pool give out first (ADR 0025) |
 | Shared budget across two instances | Held at exactly 511 of 511 per hour | Counted in Postgres, not in memory (ADR 0025) |
 | Recovery from 12 injected faults | Nothing lost in 11; a **150 s Postgres outage dead-lettered 1 alert**, the platform **could not start while the schema registry was down**, **both models down for 2 min failed 7 cases**, **slow outside systems cost every call 5 s**, and the worker's batches took **5-7 min** to drain any stall; all fixed and the drills repeated (0 dead letters; down 14 s instead of 9 min; 0 failed; drains in 11-107 s, [fixes](docs/perf/2026-10-18-9c-fixes.md)) | One fault at a time under steady traffic, loss counted from Kafka offsets and the database ([ADR 0026](docs/adr/0026-chaos-drills.md), [results](docs/perf/2026-10-17-phase-9c.md)) |
-| Flink TaskManager killed | Restored from its checkpoint, 38/38 fraud scenarios detected, one duplicate alert stored once | Compose cluster; the JobManager noticed after 34 s (ADR 0026) |
-| Large amounts after a cold Flink restart | **36/76** detected in 12 min without batch baselines; 27/27 with them | Rule history lost with the process; the batch baseline stands in (ADR 0026) |
+| Flink TaskManager killed | Restored from its checkpoint, 79/79 fraud scenarios detected, duplicates stored once; also when it comes back as a new container | Compose cluster, checkpoints on a shared volume ([fixes](docs/perf/2026-10-18-9c-fixes.md), ADR 0026) |
+| Large amounts after a Flink restart | 54/54 detected from the first minute; before the embedded job restored its checkpoint, **36/76** in 12 min (27/27 with batch baselines) | Rule history restored from the latest checkpoint; the batch baseline remains the fallback ([fixes](docs/perf/2026-10-18-9c-fixes.md), ADR 0026) |
 | Platform instance killed mid-analysis | Resumed from checkpoints, no duplicate report; the claimed cases taken over after 34 s (before the heartbeat: **5 min**) | Live runs renew their claims every 10 s, a claim not renewed for 30 s lapses ([fixes](docs/perf/2026-10-18-9c-fixes.md), ADR 0026) |
 
 Load tests run the platform against `fake-llm`, a stand-in that speaks OpenAI's protocol, so they measure the platform,
@@ -251,7 +251,7 @@ nothing costs money. Its latency and errors can be changed per provider while th
 
 ```bash
 scripts/stack.sh up                       # Docker (core, systems, obs), schemas, fake-llm, MCP servers, platform (profile load)
-scripts/stack.sh flink                    # Flink job, embedded (another terminal)
+scripts/stack.sh flink                    # Flink job, embedded, from its latest checkpoint (another terminal)
 scripts/stack.sh traffic --tps=20 --fraud-every=3 --duration=120
 # Grafana http://localhost:3000, dashboard "FinSentinel pipeline": alert-to-report p50/p95 and p95 by stage, backlog,
 # analyses per minute, model-call latency, fallback share. Slow the main model down, or make it fail:

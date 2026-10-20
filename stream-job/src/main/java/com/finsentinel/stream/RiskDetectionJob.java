@@ -9,7 +9,9 @@ import com.finsentinel.contracts.SchemaRegistry;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.configuration.CheckpointingOptions;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.configuration.ExternalizedCheckpointRetention;
 import org.apache.flink.configuration.RestOptions;
+import org.apache.flink.configuration.StateRecoveryOptions;
 import org.apache.flink.connector.base.DeliveryGuarantee;
 import org.apache.flink.connector.kafka.sink.KafkaRecordSerializationSchema;
 import org.apache.flink.connector.kafka.sink.KafkaSink;
@@ -18,6 +20,7 @@ import org.apache.flink.connector.kafka.source.KafkaSourceBuilder;
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
+import org.apache.flink.streaming.api.environment.LocalStreamEnvironment;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.util.function.SerializableSupplier;
 import org.apache.kafka.clients.consumer.OffsetResetStrategy;
@@ -37,13 +40,8 @@ public class RiskDetectionJob {
     public static void main(String[] args) throws Exception {
         JobConfig config = JobConfig.load(args, System.getenv());
 
-        Configuration flinkConf = new Configuration();
-        flinkConf.set(RestOptions.PORT, config.webUiPort());
-        // On a file system, not in the JobManager's memory (5 MB of state per subtask at most).
-        flinkConf.set(CheckpointingOptions.CHECKPOINT_STORAGE, "filesystem");
-        flinkConf.set(CheckpointingOptions.CHECKPOINTS_DIRECTORY, config.checkpointDir());
-        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment(flinkConf);
-        env.enableCheckpointing(config.checkpointInterval().toMillis());
+        StreamExecutionEnvironment env = environment(config,
+                StreamExecutionEnvironment.getExecutionEnvironment() instanceof LocalStreamEnvironment);
         // Each operator instance builds its own client from the URL; the lambda is what gets serialized.
         String registryUrl = config.schemaRegistryUrl();
         Duration registryTimeout = config.schemaRegistryTimeout();
@@ -78,6 +76,38 @@ public class RiskDetectionJob {
                 .sinkTo(LandingZone.transactions(config.lakeDir())).uid("landing-sink").name("landing-zone");
 
         env.execute("finsentinel-risk-detection");
+    }
+
+    /**
+     * Embedded (this process is the whole cluster, as {@code scripts/stack.sh flink} runs it): the job sets the web UI
+     * port and the checkpoint directory, keeps its last checkpoint when it stops, and starts from the newest complete
+     * checkpoint there ({@code checkpoint.restore=latest}). A restart then keeps the rules' state, as a cluster's
+     * JobManager does after a failure (drills 11 and 12, ADR 0026). On a cluster ({@code flink run}) the cluster's
+     * configuration decides all of that: the client keeps the cluster's REST port, checkpoints go where the cluster
+     * stores them, the JobManager restores after failures, and a redeployment passes a savepoint.
+     */
+    static StreamExecutionEnvironment environment(JobConfig config, boolean embedded) {
+        StreamExecutionEnvironment env = embedded
+                ? StreamExecutionEnvironment.getExecutionEnvironment(embeddedConfiguration(config))
+                : StreamExecutionEnvironment.getExecutionEnvironment();
+        env.enableCheckpointing(config.checkpointInterval().toMillis());
+        return env;
+    }
+
+    static Configuration embeddedConfiguration(JobConfig config) {
+        Configuration flinkConf = new Configuration();
+        flinkConf.set(RestOptions.PORT, config.webUiPort());
+        // On a file system, not in the JobManager's memory (5 MB of state per subtask at most).
+        flinkConf.set(CheckpointingOptions.CHECKPOINT_STORAGE, "filesystem");
+        flinkConf.set(CheckpointingOptions.CHECKPOINTS_DIRECTORY, config.checkpointDir());
+        // Stopping the process cancels the job; without this its last checkpoint would be deleted with it.
+        flinkConf.set(CheckpointingOptions.EXTERNALIZED_CHECKPOINT_RETENTION,
+                ExternalizedCheckpointRetention.RETAIN_ON_CANCELLATION);
+        if (config.restoreLatestCheckpoint()) {
+            LatestCheckpoint.in(config.checkpointDir())
+                    .ifPresent(checkpoint -> flinkConf.set(StateRecoveryOptions.SAVEPOINT_PATH, checkpoint));
+        }
+        return flinkConf;
     }
 
     /**

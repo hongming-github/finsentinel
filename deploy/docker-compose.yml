@@ -138,10 +138,28 @@ services:
     mem_limit: 256m
 
   # ---------- stream (benchmarks / demos) ----------
+  # Submit the job (after ./mvnw -pl stream-job package):
+  #   docker exec finsentinel-flink-jobmanager-1 flink run -d /opt/finsentinel/stream-job-0.1.0-SNAPSHOT.jar \
+  #     --kafka.bootstrap-servers=kafka:19092 --schema-registry.url=http://schema-registry:8080/apis/ccompat/v7
+  # On a cluster the job leaves the REST port and checkpoint storage to the cluster's settings below (ADR 0026).
+  # Checkpoints go to a volume both containers mount, so a TaskManager that comes back as a new container restores
+  # from the same files.
+
+  # The volume starts out owned by root; the image runs Flink as its flink user, so this hands it over once.
+  flink-checkpoints-init:
+    image: flink:2.2.1-java21
+    profiles: [stream]
+    user: root
+    entrypoint: ["chown", "flink:flink", "/checkpoints"]
+    volumes:
+      - flink-checkpoints:/checkpoints
 
   flink-jobmanager:
     image: flink:2.2.1-java21
     profiles: [stream]
+    depends_on:
+      flink-checkpoints-init:
+        condition: service_completed_successfully
     ports:
       - "8081:8081"
     command: jobmanager
@@ -149,23 +167,29 @@ services:
       FLINK_PROPERTIES: |
         jobmanager.rpc.address: flink-jobmanager
         jobmanager.memory.process.size: 768m
-        execution.checkpointing.dir: file:///tmp/flink-checkpoints
+        execution.checkpointing.dir: file:///checkpoints
     volumes:
       - ../stream-job/target:/opt/finsentinel:ro
+      - flink-checkpoints:/checkpoints
     mem_limit: 900m
 
   flink-taskmanager:
     image: flink:2.2.1-java21
     profiles: [stream]
     depends_on:
-      - flink-jobmanager
+      flink-jobmanager:
+        condition: service_started
+      flink-checkpoints-init:
+        condition: service_completed_successfully
     command: taskmanager
     environment:
       FLINK_PROPERTIES: |
         jobmanager.rpc.address: flink-jobmanager
         taskmanager.memory.process.size: 1200m
         taskmanager.numberOfTaskSlots: 4
-        execution.checkpointing.dir: file:///tmp/flink-checkpoints
+        execution.checkpointing.dir: file:///checkpoints
+    volumes:
+      - flink-checkpoints:/checkpoints
     mem_limit: 1400m
 
   # ---------- obs ----------
@@ -205,3 +229,4 @@ services:
 volumes:
   kafka-data:
   pg-data:
+  flink-checkpoints:

@@ -65,7 +65,7 @@ From `docs/perf/2026-10-17-phase-9c.md` (1,301 fraud scenarios across the drills
 - The recovery numbers are the platform's with an instant model; with a real one (38 s per analysis, ADR 0025) the
   same stalls would take longer to drain at the current worker settings.
 - The drills cost nothing and take 5-25 minutes each; they need the stack, traffic and, for drill 12, the compose
-  `stream` profile with `--local.web-ui-port=8081` passed to `flink run`.
+  `stream` profile (until fix 7, with `--local.web-ui-port=8081` passed to `flink run`).
 - The design rules that held are now backed by a run each; the ones that did not are known and ranked.
 
 ## Next
@@ -93,3 +93,6 @@ in `docs/perf/2026-10-18-9c-fixes.md`:
    same 2 analyses at once, back to baseline 13 s, 107 s and 11.5 s after the repair (before: 391 s, 325 s, 420 s).
 7. Local Flink: restore the latest retained checkpoint in `scripts/stack.sh flink`; compose `stream` profile: a
    shared checkpoint volume and a REST port that does not override the cluster's.
+   **Done 2026-10-19**: drill 11 repeated with `Restored: 1` and LARGE_AMOUNT 54/54 after the restart (before:
+   36/76); drill 12 with a new TaskManager container restoring from the shared volume, and `flink run` with no extra
+   flag. All seven are fixed; before and after in `docs/perf/2026-10-18-9c-fixes.md`.
