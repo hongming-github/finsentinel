@@ -196,7 +196,7 @@ services:
 
   # Grafana + Prometheus + Tempo + Loki + OTel collector in one container. Grafana on :3000.
   lgtm:
-    image: grafana/otel-lgtm:0.36.0
+    image: grafana/otel-lgtm:0.37.0
     profiles: [obs]
     ports:
       - "3000:3000"
