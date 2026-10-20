@@ -135,6 +135,8 @@ finsentinel:
       specialist: gpt-6-luna
       writer: gpt-6-luna
       reviewer: gpt-6-luna
+      # The case assistant (ADR 0028): condenses an analyst's question, answers it, summarises old turns.
+      assistant: gpt-6-luna
     # Escalated cases (a transfer, or an alert of these severities) switch these roles to the stronger model.
     # Off by default: on the live scenarios it cost 5.3x per case with no accuracy gain (ADR 0011). To turn on:
     # roles: [investigator, writer]
@@ -220,6 +222,22 @@ finsentinel:
     max-regulation-searches-per-hour: 200
     max-cases: 50
     max-passages: 10
+  assistant:
+    # The case assistant (ADR 0028). A turn makes 2-4 model calls (condense, answer, a repair at most, a summary every
+    # fold-turns turns) plus a reranked regulation search when the question needs one: about $0.001 on gpt-6-luna.
+    max-question-chars: 2000
+    max-turns-per-conversation: 40
+    max-turns-per-analyst-per-hour: 60
+    max-turns-per-tenant-per-hour: 600
+    # Context: the latest window-turns turns word for word; older ones folded into a summary fold-turns at a time
+    # (a fold changes the prompt prefix and so the provider's cache), earlier when they pass history-max-tokens.
+    window-turns: 6
+    fold-turns: 4
+    history-max-tokens: 3000
+    summary-max-chars: 1500
+    max-case-transactions: 50
+    max-repairs: 1
+    max-conversations-listed: 20
   outbox:
     enabled: true
     poll-interval: 1s

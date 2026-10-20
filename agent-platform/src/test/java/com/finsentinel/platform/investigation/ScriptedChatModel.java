@@ -32,6 +32,8 @@ public class ScriptedChatModel implements ChatModel {
     public final List<String> systemPrompts = new CopyOnWriteArrayList<>();
     public final List<Set<String>> toolsOffered = new CopyOnWriteArrayList<>();
     public final List<String> modelsAsked = new CopyOnWriteArrayList<>();
+    /** Every message of each call after the system message, as "USER: text" or "ASSISTANT: text". */
+    public final List<List<String>> conversations = new CopyOnWriteArrayList<>();
     /** Whether each call asked the provider to enforce a JSON Schema (native structured output). */
     public final List<Boolean> schemaEnforced = new CopyOnWriteArrayList<>();
 
@@ -50,6 +52,9 @@ public class ScriptedChatModel implements ChatModel {
     public synchronized ChatResponse call(Prompt prompt) {
         prompts.add(prompt.getUserMessage().getText());
         systemPrompts.add(prompt.getSystemMessage().getText());
+        conversations.add(prompt.getInstructions().stream()
+                .filter(m -> m.getMessageType() != org.springframework.ai.chat.messages.MessageType.SYSTEM)
+                .map(m -> m.getMessageType().name() + ": " + m.getText()).toList());
         toolsOffered.add(prompt.getOptions() instanceof ToolCallingChatOptions options && options.getToolCallbacks() != null
                 ? options.getToolCallbacks().stream().map(c -> c.getToolDefinition().name()).collect(Collectors.toSet())
                 : Set.of());

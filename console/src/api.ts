@@ -1,6 +1,8 @@
 import { accessToken } from './auth'
+import { type AskOutcome, askOutcome } from './assistant'
 import type {
-  AuditEntry, AuditVerification, CaseDetail, CaseStage, Decision, FraudCase, StoredAlert, UsageReport,
+  AuditEntry, AuditVerification, CaseDetail, CaseStage, Conversation, ConversationView, Decision, FraudCase,
+  StoredAlert, UsageReport,
 } from './types'
 
 // The platform's tenant-scoped API, called through the console's own origin (vite.config.ts). The tenant in the path is
@@ -36,6 +38,8 @@ async function get<T>(path: string): Promise<T> {
 }
 
 const base = (tenant: string) => `/api/tenants/${encodeURIComponent(tenant)}`
+const conversationPath = (tenant: string, caseId: string) =>
+  `${base(tenant)}/cases/${encodeURIComponent(caseId)}/conversations`
 
 export const api = {
   cases: (tenant: string, stage: CaseStage | null, limit: number) =>
@@ -55,6 +59,30 @@ export const api = {
       body: JSON.stringify({ decision, note: note.trim() === '' ? null : note }),
     })
     return { conflict: response.status === 409, fraudCase: (await response.json()) as FraudCase }
+  },
+
+  // The case assistant: the analyst's own conversations on one case. Every call is an audited model call or read.
+  conversations: (tenant: string, caseId: string) =>
+    get<Conversation[]>(`${base(tenant)}/cases/${encodeURIComponent(caseId)}/conversations`),
+
+  conversation: (tenant: string, caseId: string, id: string) =>
+    get<ConversationView>(`${conversationPath(tenant, caseId)}/${encodeURIComponent(id)}`),
+
+  startConversation: async (tenant: string, caseId: string) =>
+    (await (await request(conversationPath(tenant, caseId), { method: 'POST' })).json()) as Conversation,
+
+  /** A question on top of the turns the analyst has seen (If-Match); every answer of the platform is an outcome. */
+  ask: async (tenant: string, caseId: string, id: string, seenTurns: number, question: string): Promise<AskOutcome> => {
+    const token = await accessToken()
+    const response = await fetch(`${conversationPath(tenant, caseId)}/${encodeURIComponent(id)}/turns`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`, Accept: 'application/json', 'Content-Type': 'application/json',
+        'If-Match': `"${seenTurns}"`,
+      },
+      body: JSON.stringify({ question }),
+    })
+    return askOutcome(response.status, await response.json().catch(() => null))
   },
 
   alerts: (tenant: string, limit: number) => get<StoredAlert[]>(`${base(tenant)}/alerts?limit=${limit}`),

@@ -22,7 +22,8 @@ public final class TestLlm {
 
     public static LlmProperties properties(Set<AgentRole> escalatedRoles) {
         return new LlmProperties(Map.of("openai", OPENAI, "groq", GROQ),
-                new LlmProperties.Models("gpt-5.4-mini", "gpt-5.4-mini", "gpt-5.4-mini", "gpt-5.4-mini"),
+                new LlmProperties.Models("gpt-5.4-mini", "gpt-5.4-mini", "gpt-5.4-mini", "gpt-5.4-mini",
+                        "gpt-5.4-mini"),
                 new LlmProperties.Escalation("gpt-5.5", escalatedRoles, true, Set.of(Severity.HIGH)),
                 new LlmProperties.Fallback("groq:openai/gpt-oss-120b", 2, Duration.ofSeconds(60)),
                 Map.of("gpt-5.4-mini", price("0.75", "0.075", "4.50"),

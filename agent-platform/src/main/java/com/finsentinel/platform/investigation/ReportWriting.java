@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.Map;
 
 /** Prompt pieces shared by the agents: the system prompt with its playbooks, the case data, revision and repair notes. */
-final class ReportWriting {
+public final class ReportWriting {
 
     private ReportWriting() {
     }
@@ -23,7 +23,7 @@ final class ReportWriting {
      * one rule leaked into others (transfer-scam guidance talked the model out of an impossible-travel card fraud).
      * Fails at startup if a rule has no playbook.
      */
-    static Map<AlertRule, String> loadPlaybooks() {
+    public static Map<AlertRule, String> loadPlaybooks() {
         Map<AlertRule, String> out = new EnumMap<>(AlertRule.class);
         for (AlertRule rule : AlertRule.values()) {
             out.put(rule, read(new ClassPathResource("prompts/playbooks/" + rule.name() + ".md")));
@@ -98,7 +98,7 @@ final class ReportWriting {
                 """.formatted(brief, String.join("\n- ", problems), json.writeValueAsString(rejected), howToFix);
     }
 
-    static String read(Resource resource) {
+    public static String read(Resource resource) {
         try {
             return resource.getContentAsString(StandardCharsets.UTF_8);
         } catch (IOException e) {

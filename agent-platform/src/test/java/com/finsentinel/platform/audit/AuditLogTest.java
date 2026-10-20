@@ -8,9 +8,11 @@ import com.finsentinel.platform.cases.CaseIntake;
 import com.finsentinel.platform.security.Tenancy;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -31,6 +33,7 @@ import static com.finsentinel.platform.TestTokens.bearer;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -47,6 +50,8 @@ class AuditLogTest {
     CaseIntake intake;
     @Autowired
     PostgreSQLContainer postgres;
+    @Autowired
+    JsonMapper json;
 
     private final String tenant = uniqueTenant();
 
@@ -69,6 +74,34 @@ class AuditLogTest {
                         "GET /api/tenants/{tenantId}/cases/{caseId} " + caseId + " 200 ana-" + tenant,
                         "GET /api/tenants/" + victim + "/cases null 404 ana-" + tenant,
                         "GET /api/tenants/" + tenant + "/llm-usage null 403 ana-" + tenant);
+        assertThat(audit.verify(tenant).intact()).isTrue();
+    }
+
+    /** A question to the case assistant: the request, and the turn with hashes of its text, never the text itself. */
+    @Test
+    void anAssistantTurnIsRecordedWithHashesOfTheQuestionAndAnswer() throws Exception {
+        String caseId = intake.accept(alert(tenant, "acc-1", AlertRule.GEO_JUMP, Severity.HIGH, List.of("t-1"),
+                Instant.now())).orElseThrow();
+        String analyst = TestTokens.analyst(tenant);
+        String conversation = json.readTree(mvc.perform(post("/api/tenants/{t}/cases/{c}/conversations", tenant,
+                        caseId).with(bearer(analyst))).andExpect(status().isCreated()).andReturn().getResponse()
+                .getContentAsString()).path("conversationId").asString();
+        mvc.perform(post("/api/tenants/{t}/cases/{c}/conversations/{id}/turns", tenant, caseId, conversation)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"question\":\"Customer S1234567D: why?\"}")
+                        .header("If-Match", "\"0\"").with(bearer(analyst)))
+                .andExpect(status().isOk());
+
+        assertThat(entries(tenant)).extracting(e -> e.get("action") + " " + e.get("resource") + " " + e.get("outcome"))
+                .containsExactly(
+                        "assistant start " + caseId + " OK",
+                        "POST /api/tenants/{tenantId}/cases/{caseId}/conversations " + caseId + " 201",
+                        "assistant turn " + caseId + " OK",
+                        "POST /api/tenants/{tenantId}/cases/{caseId}/conversations/{conversationId}/turns " + caseId
+                                + " 200");
+        String detail = Tenancy.callAsSystem(() -> jdbc.sql(
+                        "select detail::text from audit_log where chain = :c and action = 'assistant turn'")
+                .param("c", tenant).query(String.class).single());
+        assertThat(detail).contains("questionSha256", "answerSha256", conversation).doesNotContain("S1234567D", "why");
         assertThat(audit.verify(tenant).intact()).isTrue();
     }
 

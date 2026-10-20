@@ -1,4 +1,4 @@
-package com.finsentinel.platform.mcp;
+package com.finsentinel.platform.budget;
 
 import com.finsentinel.platform.PlatformTest;
 import org.junit.jupiter.api.Test;

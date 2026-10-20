@@ -4,6 +4,7 @@ import com.finsentinel.common.Alert;
 import com.finsentinel.platform.alert.AlertRepository;
 import com.finsentinel.platform.audit.AuditEntry;
 import com.finsentinel.platform.audit.AuditLog;
+import com.finsentinel.platform.budget.RateLimiter;
 import com.finsentinel.platform.alert.StoredAlert;
 import com.finsentinel.platform.cases.CaseRepository;
 import com.finsentinel.platform.cases.CaseStage;

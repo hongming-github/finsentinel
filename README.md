@@ -26,6 +26,8 @@ linked. The weak ones are included.
 | Recovery from 12 injected faults | Nothing lost in 11; a **150 s Postgres outage dead-lettered 1 alert**; the platform **cannot start while the schema registry is down** | One fault at a time under steady traffic, loss counted from Kafka offsets and the database ([ADR 0026](docs/adr/0026-chaos-drills.md), [results](docs/perf/2026-10-17-phase-9c.md)) |
 | Flink TaskManager killed | Restored from its checkpoint, 38/38 fraud scenarios detected, one duplicate alert stored once | Compose cluster; the JobManager noticed after 34 s (ADR 0026) |
 | Large amounts after a cold Flink restart | **36/76** detected in 12 min without batch baselines; 27/27 with them | Rule history lost with the process; the batch baseline stands in (ADR 0026) |
+| Case assistant, scripted multi-turn evaluation | 15/15 conversations (30 turns) after fixing a grader false positive; **13/15 as first graded**; $0.0094 | 5 conversations x 3 on gpt-6-luna: follow-up, pronoun, regulatory follow-up, another bank's case, pasted injection ([report](docs/eval/2026-10-20-conversations.md), ADR 0028) |
+| Case assistant, 4-turn conversation on gpt-6-luna | $0.0024 in all; 75% of prompt tokens from the cache from turn 2; **11-25 s a turn** | One real conversation, two of its turns with a regulation search ([ADR 0028](docs/adr/0028-case-assistant.md), [screenshot](docs/console/11-case-assistant.png)) |
 | Platform instance killed mid-analysis | Resumed from checkpoints, no duplicate report, but the claimed cases waited **5 min** | The claim timeout; no heartbeat yet (ADR 0026) |
 
 Load tests run the platform against `fake-llm`, a stand-in that speaks OpenAI's protocol, so they measure the platform,
@@ -98,8 +100,8 @@ alert says so (ADR 0019).
 
 **Status:** phases 1–8 done (data path, investigation agent, regulatory RAG, case orchestration and MCP, LLM
 gateway, tenancy and security, evaluation with a baseline, Avro contracts, Spark baselines, end-to-end tracing);
-phase 9 measurement, load tests and chaos drills done, plus a web console; the demo is next. See
-[docs/roadmap.md](docs/roadmap.md).
+phase 9 measurement, load tests and chaos drills done, plus a web console with a multi-turn case assistant; the
+demo is next. See [docs/roadmap.md](docs/roadmap.md).
 
 ## Stack
 
@@ -121,7 +123,7 @@ Redis · Keycloak · OpenTelemetry / Grafana LGTM · Testcontainers · React 19 
 | `mcp-compliance` | MCP server for the screening vendor: counterparty watchlists, including the inter-bank mule account list. Stateless. |
 | `fake-llm` | OpenAI-compatible stand-in for load tests and drills: speaks the tool-calling protocol, answers any structured-output schema, injects latency and errors per provider (ADR 0024). No Spring. |
 | `load-test` | Gatling simulations of the analyst case API and the MCP endpoint, with realm tokens (ADR 0025). Compiled by the build, run by hand. No Spring. |
-| `console/` | Web console (React, Vite, TypeScript): case queue and case detail, alerts, LLM cost, audit log, the health of every process, and links from a case to its trace and logs. Signs in with Keycloak (PKCE); not part of the Maven build (ADR 0027). |
+| `console/` | Web console (React, Vite, TypeScript): case queue and case detail with the case assistant chat, alerts, LLM cost, audit log, the health of every process, and links from a case to its trace and logs. Signs in with Keycloak (PKCE); not part of the Maven build (ADR 0027). |
 | `examples/mcp-client-python` | A LangGraph analyst assistant in Python that uses the platform only through its MCP server. |
 | `deploy/systems/` | WireMock stand-ins for those systems, with id-pattern stories (travel notice, account takeover, mule payee, a prompt-injected CRM note). |
 | `knowledge/` | `sources.json` lists the MAS documents; `scripts/fetch-knowledge.sh` downloads them (not committed). |
@@ -191,6 +193,44 @@ process, so the platform needs no CORS rule. Logs go to Loki only in profile `lo
 | ![Trace](docs/console/09-tempo-trace.png) | ![LLM usage](docs/console/07-usage.png) |
 
 More in [docs/console/](docs/console/): queue, alerts, audit log, Loki, the analyst's view of a supervisor page.
+
+### Case assistant
+
+Analysts ask follow-up questions about a case in the console ("why NEEDS_REVIEW?", "and the second one?", "what does
+the EUPG say about the cooling-off period?"), turn after turn ([ADR 0028](docs/adr/0028-case-assistant.md)):
+
+- **One conversation = one analyst + one case.** Tenant, case and analyst come from the token and the checked case,
+  never from a request. Another analyst, another case's path or another bank's case gets 404. Turns are stored in
+  Postgres under row-level security and cannot be edited afterwards.
+- **The platform drives each turn; the answering model has no tools.** Per turn: the budget; the case read afresh into
+  a fact sheet, which is never kept as history; older turns folded into a summary; the question condensed with the
+  history ("it" becomes "the EUPG"); a regulation search with the condensed query when it needs one; then the answer.
+  An answer may cite only transactions in the fact sheet and passages it was given, or it is repaired once and then
+  refused.
+- **Memory**: the latest 6 turns word for word. Older turns are folded into a summary 4 at a time, or earlier when they
+  pass a 3,000-token budget, so the cached prompt prefix changes rarely. A summary that names an id the folded turns
+  did not is not stored.
+- **Pasted emails** with instructions in them are flagged and sent to the model as data, with the platform's warning.
+  Every message is pseudonymised. A budget per analyst and per bank is counted in Postgres. The audit chain holds a
+  SHA-256 of each question and answer. `If-Match` on the turn count stops two tabs from adding the same turn.
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/api/tenants/{t}/cases/{id}/conversations` | Start a conversation on a case; `ETag` = turns (0) |
+| GET | `/api/tenants/{t}/cases/{id}/conversations` | Your conversations on the case |
+| GET | `/api/tenants/{t}/cases/{id}/conversations/{c}` | A conversation with its turns |
+| POST | `/api/tenants/{t}/cases/{id}/conversations/{c}/turns` | Ask; `If-Match` = turns seen; 409, 429, 502 (not grounded) |
+
+![Case assistant](docs/console/11-case-assistant.png)
+
+A real conversation on gpt-6-luna. In the fourth question, "it" was condensed to "EUPG §4.10" before the search, which
+found the cooling-off passages. Every answer cites the transaction it relies on; the panel shows the condensed
+question, the search, the case version, tokens (cached), cost and latency of each turn.
+
+```bash
+# Scripted multi-turn evaluation: follow-up, pronoun, regulatory follow-up, another bank's case, pasted injection
+./mvnw -pl agent-platform test -Dtest=ConversationEvalTest -Deval=true -Dsurefire.failIfNoSpecifiedTests=false
+```
 
 ### Case API
 
@@ -448,3 +488,4 @@ proposes updates weekly.
 - [0025 Load tests: Gatling for the APIs, the simulator for the stream](docs/adr/0025-load-tests.md)
 - [0026 Chaos drills under steady traffic](docs/adr/0026-chaos-drills.md)
 - [0027 A web console over the tenant-scoped API, signed in with PKCE](docs/adr/0027-web-console.md)
+- [0028 A case assistant: multi-turn conversations about one case](docs/adr/0028-case-assistant.md)

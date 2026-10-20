@@ -25,7 +25,9 @@ import java.util.regex.Pattern;
  *       ids that tool results in this conversation returned, so the platform's validator accepts it.</li>
  * </ol>
  * The verdict is always NEEDS_REVIEW at 50: valid for every case (it neither clears nor confirms), and it goes through
- * the platform's reviewer, which this responder approves. Stateless: everything comes from the request.
+ * the platform's reviewer, which this responder approves. The case assistant (ADR 0028) gets its question back as the
+ * condensed question, a regulation search when the question names a regulatory topic, and an answer that cites
+ * nothing (always grounded). Stateless: everything comes from the request.
  */
 final class ChatResponder {
 
@@ -40,6 +42,9 @@ final class ChatResponder {
     private static final Pattern NOTED_CHUNKS = Pattern.compile("chunkIds \\[([^\\]]*)]");
     private static final int MAX_CITED_TXNS = 5;
     private static final int MAX_CITED_CHUNKS = 2;
+    private static final String LATEST_QUESTION = "The analyst's latest question:\n";
+    private static final Pattern REGULATORY = Pattern.compile(
+            "regulat|guideline|eupg|\\bmas\\b|cooling.off|liabilit|obligat", Pattern.CASE_INSENSITIVE);
 
     private final JsonMapper json;
     private final AtomicLong sequence = new AtomicLong();
@@ -208,6 +213,12 @@ final class ChatResponder {
                     : json.createArrayNode().add(fillItem(root, schema, Map.of("statement",
                     "Synthetic note from the passages the search returned."), evidence, userText));
             case "grades" -> grades(userText);
+            case "standaloneQuestion" -> json.getNodeFactory().stringNode(latestQuestion(userText));
+            case "needsRegulations" -> json.getNodeFactory().booleanNode(
+                    REGULATORY.matcher(latestQuestion(userText)).find());
+            case "searchQuery" -> json.getNodeFactory().stringNode(
+                    REGULATORY.matcher(latestQuestion(userText)).find() ? SEARCH_QUERY : "");
+            case "answer" -> json.getNodeFactory().stringNode("Synthetic answer by fake-llm: no model was called.");
             default -> null;
         };
     }
@@ -219,6 +230,12 @@ final class ChatResponder {
             texts.forEach(object::put);
         }
         return item;
+    }
+
+    /** The question the assistant's condensing call is about; the whole text for any other call. */
+    private static String latestQuestion(String userText) {
+        int at = userText.lastIndexOf(LATEST_QUESTION);
+        return at < 0 ? userText : userText.substring(at + LATEST_QUESTION.length()).strip();
     }
 
     /** The reranker's answer: every passage id in the question graded 2, so the fused order stands. */
