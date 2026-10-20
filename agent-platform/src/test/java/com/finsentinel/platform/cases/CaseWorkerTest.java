@@ -1,6 +1,10 @@
 package com.finsentinel.platform.cases;
 
+import com.finsentinel.common.Alert;
+import com.finsentinel.platform.alert.StoredAlert;
+import com.finsentinel.platform.investigation.CaseContext;
 import com.finsentinel.platform.investigation.InvestigationResult;
+import com.finsentinel.platform.security.Tenancy;
 import com.finsentinel.platform.systems.SystemsProperties;
 import com.finsentinel.common.Severity;
 import com.finsentinel.platform.PlatformTest;
@@ -14,12 +18,16 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
+import java.sql.Timestamp;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static com.finsentinel.platform.TestData.uniqueTenant;
 import static com.finsentinel.platform.cases.CaseTestSupport.alertOn;
@@ -50,6 +58,9 @@ class CaseWorkerTest {
     CaseAnalysisGraph analysis;
     @Autowired
     JdbcClient jdbc;
+
+    private static final Duration CLAIM_TIMEOUT = Duration.ofMinutes(5);
+    private static final Duration LEASE = Duration.ofSeconds(30);
 
     private final String tenant = uniqueTenant();
 
@@ -157,20 +168,53 @@ class CaseWorkerTest {
         assertThat(cases.find(tenant, medium).orElseThrow().attempts()).isZero();
     }
 
+    /**
+     * The graph stops at its next checkpoint write, which is fenced by the claim, and the worker drops the run without
+     * recording a failure: the case is the other worker's now. Fails if the worker treats a lost claim as a failed
+     * attempt (an ANALYSIS_ATTEMPT_FAILED event, the other worker's claim released).
+     */
     @Test
     void workerThatLostItsClaimDoesNotWriteAResult() {
         String caseId = newCase(Severity.HIGH);
+        AtomicReference<Instant> otherWorkersClaim = new AtomicReference<>();
         investigator.respondWith(c -> {
-            // Another worker re-claims while this one is still thinking.
-            jdbc.sql("update fraud_case set claimed_at = clock_timestamp() where case_id = cast(:id as uuid)")
-                    .param("id", c.caseId()).update();
+            // Another worker takes the case over while this one is still thinking. Claims are queue work, in the
+            // system scope; this graph node's thread has none (no tenant set: the update would fail).
+            otherWorkersClaim.set(Tenancy.callAsSystem(() -> takeOver(c.caseId())));
             return StubCaseInvestigator.defaultResult(c);
         });
 
         worker.runOnce();
 
+        assertThat(eventTypes(cases, tenant, caseId)).as("a lost claim is not a failed attempt").containsExactly("OPENED");
+        assertThat(claimedAt(caseId)).as("the other worker's claim stands").contains(otherWorkersClaim.get());
         assertThat(cases.find(tenant, caseId).orElseThrow().stage()).isEqualTo(CaseStage.ANALYSIS);
         assertThat(cases.analyses(tenant, caseId)).isEmpty();
+    }
+
+    /**
+     * The window the checkpoint fence cannot cover: the graph has finished, the result is not stored yet. Fails without
+     * the {@code claimed_at} check in {@link CaseRepository#complete}: the stale worker would store its analysis and
+     * hand the case to the analyst under the other worker's claim. Its heartbeat cannot win the claim back either.
+     */
+    @Test
+    void claimTakenOverAfterTheGraphFinishedKeepsTheResultOut() {
+        String caseId = newCase(Severity.HIGH);
+        CaseClaim claim = cases.claim(1, CLAIM_TIMEOUT, LEASE, 3).getFirst();
+        assertThat(claim.fraudCase().caseId()).isEqualTo(caseId);
+        CaseAnalysisGraph.Outcome outcome = analysis.analyse(contextOf(claim), claim.claimedAt());
+
+        Instant otherWorkersClaim = takeOver(caseId);
+        assertThat(cases.renew(List.of(claim))).as("the stale worker's heartbeat renews nothing").isZero();
+        CaseRepository.Completion completion = Tenancy.call(tenant,
+                () -> cases.complete(claim, outcome.mode(), outcome.investigation(), outcome.review()));
+
+        assertThat(completion).isEqualTo(CaseRepository.Completion.LOST_CLAIM);
+        assertThat(cases.find(tenant, caseId).orElseThrow().stage()).isEqualTo(CaseStage.ANALYSIS);
+        assertThat(cases.analyses(tenant, caseId)).isEmpty();
+        assertThat(eventTypes(cases, tenant, caseId)).containsExactly("OPENED");
+        assertThat(outboxTypes(jdbc, caseId)).isEmpty();
+        assertThat(claimedAt(caseId)).contains(otherWorkersClaim);
     }
 
     @Test
@@ -367,6 +411,36 @@ class CaseWorkerTest {
 
         assertThat(capped.runOnce()).isEqualTo(1);
         assertThat(capped.runOnce()).isZero();
+    }
+
+    /**
+     * Another worker takes the case over the way it happens in production: this worker's renewals stopped for longer
+     * than a lease (a long pause, a lost connection), so its claim lapsed and the next claim took it with a new
+     * {@code claimed_at}, the fencing token. Returns the new owner's token.
+     */
+    private Instant takeOver(String caseId) {
+        jdbc.sql("""
+                        update fraud_case set claim_renewed_at = clock_timestamp() - interval '1 hour'
+                        where case_id = cast(:id as uuid)
+                        """)
+                .param("id", caseId).update();
+        CaseClaim other = cases.claim(1, CLAIM_TIMEOUT, LEASE, 3).getFirst();
+        assertThat(other.fraudCase().caseId()).isEqualTo(caseId);
+        return other.claimedAt();
+    }
+
+    private Optional<Instant> claimedAt(String caseId) {
+        return jdbc.sql("select claimed_at from fraud_case where case_id = cast(:id as uuid)")
+                .param("id", caseId)
+                .query((rs, n) -> Optional.ofNullable(rs.getTimestamp("claimed_at")).map(Timestamp::toInstant))
+                .single();
+    }
+
+    private CaseContext contextOf(CaseClaim claim) {
+        FraudCase c = claim.fraudCase();
+        List<Alert> caseAlerts = alerts.findByCase(c.tenantId(), c.caseId()).stream().map(StoredAlert::alert).toList();
+        return new CaseContext(c.caseId(), c.tenantId(), c.accountId(), c.customerId(), caseAlerts, c.analysisRun(),
+                c.analystNote(), systems.connectedFor(c.tenantId()));
     }
 
     private String newCase(Severity severity) {
