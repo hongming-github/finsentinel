@@ -269,7 +269,10 @@ public class CaseWorker {
             CaseAnalysisGraph.Outcome outcome = analysis.analyse(context, claim.claimedAt());
             InvestigationResult result = outcome.investigation();
             CaseRepository.Completion completion = cases.complete(claim, outcome.mode(), result, outcome.review());
-            metrics.analysed(stored, claim);
+            // Timed only when the analyst gets this report: a superseded run or a lost claim is no one's wait.
+            if (completion == CaseRepository.Completion.READY_FOR_DECISION) {
+                metrics.analysed(stored, claim);
+            }
             log.info("Case {} run {} ({} alerts, {}): {} {} {} risk={} review={} tools={} calls={} tokens={}/{} "
                             + "cached={} written={} cost=${} {}ms{}",
                     c.caseId(), c.analysisRun(), caseAlerts.size(), context.rules(), outcome.mode(), completion,

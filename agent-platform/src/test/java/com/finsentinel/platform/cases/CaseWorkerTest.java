@@ -251,6 +251,35 @@ class CaseWorkerTest {
     }
 
     /**
+     * Alert-to-report is timed for the report the analyst gets: a run superseded by new evidence (or one whose claim
+     * was lost) is not a report anyone waits for, and timing it would count one alert's wait twice (ADR 0024).
+     */
+    @Test
+    void onlyTheRunThatReachesTheAnalystIsTimed() {
+        newCase(Severity.MEDIUM);
+        investigator.respondWith(c -> {
+            if (c.run() == 1) {
+                intake.accept(alertOn(tenant, c.accountId(), Severity.HIGH));
+            }
+            return StubCaseInvestigator.defaultResult(c);
+        });
+        long analysis = pipelineCount("analysis");
+        long total = pipelineCount("total");
+
+        worker.runOnce();
+        assertThat(pipelineCount("analysis")).as("superseded run").isEqualTo(analysis);
+        assertThat(pipelineCount("total")).as("superseded run").isEqualTo(total);
+
+        worker.runOnce();
+        assertThat(pipelineCount("analysis")).as("the run the analyst gets").isEqualTo(analysis + 1);
+        assertThat(pipelineCount("total")).as("the run the analyst gets").isEqualTo(total + 1);
+    }
+
+    private long pipelineCount(String stage) {
+        return metrics.registry().get(PipelineMetrics.TIMER).tag("stage", stage).timer().count();
+    }
+
+    /**
      * Drill 02 (ADR 0026): attempts on consecutive polls, seconds apart, used up all three within a model outage of
      * half a minute and the case failed for good. Each failed attempt now waits a growing pause.
      */

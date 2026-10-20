@@ -31,7 +31,8 @@ an alert's time went between the payment and the report.
 3. **Pipeline meters** (`PipelineMetrics`): one timer `finsentinel.pipeline` with a `stage` tag and percentile
    histograms, measured on the alert that started the run: `detection` (payment event time to Flink's detection),
    `delivery` (to the platform, over Kafka), `queue` (waiting for a worker), `analysis` (claim to stored report) and
-   `total`. A run an analyst requested times only its analysis (an hour-old alert would read as an hour in the queue);
+   `total`, recorded only for the run whose report reaches the analyst (a run superseded by new evidence or one whose
+   claim was lost is not timed: its alert's wait is counted by the run that replaces it; fixed 2026-10-20). A run an analyst requested times only its analysis (an hour-old alert would read as an hour in the queue);
    negative spans from clock skew are skipped. Plus a gauge `finsentinel.cases.waiting`, the backlog. The gateway's
    existing observation `finsentinel.llm.ask` gives model-call latency, fallback and errors.
 4. **Grafana dashboard "FinSentinel pipeline"**, provisioned into the obs profile's LGTM container
@@ -48,8 +49,9 @@ an alert's time went between the payment and the report.
 - `FakeLlmContractTest` (2, runs in every build): a golden case through the real agents, gateway and Spring AI OpenAI
   client on fake-llm passes validation (NEEDS_REVIEW 50, tokens reported, cost 0); with the main provider failing every
   request, the gateway's answer comes from the fallback's two-step path.
-- `PipelineMetricsTest` (3) and a `CaseWorkerTest` case: every stage timed, re-analysis timed as analysis only,
-  negative spans skipped, the backlog gauge counts an open case.
+- `PipelineMetricsTest` (3) and `CaseWorkerTest` cases: every stage timed, re-analysis timed as analysis only,
+  negative spans skipped, the backlog gauge counts an open case, a superseded run not timed
+  (`onlyTheRunThatReachesTheAnalystIsTimed`, red before the fix).
 - **On the local stack** (core, systems, obs; Flink embedded; simulator at 20 tps, a fraud scenario every 3 s, two
   runs): 66 alerts filed and analysed through fake-llm, 0 failed, all three rules; ~250 ms per analysis. First
   figures, to be measured properly in step B: p95 detection 12.4 s (thought to be Flink catching up on the backfill; ADR 0025 found the simulator backdating velocity bursts),
