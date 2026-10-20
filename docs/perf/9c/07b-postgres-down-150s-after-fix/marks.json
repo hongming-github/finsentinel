@@ -1,0 +1,33 @@
+{
+  "name": "postgres-down-150s",
+  "marks": {
+    "start": "2026-10-18T15:44:45.440+00:00",
+    "inject": "2026-10-18T15:46:15.439+00:00",
+    "heal": "2026-10-18T15:48:46.284+00:00",
+    "end": "2026-10-18T15:59:18.463+00:00"
+  },
+  "commands": [
+    {
+      "t": "2026-10-18T15:46:16.273+00:00",
+      "command": "docker stop finsentinel-postgres-1",
+      "exit": 0,
+      "output": "finsentinel-postgres-1\n"
+    },
+    {
+      "t": "2026-10-18T15:48:46.492+00:00",
+      "command": "docker start finsentinel-postgres-1",
+      "exit": 0,
+      "output": "finsentinel-postgres-1\n"
+    }
+  ],
+  "baseline_backlog_max": 2,
+  "needed": [
+    "platform",
+    "mcp-banking",
+    "mcp-compliance",
+    "fake-llm",
+    "postgres"
+  ],
+  "flink": true,
+  "interval_s": 5
+}

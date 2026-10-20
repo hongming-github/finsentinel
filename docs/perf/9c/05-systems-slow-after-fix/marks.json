@@ -1,0 +1,34 @@
+{
+  "name": "systems-slow",
+  "marks": {
+    "start": "2026-10-19T13:04:29.039+00:00",
+    "inject": "2026-10-19T13:05:59.051+00:00",
+    "heal": "2026-10-19T13:07:59.330+00:00",
+    "recovered": "2026-10-19T13:08:04.840+00:00",
+    "end": "2026-10-19T13:08:39.419+00:00"
+  },
+  "commands": [
+    {
+      "t": "2026-10-19T13:05:59.322+00:00",
+      "command": "curl -s -X POST localhost:8093/__admin/settings -d '{\"fixedDelay\":10000}'",
+      "exit": 0,
+      "output": ""
+    },
+    {
+      "t": "2026-10-19T13:07:59.406+00:00",
+      "command": "curl -s -X POST localhost:8093/__admin/settings -d '{\"fixedDelay\":0}'",
+      "exit": 0,
+      "output": ""
+    }
+  ],
+  "baseline_backlog_max": 3,
+  "needed": [
+    "platform",
+    "mcp-banking",
+    "mcp-compliance",
+    "fake-llm",
+    "postgres"
+  ],
+  "flink": true,
+  "interval_s": 5
+}

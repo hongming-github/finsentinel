@@ -95,6 +95,7 @@ class CaseAnalysisResumeTest {
                 .isEqualTo("NEEDS_REVIEW");
 
         reviewer.reset();
+        CaseTestSupport.makeDue(jdbc, caseId);
         worker.runOnce();
 
         assertThat(cases.find(tenant, caseId).orElseThrow().stage()).isEqualTo(CaseStage.AWAITING_DECISION);
@@ -186,6 +187,8 @@ class CaseAnalysisResumeTest {
         reviewer.reset();
         String account = cases.find(tenant, caseId).orElseThrow().accountId();
         intake.accept(alertOn(tenant, account, Severity.HIGH));
+        // New evidence starts a new run but does not cut short the pause the failed attempt earned.
+        CaseTestSupport.makeDue(jdbc, caseId);
 
         worker.runOnce();
 

@@ -22,8 +22,10 @@ import java.util.Set;
  * format every Kafka schema registry and tool understands, so the registry can change without touching a byte.
  *
  * <p>Writing: the local (generated) schema must already be registered under the subject; the id is looked up once, at
- * construction, and a producer whose schema the registry does not know fails at startup rather than at the first
- * message. Schemas are registered on purpose ({@link SchemaRegistration}), never by a producer.
+ * construction ({@link #forSubject}), and a producer whose schema the registry does not know fails at startup rather
+ * than at the first message. Schemas are registered on purpose ({@link SchemaRegistration}), never by a producer. A
+ * consumer's serde ({@link #forReading}) looks the id up on its first write instead, so a consumer starts while the
+ * registry is down (drill 9b, ADR 0026).
  *
  * <p>Reading: the writer schema comes from the registry by the id in the message, and Avro resolves it against the
  * local schema, so a consumer reads every compatible version.
@@ -35,20 +37,46 @@ public final class AvroSerde<T extends SpecificRecord> {
     private static final Set<String> TRUSTED = new HashSet<>();
 
     private final SchemaRegistry registry;
+    private final String subject;
     private final Schema schema;
-    private final int writerId;
+    /** The local schema's id under the subject; null until looked up. */
+    private volatile Integer writerId;
 
-    private AvroSerde(SchemaRegistry registry, Schema schema, int writerId) {
+    private AvroSerde(SchemaRegistry registry, String subject, Schema schema) {
         this.registry = registry;
+        this.subject = subject;
         this.schema = schema;
-        this.writerId = writerId;
     }
 
-    /** @throws SchemaRegistry.SchemaNotRegisteredException when the local schema is not registered for the subject */
+    /**
+     * For a producer: fails here, not at the first message, when the registry does not have the local schema.
+     *
+     * @throws SchemaRegistry.SchemaNotRegisteredException when the local schema is not registered for the subject
+     */
     public static <T extends SpecificRecord> AvroSerde<T> forSubject(SchemaRegistry registry, String subject, Class<T> type) {
+        AvroSerde<T> serde = forReading(registry, subject, type);
+        serde.writerId();
+        return serde;
+    }
+
+    /**
+     * For a consumer: needs no registry to be built. Reading asks the registry only for writer ids it has not seen;
+     * the local schema's id is looked up on the first {@link #serialize}, if any.
+     */
+    public static <T extends SpecificRecord> AvroSerde<T> forReading(SchemaRegistry registry, String subject, Class<T> type) {
         Schema schema = SpecificData.get().getSchema(type);
         trust(schema);
-        return new AvroSerde<>(registry, schema, registry.idOf(subject, schema));
+        return new AvroSerde<>(registry, subject, schema);
+    }
+
+    private int writerId() {
+        Integer id = writerId;
+        if (id == null) {
+            // Two threads may both ask; the registry answers both with the same id.
+            id = registry.idOf(subject, schema);
+            writerId = id;
+        }
+        return id;
     }
 
     /**
@@ -88,7 +116,7 @@ public final class AvroSerde<T extends SpecificRecord> {
     public byte[] serialize(T record) {
         ByteArrayOutputStream out = new ByteArrayOutputStream(128);
         out.write(MAGIC);
-        out.writeBytes(ByteBuffer.allocate(4).putInt(writerId).array());
+        out.writeBytes(ByteBuffer.allocate(4).putInt(writerId()).array());
         BinaryEncoder encoder = EncoderFactory.get().binaryEncoder(out, null);
         try {
             new SpecificDatumWriter<T>(schema).write(record, encoder);

@@ -13,7 +13,8 @@ import org.springframework.stereotype.Component;
 /**
  * Consumes alerts (Avro, ADR 0018) from the stream job and files them under cases. Idempotent, because the stream job
  * delivers at-least-once (ADR 0003). An unreadable message goes straight to the dead-letter topic
- * ({@link com.finsentinel.platform.alert.KafkaErrorHandling}); a registry outage is retried like any other failure.
+ * ({@link com.finsentinel.platform.alert.KafkaErrorHandling}); any other failure (registry, database) is retried until it
+ * succeeds.
  */
 @Component
 class AlertIntakeListener {

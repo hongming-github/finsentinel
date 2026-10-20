@@ -23,12 +23,12 @@ linked. The weak ones are included.
 | Prompt injection in a payee name | Model alone cleared the case in **11 of 15** first drafts; the guard blocked all 11 | A flagged case can never be cleared, whatever the model says ([ADR 0016](docs/adr/0016-injection-defenses-and-audit-log.md)) |
 | Analyst API under load (p95) | 14-37 ms up to 385 requests/s; **fails at 500 visits/s** | Gatling; the audit log's per-bank chain lock and a 10-connection pool give out first (ADR 0025) |
 | Shared budget across two instances | Held at exactly 511 of 511 per hour | Counted in Postgres, not in memory (ADR 0025) |
-| Recovery from 12 injected faults | Nothing lost in 11; a **150 s Postgres outage dead-lettered 1 alert**; the platform **cannot start while the schema registry is down** | One fault at a time under steady traffic, loss counted from Kafka offsets and the database ([ADR 0026](docs/adr/0026-chaos-drills.md), [results](docs/perf/2026-10-17-phase-9c.md)) |
-| Flink TaskManager killed | Restored from its checkpoint, 38/38 fraud scenarios detected, one duplicate alert stored once | Compose cluster; the JobManager noticed after 34 s (ADR 0026) |
-| Large amounts after a cold Flink restart | **36/76** detected in 12 min without batch baselines; 27/27 with them | Rule history lost with the process; the batch baseline stands in (ADR 0026) |
+| Recovery from 12 injected faults | Nothing lost in 11; a **150 s Postgres outage dead-lettered 1 alert**, the platform **could not start while the schema registry was down**, **both models down for 2 min failed 7 cases**, **slow outside systems cost every call 5 s**, and the worker's batches took **5-7 min** to drain any stall; all fixed and the drills repeated (0 dead letters; down 14 s instead of 9 min; 0 failed; drains in 11-107 s, [fixes](docs/perf/2026-10-18-9c-fixes.md)) | One fault at a time under steady traffic, loss counted from Kafka offsets and the database ([ADR 0026](docs/adr/0026-chaos-drills.md), [results](docs/perf/2026-10-17-phase-9c.md)) |
+| Flink TaskManager killed | Restored from its checkpoint, 79/79 fraud scenarios detected, duplicates stored once; also when it comes back as a new container | Compose cluster, checkpoints on a shared volume ([fixes](docs/perf/2026-10-18-9c-fixes.md), ADR 0026) |
+| Large amounts after a Flink restart | 54/54 detected from the first minute; before the embedded job restored its checkpoint, **36/76** in 12 min (27/27 with batch baselines) | Rule history restored from the latest checkpoint; the batch baseline remains the fallback ([fixes](docs/perf/2026-10-18-9c-fixes.md), ADR 0026) |
 | Case assistant, scripted multi-turn evaluation | 15/15 conversations (30 turns) after fixing a grader false positive; **13/15 as first graded**; $0.0094 | 5 conversations x 3 on gpt-6-luna: follow-up, pronoun, regulatory follow-up, another bank's case, pasted injection ([report](docs/eval/2026-10-20-conversations.md), ADR 0028) |
 | Case assistant, 4-turn conversation on gpt-6-luna | $0.0024 in all; 75% of prompt tokens from the cache from turn 2; **11-25 s a turn** | One real conversation, two of its turns with a regulation search ([ADR 0028](docs/adr/0028-case-assistant.md), [screenshot](docs/console/11-case-assistant.png)) |
-| Platform instance killed mid-analysis | Resumed from checkpoints, no duplicate report, but the claimed cases waited **5 min** | The claim timeout; no heartbeat yet (ADR 0026) |
+| Platform instance killed mid-analysis | Resumed from checkpoints, no duplicate report; the claimed cases taken over after 34 s (before the heartbeat: **5 min**) | Live runs renew their claims every 10 s, a claim not renewed for 30 s lapses ([fixes](docs/perf/2026-10-18-9c-fixes.md), ADR 0026) |
 
 Load tests run the platform against `fake-llm`, a stand-in that speaks OpenAI's protocol, so they measure the platform,
 not a model ([ADR 0024](docs/adr/0024-phase-9-measurement.md)); the real-model rows say so.
@@ -88,9 +88,10 @@ down database would back-pressure the detection job, and fraud detection must ke
 database does not. Each consumer group can also be replayed on its own.
 
 Transactions and alerts are Avro, with schemas in an Apicurio registry (Confluent-compatible API and wire format).
-Schemas are registered on purpose, never by producers; every service fails to start if its schema is not registered,
-and the registry refuses a change that cannot read earlier data (BACKWARD_TRANSITIVE). An unreadable message goes to
-the DLQ/DLT as the bytes that arrived; a registry outage is retried, never dead-lettered (ADR 0018).
+Schemas are registered on purpose, never by producers; every producer fails to start if its schema is not registered
+(the platform, a consumer, starts without the registry and its listeners wait for it), and the registry refuses a change that cannot read earlier data (BACKWARD_TRANSITIVE). An unreadable message goes to
+the DLQ/DLT as the bytes that arrived; anything else (a registry or database outage) is retried until it succeeds,
+never dead-lettered (ADR 0018, 0026).
 
 Flink also writes every readable transaction to a landing zone (JSON Lines by UTC event date). A daily Spark job
 curates it into Parquet and computes each account's 90-day baseline with robust statistics (median and MAD, so past
@@ -251,7 +252,8 @@ the model gets it marked, such a case cannot be cleared, and the case records it
 goes into a per-bank hash-chained audit log (`GET /api/tenants/{t}/audit`, `.../audit/verify` for supervisors;
 ADR 0016).
 
-Lifecycle: `ANALYSIS → AWAITING_DECISION → CLOSED` (or `FAILED` after the maximum attempts). A new alert on the account
+Lifecycle: `ANALYSIS → AWAITING_DECISION → CLOSED` (or `FAILED` after the maximum attempts, which are spread over
+minutes by a growing pause, so a model outage of a few minutes does not use them up). A new alert on the account
 re-opens the case; `REQUEST_REANALYSIS` sends it back to the agents with the analyst's note. Decisions and readiness are
 published to `case.events.v1` through a transactional outbox.
 
@@ -259,8 +261,9 @@ Inside ANALYSIS a Spring AI Alibaba graph runs the agents (`finsentinel.analysis
 the default; or `MULTI`, deterministic plan, parallel specialists and a report writer, ADR 0010). In both, an LLM
 reviewer checks the report against the author's evidence and can send it back once; its verdict is stored with the
 analysis. The graph checkpoints after every node to `graph_checkpoint` (plain
-JSON). If the platform dies mid-analysis, the next worker to claim the case (after `claim-timeout`) resumes after the
-last finished node; a worker whose claim has timed out can no longer write checkpoints.
+JSON). If the platform dies mid-analysis, its claims lapse after `claim-lease` (live runs renew theirs every
+`claim-heartbeat`), and the next worker to claim the case resumes after the last finished node; a worker whose claim
+was taken can no longer write checkpoints.
 
 ### Tracing
 
@@ -289,7 +292,7 @@ nothing costs money. Its latency and errors can be changed per provider while th
 
 ```bash
 scripts/stack.sh up                       # Docker (core, systems, obs), schemas, fake-llm, MCP servers, platform (profile load)
-scripts/stack.sh flink                    # Flink job, embedded (another terminal)
+scripts/stack.sh flink                    # Flink job, embedded, from its latest checkpoint (another terminal)
 scripts/stack.sh traffic --tps=20 --fraud-every=3 --duration=120
 # Grafana http://localhost:3000, dashboard "FinSentinel pipeline": alert-to-report p50/p95 and p95 by stage, backlog,
 # analyses per minute, model-call latency, fallback share. Slow the main model down, or make it fail:
@@ -363,7 +366,9 @@ Every analysis records its cost at list prices (all model calls, reranking inclu
 and cost and latency by analysis mode. Each agent role has its own model (`finsentinel.llm.models`); transfer and HIGH
 cases can be escalated to a stronger model (`finsentinel.llm.escalation`, off by default: ADR 0011). Every model call
 goes through one gateway: when a provider fails (error, rate limit, out of credit) the call falls back to
-`groq:openai/gpt-oss-120b` (needs `GROQ_API_KEY`), with a circuit breaker per provider (ADR 0012).
+`groq:openai/gpt-oss-120b` (needs `GROQ_API_KEY`), with a circuit breaker per provider (ADR 0012). Outside systems
+(CRM, core banking, screening) have one each too: after three failed calls in a row their tools answer `Unavailable` at
+once for 30 s instead of each waiting out a slow system (ADR 0026).
 
 Regulation search results are cached in Redis by exact question (normalised case and spacing), keyed by corpus
 version and search settings; the report shows the hit rate and what the hits saved. Not by embedding similarity: a

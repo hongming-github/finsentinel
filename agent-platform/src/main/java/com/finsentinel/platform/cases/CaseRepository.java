@@ -39,6 +39,11 @@ public class CaseRepository {
      */
     static final long CLAIM_LOCK_KEY = 7_301_001L;
 
+    /** A claim has lapsed when its owner stopped renewing it for a lease or has held it longer than the timeout. */
+    private static final String CLAIM_LAPSED = """
+            (coalesce(claim_renewed_at, claimed_at) < now() - make_interval(secs => :leaseSecs)
+                                   or claimed_at < now() - make_interval(secs => :timeoutSecs))""";
+
     private static final String PRIORITY_ORDER =
             "case priority when 'HIGH' then 0 when 'MEDIUM' then 1 else 2 end";
 
@@ -100,6 +105,7 @@ public class CaseRepository {
                             analysis_run = analysis_run + 1,
                             attempts = case when stage = 'ANALYSIS' then attempts else 0 end,
                             claimed_at = case when stage = 'ANALYSIS' then claimed_at end,
+                            next_attempt_at = case when stage = 'ANALYSIS' then next_attempt_at end,
                             trace_parent = :traceParent,
                             version = version + 1,
                             updated_at = now()
@@ -161,8 +167,8 @@ public class CaseRepository {
      * @throws org.springframework.dao.DataAccessException on lock timeout; recognise it with {@link #isLockTimeout}
      */
     @Transactional
-    public ClaimBatch claimWithinBudget(int batchSize, Duration claimTimeout, int maxAttempts, int maxPerHour,
-                                        Duration lockWaitTimeout) {
+    public ClaimBatch claimWithinBudget(int batchSize, Duration claimTimeout, Duration lease, int maxAttempts,
+                                        int maxPerHour, Duration lockWaitTimeout) {
         int limit = batchSize;
         if (maxPerHour > 0) {
             // set_config(..., true) is SET LOCAL: this transaction only, and it takes a bound parameter.
@@ -178,28 +184,69 @@ public class CaseRepository {
             }
             limit = Math.min(limit, remaining);
         }
-        return new ClaimBatch(claim(limit, claimTimeout, maxAttempts), false);
+        return new ClaimBatch(claim(limit, claimTimeout, lease, maxAttempts), false);
     }
 
-    /** HIGH priority first, then oldest; also takes back claims that timed out. */
+    /**
+     * For a caller that never renews its claims (a one-shot harness): the lease is the whole claim timeout.
+     * Transactional itself: the call below does not go through the proxy, and check-and-claim must share the lock.
+     */
+    @Transactional
+    public ClaimBatch claimWithinBudget(int batchSize, Duration claimTimeout, int maxAttempts, int maxPerHour,
+                                        Duration lockWaitTimeout) {
+        return claimWithinBudget(batchSize, claimTimeout, claimTimeout, maxAttempts, maxPerHour, lockWaitTimeout);
+    }
+
+    /** As {@link #claim(int, Duration, Duration, int)} for a caller that never renews: the lease is the timeout. */
     List<CaseClaim> claim(int limit, Duration claimTimeout, int maxAttempts) {
+        return claim(limit, claimTimeout, claimTimeout, maxAttempts);
+    }
+
+    /**
+     * HIGH priority first, then oldest; also takes back claims that lapsed: not renewed for {@code lease} (the owner
+     * died) or held longer than {@code claimTimeout} (the owner is stuck). Skips cases waiting out a pause.
+     */
+    List<CaseClaim> claim(int limit, Duration claimTimeout, Duration lease, int maxAttempts) {
         return jdbc.sql("""
                         update fraud_case
-                        set claimed_at = clock_timestamp(), attempts = attempts + 1, updated_at = now()
+                        set claimed_at = clock_timestamp(), claim_renewed_at = null, attempts = attempts + 1,
+                            updated_at = now()
                         where case_id in (
                             select case_id from fraud_case
                             where stage = 'ANALYSIS' and attempts < :maxAttempts
-                              and (claimed_at is null or claimed_at < now() - make_interval(secs => :timeoutSecs))
+                              and (claimed_at is null or %s)
+                              and (next_attempt_at is null or next_attempt_at <= now())
                             order by %s, opened_at
                             limit :limit
                             for update skip locked)
                         returning *
-                        """.formatted(PRIORITY_ORDER))
+                        """.formatted(CLAIM_LAPSED, PRIORITY_ORDER))
                 .param("maxAttempts", maxAttempts)
+                .param("leaseSecs", lease.toMillis() / 1000.0)
                 .param("timeoutSecs", claimTimeout.toSeconds())
                 .param("limit", limit)
                 .query((rs, n) -> new CaseClaim(map(rs), rs.getTimestamp("claimed_at").toInstant()))
                 .list();
+    }
+
+    /**
+     * Renews the claims of analyses still running here, so they do not lapse after the lease. Only the renewal time
+     * changes: {@code claimed_at} stays the fencing token, and a claim another worker has taken is left alone.
+     *
+     * @return the claims renewed
+     */
+    public int renew(List<CaseClaim> claims) {
+        int renewed = 0;
+        for (CaseClaim claim : claims) {
+            renewed += jdbc.sql("""
+                            update fraud_case set claim_renewed_at = clock_timestamp()
+                            where case_id = :caseId and stage = 'ANALYSIS' and claimed_at = :claimedAt
+                            """)
+                    .param("caseId", UUID.fromString(claim.fraudCase().caseId()))
+                    .param("claimedAt", Timestamp.from(claim.claimedAt()))
+                    .update();
+        }
+        return renewed;
     }
 
     /**
@@ -232,7 +279,7 @@ public class CaseRepository {
         deleteCheckpoints(claimed.caseId(), claimed.analysisRun());
         if (currentRun.get() != claimed.analysisRun()) {
             jdbc.sql("""
-                            update fraud_case set claimed_at = null, attempts = 0, updated_at = now()
+                            update fraud_case set claimed_at = null, attempts = 0, next_attempt_at = null, updated_at = now()
                             where case_id = :caseId
                             """)
                     .param("caseId", UUID.fromString(claimed.caseId()))
@@ -243,7 +290,8 @@ public class CaseRepository {
         }
         jdbc.sql("""
                         update fraud_case
-                        set stage = 'AWAITING_DECISION', claimed_at = null, attempts = 0, analyst_note = null,
+                        set stage = 'AWAITING_DECISION', claimed_at = null, attempts = 0, next_attempt_at = null,
+                            analyst_note = null,
                             version = version + 1, updated_at = now()
                         where case_id = :caseId
                         """)
@@ -257,18 +305,24 @@ public class CaseRepository {
         return Completion.READY_FOR_DECISION;
     }
 
-    /** Releases a failed claim: back to the queue, or FAILED when attempts are used up. */
+    /**
+     * Releases a failed claim: back to the queue, not to be claimed again before {@code pause} has passed, or FAILED
+     * when attempts are used up.
+     */
     @Transactional
-    public void fail(CaseClaim claim, int maxAttempts, String error) {
+    public void fail(CaseClaim claim, int maxAttempts, Duration pause, String error) {
         FraudCase claimed = claim.fraudCase();
         Optional<String> stage = jdbc.sql("""
                         update fraud_case
                         set stage = case when attempts >= :maxAttempts then 'FAILED' else stage end,
+                            next_attempt_at = case when attempts >= :maxAttempts then null
+                                                   else clock_timestamp() + make_interval(secs => :pauseSecs) end,
                             claimed_at = null, version = version + 1, updated_at = now()
                         where case_id = :caseId and stage = 'ANALYSIS' and claimed_at = :claimedAt
                         returning stage
                         """)
                 .param("maxAttempts", maxAttempts)
+                .param("pauseSecs", pause.toMillis() / 1000.0)
                 .param("caseId", UUID.fromString(claimed.caseId()))
                 .param("claimedAt", Timestamp.from(claim.claimedAt()))
                 .query(String.class)
@@ -278,16 +332,18 @@ public class CaseRepository {
         }
     }
 
-    /** Timed-out claims with no attempts left would otherwise sit in ANALYSIS forever. */
+    /** Lapsed claims with no attempts left would otherwise sit in ANALYSIS forever. */
     @Transactional
-    public int failAbandoned(Duration claimTimeout, int maxAttempts) {
+    public int failAbandoned(Duration claimTimeout, Duration lease, int maxAttempts) {
         List<FraudCase> abandoned = jdbc.sql("""
-                        update fraud_case set stage = 'FAILED', claimed_at = null, version = version + 1, updated_at = now()
+                        update fraud_case set stage = 'FAILED', claimed_at = null, next_attempt_at = null,
+                            version = version + 1, updated_at = now()
                         where stage = 'ANALYSIS' and attempts >= :maxAttempts
-                          and claimed_at < now() - make_interval(secs => :timeoutSecs)
+                          and claimed_at is not null and %s
                         returning *
-                        """)
+                        """.formatted(CLAIM_LAPSED))
                 .param("maxAttempts", maxAttempts)
+                .param("leaseSecs", lease.toMillis() / 1000.0)
                 .param("timeoutSecs", claimTimeout.toSeconds())
                 .query((rs, n) -> map(rs))
                 .list();
@@ -324,7 +380,8 @@ public class CaseRepository {
                             analysis_run = analysis_run + case when :to = 'ANALYSIS' then 1 else 0 end,
                             analyst_note = case when :to = 'ANALYSIS' then :note end,
                             trace_parent = case when :to = 'ANALYSIS' then :traceParent else trace_parent end,
-                            attempts = 0, claimed_at = null, version = version + 1, updated_at = now()
+                            attempts = 0, next_attempt_at = null, claimed_at = null, version = version + 1,
+                            updated_at = now()
                         where tenant_id = :tenantId and case_id = :caseId and version = :version
                           and stage in ('AWAITING_DECISION', 'FAILED')
                         returning *

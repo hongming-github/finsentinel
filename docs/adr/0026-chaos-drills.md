@@ -65,22 +65,34 @@ From `docs/perf/2026-10-17-phase-9c.md` (1,301 fraud scenarios across the drills
 - The recovery numbers are the platform's with an instant model; with a real one (38 s per analysis, ADR 0025) the
   same stalls would take longer to drain at the current worker settings.
 - The drills cost nothing and take 5-25 minutes each; they need the stack, traffic and, for drill 12, the compose
-  `stream` profile with `--local.web-ui-port=8081` passed to `flink run`.
+  `stream` profile (until fix 7, with `--local.web-ui-port=8081` passed to `flink run`).
 - The design rules that held are now backed by a run each; the ones that did not are known and ranked.
 
 ## Next
 
-In order of consequence, each with a test that fails without the fix:
+In order of consequence, each with a test that fails without the fix and the drill repeated; before and after numbers
+in `docs/perf/2026-10-18-9c-fixes.md`:
 
 1. **Never dead-letter on infrastructure errors**: retry without a limit (backoff, listener paused) and dead-letter
-   only `InvalidMessageException`; a test where Postgres is gone for longer than the retries.
+   only `InvalidMessageException`; a test where Postgres is gone for longer than the retries. **Done 2026-10-18**:
+   drill 07b repeated with 0 dead letters and 0 transactions missing (before: 1 alert and 1 transaction); see
+   `docs/perf/2026-10-18-9c-fixes.md`.
 2. **Start without the registry**: resolve writer schemas on first use, so the process, the analyst API and the MCP
-   server stay up and the listeners retry.
+   server stay up and the listeners retry. **Done 2026-10-19**: drill 9b repeated, the platform down 14 s instead of
+   9 minutes and the first analysis 36 s after the registry returned (before: 327 s).
 3. **Back off between analysis attempts** (`next_attempt_at`), so a provider outage of minutes does not use up the
-   attempts.
+   attempts. **Done 2026-10-19**: drill 02 repeated with 0 cases FAILED (before: 7); the backlog drains more slowly
+   (509 s instead of 325 s) because failed cases wait out their pause.
 4. **Claim heartbeat**: renew claims of live runs and shorten the lease, fencing unchanged; a test that kills a run's
-   owner and measures the takeover.
-5. **Circuit breaker per outside system** in `ExternalSystems`.
-6. **Worker pool** (ADR 0025 Next), then repeat drills 2, 3 and 7b to measure the drain.
+   owner and measures the takeover. **Done 2026-10-19**: 10 s heartbeat, 30 s lease; drill 10 repeated, the killed
+   instance's cases analysed 33.7 s after their claim instead of 5 minutes.
+5. **Circuit breaker per outside system** in `ExternalSystems`. **Done 2026-10-19** (in `McpServerConnection`, one
+   per system): drill 05 repeated, 29 of 37 CRM calls failed at once instead of waiting 5 s, backlog back to baseline
+   5.5 s after the repair instead of 120 s.
+6. **Worker pool** (ADR 0025 Next), then repeat drills 2, 3 and 7b to measure the drain. **Done 2026-10-19**: at the
+   same 2 analyses at once, back to baseline 13 s, 107 s and 11.5 s after the repair (before: 391 s, 325 s, 420 s).
 7. Local Flink: restore the latest retained checkpoint in `scripts/stack.sh flink`; compose `stream` profile: a
    shared checkpoint volume and a REST port that does not override the cluster's.
+   **Done 2026-10-19**: drill 11 repeated with `Restored: 1` and LARGE_AMOUNT 54/54 after the restart (before:
+   36/76); drill 12 with a new TaskManager container restoring from the shared volume, and `flink run` with no extra
+   flag. All seven are fixed; before and after in `docs/perf/2026-10-18-9c-fixes.md`.

@@ -17,6 +17,7 @@ import com.finsentinel.platform.analysis.LostClaimException;
 import com.finsentinel.platform.investigation.CaseContext;
 import com.finsentinel.platform.investigation.InvestigationProperties;
 import com.finsentinel.platform.investigation.InvestigationResult;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
@@ -25,17 +26,26 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Claims cases in ANALYSIS and runs the analysis graph on them. Each poll claims at most {@code batchSize} cases and waits for them,
- * so {@code batchSize} caps concurrent analyses on this instance.
+ * Claims cases in ANALYSIS and runs the analysis graph on them, at most {@code concurrency} at once on this instance.
+ * A pool, not batches: a finished run claims the next case at once, so one slow analysis holds its own slot and no
+ * other (ADR 0025 Next; drills 2, 3 and 7b, ADR 0026). The poll only matters when the slots fell idle; a heartbeat
+ * renews the claims of the runs in flight (drill 10).
  *
- * <p>Safe on several instances: the schedule is only a local alarm clock. Coordination lives in Postgres
- * ({@code SKIP LOCKED} claims, {@code claimed_at} fencing, an advisory lock around the budget check).
+ * <p>Safe on several instances: the schedules are only local alarm clocks. Coordination lives in Postgres
+ * ({@code SKIP LOCKED} claims, {@code claimed_at} fencing, an advisory lock around the budget check); the in-flight set
+ * is this instance's own runs, used to size its claims and renew them.
  */
 @Component
 public class CaseWorker {
@@ -50,6 +60,12 @@ public class CaseWorker {
     private final AtomicLong lastBudgetWarning = new AtomicLong();
     private final Tracer tracer;
     private final PipelineMetrics metrics;
+    private final ExecutorService runs = Executors.newVirtualThreadPerTaskExecutor();
+    /** The claims this instance is running. */
+    private final Set<CaseClaim> inFlight = ConcurrentHashMap.newKeySet();
+    /** One claim at a time per instance, so the free slots are counted before they are filled. */
+    private final Object claiming = new Object();
+    private volatile boolean stopped;
 
     CaseWorker(CaseRepository cases, AlertRepository alerts, CaseAnalysisGraph analysis,
                InvestigationProperties props, SystemsProperties systems, Tracer tracer, PipelineMetrics metrics) {
@@ -62,50 +78,155 @@ public class CaseWorker {
         this.props = props;
     }
 
+    /** Fills the free slots; the runs then keep them filled until the queue is empty. */
     @Scheduled(fixedDelayString = "${finsentinel.investigation.poll-interval:5s}", initialDelayString = "5s")
     void poll() {
         if (props.enabled()) {
-            runOnce();
+            failAbandoned();
+            fill(true);
         }
     }
 
-    /** One poll cycle. Public so tests can drive the queue deterministically. */
+    @Scheduled(fixedDelayString = "${finsentinel.investigation.claim-heartbeat:10s}",
+            initialDelayString = "${finsentinel.investigation.claim-heartbeat:10s}")
+    void heartbeat() {
+        if (props.enabled()) {
+            renewInFlight();
+        }
+    }
+
+    @PreDestroy
+    void stop() {
+        // Runs in flight finish if they can; their claims lapse otherwise, and fencing covers the rest.
+        stopped = true;
+        runs.shutdown();
+    }
+
+    /**
+     * Claims cases for the free slots, runs them and waits for them, renewing their claims meanwhile; a finished run
+     * does not claim another. Public so tests can drive the queue deterministically.
+     *
+     * @return the cases claimed
+     */
     public int runOnce() {
+        failAbandoned();
+        List<Future<?>> started = fill(false);
+        renewWhileRunning(started);
+        return started.size();
+    }
+
+    private void failAbandoned() {
         // Queue work spans every bank: the system scope, the only place outside tests that uses it.
-        int abandoned = Tenancy.callAsSystem(() -> cases.failAbandoned(props.claimTimeout(), props.maxAttempts()));
+        int abandoned = Tenancy.callAsSystem(() -> cases.failAbandoned(props.claimTimeout(), props.claimLease(),
+                props.maxAttempts()));
         if (abandoned > 0) {
             log.warn("Marked {} abandoned analyses as FAILED", abandoned);
         }
+    }
+
+    /**
+     * Claims as many cases as there are free slots and starts them.
+     *
+     * @param refill whether each finished run fills its slot again (the pool) or not ({@link #runOnce})
+     */
+    private List<Future<?>> fill(boolean refill) {
+        synchronized (claiming) {
+            int free = props.concurrency() - inFlight.size();
+            if (stopped || free <= 0) {
+                return List.of();
+            }
+            List<Future<?>> started = new ArrayList<>();
+            for (CaseClaim claim : claim(free)) {
+                inFlight.add(claim);
+                started.add(runs.submit(() -> run(claim, refill)));
+            }
+            return started;
+        }
+    }
+
+    private List<CaseClaim> claim(int limit) {
         CaseRepository.ClaimBatch batch;
         try {
-            batch = Tenancy.callAsSystem(() -> cases.claimWithinBudget(props.batchSize(), props.claimTimeout(),
-                    props.maxAttempts(), props.maxPerHour(), props.claimLockTimeout()));
+            batch = Tenancy.callAsSystem(() -> cases.claimWithinBudget(limit, props.claimTimeout(),
+                    props.claimLease(), props.maxAttempts(), props.maxPerHour(), props.claimLockTimeout()));
         } catch (DataAccessException e) {
             if (!CaseRepository.isLockTimeout(e)) {
                 throw e;
             }
             // Another instance holds the claim lock for unusually long. Nothing was claimed; try next poll.
             log.warn("Claim lock not acquired within {}; skipping this poll", props.claimLockTimeout());
-            return 0;
+            return List.of();
         }
         if (batch.budgetExhausted()) {
             warnBudgetExhausted();
-            return 0;
+            return List.of();
         }
-        List<CaseClaim> claims = batch.claims();
-        List<Future<?>> runs = new ArrayList<>(claims.size());
-        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            claims.forEach(claim -> runs.add(executor.submit(() -> process(claim))));
+        return batch.claims();
+    }
+
+    private void run(CaseClaim claim, boolean refill) {
+        try {
+            process(claim);
+        } catch (RuntimeException e) {
+            // Outside the analysis's own handling (the database gone while recording a failure): the claim lapses and
+            // the case is taken again.
+            log.error("Processing case {} failed outside its analysis; the claim will lapse and be retried",
+                    claim.fraudCase().caseId(), e);
+        } finally {
+            inFlight.remove(claim);
         }
-        // Closing the executor waited for every run. A failure outside the analysis's own handling (the database gone
-        // while recording a failure) would otherwise vanish with its future; the claim times out and is retried.
-        for (int i = 0; i < runs.size(); i++) {
-            if (runs.get(i).state() == Future.State.FAILED) {
-                log.error("Processing case {} failed outside its analysis; the claim will time out and be retried",
-                        claims.get(i).fraudCase().caseId(), runs.get(i).exceptionNow());
+        if (refill) {
+            try {
+                fill(true);
+            } catch (RuntimeException e) {
+                log.warn("Could not claim the next case: {}; the next poll tries again", e.toString());
             }
         }
-        return claims.size();
+    }
+
+    /** Waits for the given runs, renewing the claims in flight every heartbeat until they are done (drill 10). */
+    private void renewWhileRunning(List<Future<?>> started) {
+        long heartbeatNanos = props.claimHeartbeat().toNanos();
+        while (true) {
+            long next = System.nanoTime() + heartbeatNanos;
+            for (Future<?> run : started) {
+                long wait = next - System.nanoTime();
+                if (wait <= 0) {
+                    break;
+                }
+                try {
+                    run.get(wait, TimeUnit.NANOSECONDS);
+                } catch (TimeoutException e) {
+                    break;
+                } catch (ExecutionException | CancellationException e) {
+                    // run() logs its own failures.
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+            if (started.stream().allMatch(Future::isDone)) {
+                return;
+            }
+            renewInFlight();
+        }
+    }
+
+    /**
+     * Renews the claims of the runs in flight, so they do not lapse after the lease. Only a live process renews, so a
+     * killed one's claims lapse. A renewal that fails (the database gone) is skipped: the claim may lapse and be taken
+     * over, and fencing then stops this run from writing.
+     */
+    private void renewInFlight() {
+        List<CaseClaim> running = List.copyOf(inFlight);
+        if (running.isEmpty()) {
+            return;
+        }
+        try {
+            Tenancy.callAsSystem(() -> cases.renew(running));
+        } catch (DataAccessException e) {
+            log.warn("Could not renew {} claims: {}", running.size(), e.toString());
+        }
     }
 
     /** In the claimed case's tenant scope: everything the analysis reads or writes belongs to that bank. */
@@ -173,7 +294,7 @@ public class CaseWorker {
             log.warn("Analysis of case {} failed: {}", c.caseId(), e.toString());
             span.recordException(e);
             span.setStatus(StatusCode.ERROR, e.toString());
-            cases.fail(claim, props.maxAttempts(), e.toString());
+            cases.fail(claim, props.maxAttempts(), props.retry().pauseAfter(c.attempts()), e.toString());
         }
     }
 

@@ -128,4 +128,45 @@ class AvroSerdeTest {
         // Discarding it to a dead-letter topic would lose a good transaction; the caller must retry.
         assertThatThrownBy(() -> serde.deserialize(good)).isInstanceOf(java.io.UncheckedIOException.class);
     }
+
+    @Test
+    void aConsumerSerdeIsBuiltWhileTheRegistryIsDownAndLooksItsIdUpOnFirstWrite() {
+        java.util.concurrent.atomic.AtomicBoolean reachable = new java.util.concurrent.atomic.AtomicBoolean();
+        SchemaRegistry switched = new SchemaRegistry() {
+            private SchemaRegistry current() {
+                if (!reachable.get()) {
+                    throw new java.io.UncheckedIOException(new java.net.ConnectException("registry down"));
+                }
+                return registry;
+            }
+
+            @Override
+            public int idOf(String subject, org.apache.avro.Schema schema) {
+                return current().idOf(subject, schema);
+            }
+
+            @Override
+            public org.apache.avro.Schema schemaById(int id) {
+                return current().schemaById(id);
+            }
+
+            @Override
+            public int register(String subject, org.apache.avro.Schema schema) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public void setCompatibility(String subject, String level) {
+                throw new UnsupportedOperationException();
+            }
+        };
+        AvroSerde<AlertEvent> serde = AvroSerde.forReading(switched, Contracts.ALERTS_SUBJECT, AlertEvent.class);
+        Alert alert = new Alert("a-1", "straits", "acc-1", "cus-1", AlertRule.LARGE_AMOUNT, Severity.HIGH, "big",
+                List.of("t-1"), WHEN, WHEN);
+
+        assertThatThrownBy(() -> serde.serialize(Contracts.toAvro(alert)))
+                .isInstanceOf(java.io.UncheckedIOException.class);
+        reachable.set(true);
+        assertThat(Contracts.fromAvro(serde.deserialize(serde.serialize(Contracts.toAvro(alert))))).isEqualTo(alert);
+    }
 }

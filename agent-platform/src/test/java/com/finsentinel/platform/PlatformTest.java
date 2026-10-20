@@ -23,6 +23,9 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "finsentinel.investigation.enabled=false",
+        // Every analysis here is a stub. The suite runs more than the default 60 an hour, which the budget would then
+        // refuse; the budget itself is tested with its own settings (CaseWorkerTest, ConcurrentCaseClaimTest).
+        "finsentinel.investigation.max-per-hour=100000",
         "finsentinel.knowledge.sync-on-startup=false",
         "finsentinel.outbox.enabled=false",
         "finsentinel.knowledge.search.rerank.enabled=false",

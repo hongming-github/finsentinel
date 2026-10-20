@@ -17,12 +17,17 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static com.finsentinel.platform.TestData.uniqueTenant;
 import static com.finsentinel.platform.cases.CaseTestSupport.alertOn;
 import static com.finsentinel.platform.cases.CaseTestSupport.eventTypes;
+import static com.finsentinel.platform.cases.CaseTestSupport.makeDue;
 import static com.finsentinel.platform.cases.CaseTestSupport.outboxTypes;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 @PlatformTest
 class CaseWorkerTest {
@@ -130,7 +135,9 @@ class CaseWorkerTest {
 
         worker.runOnce();
         assertThat(cases.find(tenant, caseId).orElseThrow().stage()).isEqualTo(CaseStage.ANALYSIS);
+        makeDue(jdbc, caseId);
         worker.runOnce();
+        makeDue(jdbc, caseId);
         worker.runOnce();
 
         assertThat(cases.find(tenant, caseId).orElseThrow().stage()).isEqualTo(CaseStage.FAILED);
@@ -199,6 +206,157 @@ class CaseWorkerTest {
         assertThat(eventTypes(cases, tenant, caseId)).contains("ANALYSIS_SUPERSEDED");
     }
 
+    /**
+     * Drill 02 (ADR 0026): attempts on consecutive polls, seconds apart, used up all three within a model outage of
+     * half a minute and the case failed for good. Each failed attempt now waits a growing pause.
+     */
+    @Test
+    void aFailedAttemptWaitsAGrowingPauseSoAnOutageOfMinutesDoesNotFailTheCase() {
+        String caseId = newCase(Severity.HIGH);
+        investigator.respondWith(c -> {
+            throw new IllegalStateException("no provider answered");
+        });
+
+        worker.runOnce();
+        assertThat(worker.runOnce()).as("the next poll leaves the case alone").isZero();
+        assertThat(secondsUntilNextAttempt(caseId)).isBetween(55.0, 60.0);
+
+        makeDue(jdbc, caseId);
+        worker.runOnce();
+        assertThat(secondsUntilNextAttempt(caseId)).as("doubled").isBetween(115.0, 120.0);
+
+        investigator.reset();
+        makeDue(jdbc, caseId);
+        worker.runOnce();
+
+        assertThat(cases.find(tenant, caseId).orElseThrow().stage()).isEqualTo(CaseStage.AWAITING_DECISION);
+        assertThat(eventTypes(cases, tenant, caseId))
+                .containsExactly("OPENED", "ANALYSIS_ATTEMPT_FAILED", "ANALYSIS_ATTEMPT_FAILED", "ANALYSED");
+        assertThat(jdbc.sql("select next_attempt_at is null from fraud_case where case_id = cast(:id as uuid)")
+                .param("id", caseId).query(Boolean.class).single()).as("no pause left once analysed").isTrue();
+    }
+
+    private double secondsUntilNextAttempt(String caseId) {
+        return jdbc.sql("""
+                        select extract(epoch from next_attempt_at - clock_timestamp()) from fraud_case
+                        where case_id = cast(:id as uuid)
+                        """)
+                .param("id", caseId).query(Double.class).single();
+    }
+
+    /**
+     * Drill 10 (ADR 0026): the claims of an instance killed mid-analysis waited the full 5-minute claim timeout,
+     * although the instance was back in 15 s. A claim nobody renews now lapses after the lease.
+     */
+    @Test
+    void aClaimWhoseOwnerDiedIsTakenOverAfterTheLeaseNotTheClaimTimeout() {
+        String caseId = newCase(Severity.HIGH);
+        // Claimed 40 s ago by an instance that died: no completion, no renewal since.
+        jdbc.sql("""
+                        update fraud_case set claimed_at = clock_timestamp() - interval '40 seconds', attempts = 1
+                        where case_id = cast(:id as uuid)
+                        """)
+                .param("id", caseId).update();
+
+        assertThat(worker.runOnce()).isEqualTo(1);
+
+        assertThat(cases.find(tenant, caseId).orElseThrow().stage()).isEqualTo(CaseStage.AWAITING_DECISION);
+    }
+
+    @Test
+    void aClaimRenewedWithinTheLeaseIsLeftToItsOwner() {
+        String caseId = newCase(Severity.HIGH);
+        jdbc.sql("""
+                        update fraud_case set claimed_at = clock_timestamp() - interval '40 seconds',
+                            claim_renewed_at = clock_timestamp(), attempts = 1
+                        where case_id = cast(:id as uuid)
+                        """)
+                .param("id", caseId).update();
+
+        assertThat(worker.runOnce()).isZero();
+    }
+
+    /**
+     * A run longer than the lease keeps its claim because its worker renews it; another instance polling meanwhile
+     * finds nothing to take. Without the renewal the second worker takes the case over after the lease.
+     */
+    @Test
+    void aRunLongerThanTheLeaseKeepsItsClaimWhileItsWorkerRenewsIt() throws Exception {
+        String caseId = newCase(Severity.HIGH);
+        CountDownLatch running = new CountDownLatch(1);
+        CountDownLatch finish = new CountDownLatch(1);
+        investigator.respondWith(c -> {
+            running.countDown();
+            try {
+                finish.await(30, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return StubCaseInvestigator.defaultResult(c);
+        });
+        InvestigationProperties shortLease = props(0, Duration.ofSeconds(2), Duration.ofSeconds(1),
+                Duration.ofMillis(200));
+        CaseWorker owner = worker(shortLease);
+        CaseWorker other = worker(shortLease);
+
+        CompletableFuture<Integer> run = CompletableFuture.supplyAsync(owner::runOnce);
+        assertThat(running.await(10, TimeUnit.SECONDS)).isTrue();
+        long until = System.nanoTime() + Duration.ofSeconds(3).toNanos();
+        while (System.nanoTime() < until) {
+            assertThat(other.runOnce()).as("three leases long, nothing to take over").isZero();
+        }
+        finish.countDown();
+
+        assertThat(run.get(10, TimeUnit.SECONDS)).isEqualTo(1);
+        assertThat(investigator.calls()).isEqualTo(1);
+        assertThat(cases.find(tenant, caseId).orElseThrow().stage()).isEqualTo(CaseStage.AWAITING_DECISION);
+    }
+
+    /**
+     * ADR 0025 Next, drills 2, 3 and 7b (ADR 0026): the worker claimed a batch and waited for all of it, so one slow
+     * analysis held every slot of the batch, and nothing more was claimed until the next poll. Now a freed slot claims
+     * the next case at once, while the slow one goes on.
+     */
+    @Test
+    void aSlowAnalysisDoesNotHoldUpTheCasesBehindIt() throws Exception {
+        String slow = newCase(Severity.HIGH);
+        List<String> quick = new java.util.ArrayList<>();
+        for (int i = 0; i < 5; i++) {
+            quick.add(newCase(Severity.MEDIUM));
+        }
+        CountDownLatch finishSlow = new CountDownLatch(1);
+        investigator.respondWith(c -> {
+            if (c.caseId().equals(slow)) {
+                try {
+                    finishSlow.await(30, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            return StubCaseInvestigator.defaultResult(c);
+        });
+        CaseWorker pool = worker(props(0, Duration.ofSeconds(2)));
+
+        CompletableFuture<Void> poll = CompletableFuture.runAsync(pool::poll);
+        try {
+            await().pollInSameThread().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
+                    assertThat(quick).as("all five analysed while the slow one runs (five slots)")
+                            .allSatisfy(id -> assertThat(cases.find(tenant, id).orElseThrow().stage())
+                                    .isEqualTo(CaseStage.AWAITING_DECISION)));
+            assertThat(cases.find(tenant, slow).orElseThrow().stage()).isEqualTo(CaseStage.ANALYSIS);
+        } finally {
+            finishSlow.countDown();
+        }
+        poll.get(10, TimeUnit.SECONDS);
+        await().pollInSameThread().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
+                assertThat(cases.find(tenant, slow).orElseThrow().stage()).isEqualTo(CaseStage.AWAITING_DECISION));
+    }
+
+    private CaseWorker worker(InvestigationProperties props) {
+        return new CaseWorker(cases, alerts, analysis, props, systems,
+                io.opentelemetry.api.OpenTelemetry.noop().getTracer("test"), metrics);
+    }
+
     @Test
     void hourlyBudgetStopsClaimingWhenSpent() {
         newCase(Severity.HIGH);
@@ -216,7 +374,12 @@ class CaseWorkerTest {
     }
 
     static InvestigationProperties props(int maxPerHour, Duration lockTimeout) {
-        return new InvestigationProperties(true, 5, Duration.ofMinutes(5), 3, maxPerHour, lockTimeout,
+        return props(maxPerHour, lockTimeout, Duration.ofSeconds(30), Duration.ofSeconds(10));
+    }
+
+    static InvestigationProperties props(int maxPerHour, Duration lockTimeout, Duration lease, Duration heartbeat) {
+        return new InvestigationProperties(true, 5, Duration.ofMinutes(5), lease, heartbeat, 3,
+                new InvestigationProperties.Retry(Duration.ofMinutes(1), 2, Duration.ofMinutes(10)), maxPerHour, lockTimeout,
                 new InvestigationProperties.Tools(90, 100, 1000), new InvestigationProperties.Report(60, 40, 1, true));
     }
 }

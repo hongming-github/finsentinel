@@ -19,7 +19,8 @@ import java.util.stream.Collectors;
 /**
  * Copies the transaction stream (Avro, ADR 0018) into Postgres so agents can query account history.
  * Batched for throughput; unreadable records are skipped here because the stream job already
- * routes them to the transactions DLQ. A registry outage fails the batch, which is retried.
+ * routes them to the transactions DLQ. Any other failure (registry, database) fails the batch, which is retried until
+ * it succeeds ({@link com.finsentinel.platform.alert.KafkaErrorHandling}).
  */
 @Component
 class TransactionStoreListener {

@@ -1,0 +1,22 @@
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 900 320' font-family='sans-serif' font-size='11'><rect width='100%' height='100%' fill='white'/>
+<text x='50' y='18' font-size='13'>Drill postgres-down-150s: backlog, and alerts and analyses per sample</text>
+<line x1='50' x2='880' y1='30.0' y2='30.0' stroke='#eee'/><text x='44' y='34.0' text-anchor='end' fill='#666'>51</text>
+<line x1='50' x2='880' y1='92.5' y2='92.5' stroke='#eee'/><text x='44' y='96.5' text-anchor='end' fill='#666'>38</text>
+<line x1='50' x2='880' y1='155.0' y2='155.0' stroke='#eee'/><text x='44' y='159.0' text-anchor='end' fill='#666'>26</text>
+<line x1='50' x2='880' y1='217.5' y2='217.5' stroke='#eee'/><text x='44' y='221.5' text-anchor='end' fill='#666'>13</text>
+<line x1='50' x2='880' y1='280.0' y2='280.0' stroke='#eee'/><text x='44' y='284.0' text-anchor='end' fill='#666'>0</text>
+<line x1='314.7' x2='314.7' y1='30' y2='280' stroke='#999' stroke-dasharray='4 3'/><text x='317.7' y='40' fill='#444'>inject</text>
+<line x1='758.0' x2='758.0' y1='30' y2='280' stroke='#999' stroke-dasharray='4 3'/><text x='761.0' y='40' fill='#444'>heal</text>
+<line x1='791.7' x2='791.7' y1='30' y2='280' stroke='#999' stroke-dasharray='4 3'/><text x='794.7' y='40' fill='#444'>recovered</text>
+<polyline fill='none' stroke='#d85a30' stroke-width='1.5' points='50.0,275.1 64.7,275.1 79.4,280.0 94.5,275.1 109.2,270.2 124.0,265.3 138.7,280.0 153.4,275.1 168.2,270.2 182.9,280.0 197.6,275.1 212.3,260.4 227.0,275.1 241.8,275.1 256.5,275.1 271.2,270.2 285.9,280.0 300.6,275.1 762.2,270.2 776.9,83.9 791.7,280.0 806.4,265.3 821.1,280.0 835.8,280.0 850.5,275.1 865.3,275.1 880.0,280.0'/>
+<polyline fill='none' stroke='#1d9e75' stroke-width='1.5' points='64.7,275.1 79.4,275.1 94.5,280.0 109.2,270.2 124.0,270.2 138.7,265.3 153.4,275.1 168.2,275.1 182.9,270.2 197.6,280.0 212.3,270.2 227.0,260.4 241.8,275.1 256.5,275.1 271.2,275.1 285.9,265.3 300.6,280.0 762.2,270.2 776.9,245.7 791.7,79.0 806.4,280.0 821.1,260.4 835.8,270.2 850.5,280.0 865.3,270.2 880.0,260.4'/>
+<polyline fill='none' stroke='#7f77dd' stroke-width='1.5' points='64.7,275.1 79.4,280.0 94.5,275.1 109.2,265.3 124.0,265.3 138.7,280.0 153.4,270.2 168.2,270.2 182.9,280.0 197.6,275.1 212.3,255.5 227.0,275.1 241.8,275.1 256.5,275.1 271.2,270.2 285.9,275.1 300.6,275.1 762.2,265.3 776.9,30.0 791.7,275.1 806.4,265.3 821.1,275.1 835.8,270.2 850.5,275.1 865.3,270.2 880.0,265.3'/>
+<rect x='50' y='304' width='10' height='10' fill='#d85a30'/><text x='64' y='313'>backlog</text>
+<rect x='160' y='304' width='10' height='10' fill='#1d9e75'/><text x='174' y='313'>analyses</text>
+<rect x='270' y='304' width='10' height='10' fill='#7f77dd'/><text x='284' y='313'>alerts</text>
+<text x='50.0' y='294' text-anchor='middle' fill='#666'>0 min</text>
+<text x='226.4' y='294' text-anchor='middle' fill='#666'>1 min</text>
+<text x='402.9' y='294' text-anchor='middle' fill='#666'>2 min</text>
+<text x='579.3' y='294' text-anchor='middle' fill='#666'>3 min</text>
+<text x='755.7' y='294' text-anchor='middle' fill='#666'>4 min</text>
+</svg>

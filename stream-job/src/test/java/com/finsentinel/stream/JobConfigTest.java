@@ -42,6 +42,15 @@ class JobConfigTest {
     }
 
     @Test
+    void theEmbeddedJobRestoresItsLatestCheckpointUnlessToldNotTo() {
+        assertThat(JobConfig.load(new String[0], Map.of()).restoreLatestCheckpoint()).isTrue();
+        assertThat(JobConfig.load(new String[]{"--checkpoint.restore=none"}, Map.of()).restoreLatestCheckpoint())
+                .isFalse();
+        assertThatThrownBy(() -> JobConfig.load(new String[]{"--checkpoint.restore=newest"}, Map.of()))
+                .hasMessageContaining("latest or none");
+    }
+
+    @Test
     void lakeDirComesFromTheFileOrTheEnvironment() {
         assertThat(JobConfig.load(new String[0], Map.of()).lakeDir())
                 .isEqualTo(System.getProperty("user.home") + "/.finsentinel/lake");

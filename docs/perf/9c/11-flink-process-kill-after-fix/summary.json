@@ -1,0 +1,155 @@
+{
+  "name": "flink-process-kill",
+  "marks": {
+    "start": "2026-10-19T14:07:10.458+00:00",
+    "inject": "2026-10-19T14:08:40.369+00:00",
+    "heal": "2026-10-19T14:09:10.462+00:00",
+    "recovered": "2026-10-19T14:09:20.549+00:00",
+    "end": "2026-10-19T14:22:24.922+00:00"
+  },
+  "fault_held_s": 30.1,
+  "recovery": {
+    "first_analysis_after_heal_s": 10.1,
+    "recovered_after_heal_s": 10.1,
+    "backlog_baseline_max": 3,
+    "backlog_max": 4,
+    "flink_restarts": 0
+  },
+  "detection": {
+    "alerting_scenarios": 203,
+    "detected": 203,
+    "missed": [],
+    "no_alert_by_design": 1,
+    "malformed_sent": 78
+  },
+  "llm": {
+    "main_provider_failures": 0,
+    "fallback_answers": 0,
+    "no_provider_answered": 0,
+    "last_fallback_after_heal_s": null
+  },
+  "messages": {
+    "offsets": {
+      "case.events.v1": 291,
+      "risk.alerts.v2": 296,
+      "risk.alerts.v2.DLT": 0,
+      "txn.transactions.dlq.v2": 79,
+      "txn.transactions.v2": 19170
+    },
+    "txn_rows_stored": 19132,
+    "alert_rows_stored": 294,
+    "window": {
+      "start": "2026-10-19T14:07:10.459+00:00",
+      "end": "2026-10-19T14:22:21.604+00:00"
+    },
+    "exact": {
+      "from": "2026-10-19T14:07:10.458+00:00",
+      "to": "2026-10-19T14:21:54.922+00:00",
+      "txn_records_on_topic": 18649,
+      "malformed_on_topic": 75,
+      "txn_rows_by_event_time": 18574,
+      "txn_missing": 0,
+      "alert_records_on_topic": 288,
+      "alert_rows_by_detection": 286,
+      "alert_records_not_stored": 2
+    }
+  },
+  "cases": {
+    "events": {
+      "ALERT_ADDED>ANALYSIS": 2,
+      "ANALYSED>AWAITING_DECISION": 292,
+      "OPENED>ANALYSIS": 3,
+      "REOPENED>ANALYSIS": 290,
+      "UNTRUSTED_INSTRUCTIONS>ANALYSIS": 3
+    },
+    "failed_case_ids": []
+  },
+  "latency_payment_to_report": {
+    "before": {
+      "alerts": 29,
+      "unanalysed": 0,
+      "p50_s": 2.1,
+      "p95_s": 5.3,
+      "max_s": 5.4
+    },
+    "during": {
+      "alerts": 0,
+      "unanalysed": 0,
+      "p50_s": null,
+      "p95_s": null,
+      "max_s": null
+    },
+    "after": {
+      "alerts": 266,
+      "unanalysed": 0,
+      "p50_s": 2.9,
+      "p95_s": 5.2,
+      "max_s": 47.8
+    }
+  },
+  "tools": [
+    {
+      "phase": "after",
+      "tool": "getAlertTransactions",
+      "calls": 262,
+      "empty": 0,
+      "p95_ms": 100
+    },
+    {
+      "phase": "before",
+      "tool": "getAlertTransactions",
+      "calls": 29,
+      "empty": 0,
+      "p95_ms": 158
+    },
+    {
+      "phase": "during",
+      "tool": "getAlertTransactions",
+      "calls": 1,
+      "empty": 0,
+      "p95_ms": 7
+    },
+    {
+      "phase": "after",
+      "tool": "getCustomerProfile",
+      "calls": 262,
+      "empty": 0,
+      "p95_ms": 69
+    },
+    {
+      "phase": "before",
+      "tool": "getCustomerProfile",
+      "calls": 29,
+      "empty": 0,
+      "p95_ms": 74
+    },
+    {
+      "phase": "during",
+      "tool": "getCustomerProfile",
+      "calls": 1,
+      "empty": 0,
+      "p95_ms": 11
+    },
+    {
+      "phase": "after",
+      "tool": "searchRegulations",
+      "calls": 262,
+      "empty": 0,
+      "p95_ms": 16
+    },
+    {
+      "phase": "before",
+      "tool": "searchRegulations",
+      "calls": 29,
+      "empty": 0,
+      "p95_ms": 16
+    },
+    {
+      "phase": "during",
+      "tool": "searchRegulations",
+      "calls": 1,
+      "empty": 0,
+      "p95_ms": 3
+    }
+  ]
+}

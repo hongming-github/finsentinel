@@ -22,6 +22,12 @@ final class CaseTestSupport {
         jdbc.sql("update fraud_case set stage = 'CLOSED', claimed_at = null where stage <> 'CLOSED'").update();
     }
 
+    /** Skips the pause a failed attempt waits before the next one, as if it had passed. */
+    static void makeDue(JdbcClient jdbc, String caseId) {
+        jdbc.sql("update fraud_case set next_attempt_at = now() where case_id = cast(:id as uuid)")
+                .param("id", caseId).update();
+    }
+
     static Alert alertOn(String tenant, String account, Severity severity) {
         return alert(tenant, account, AlertRule.LARGE_AMOUNT, severity, List.of("t-" + UUID.randomUUID()), Instant.now());
     }

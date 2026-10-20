@@ -14,8 +14,8 @@ import java.util.Properties;
  * arguments. Unknown keys are rejected so a typo cannot silently fall back to a default threshold.
  */
 record JobConfig(String bootstrapServers, String schemaRegistryUrl, Duration schemaRegistryTimeout, String groupId,
-                 Duration checkpointInterval, String checkpointDir, int webUiPort, Duration stateTtl, String lakeDir, String otlpEndpoint,
-                 RuleConfig rules) {
+                 Duration checkpointInterval, String checkpointDir, boolean restoreLatestCheckpoint, int webUiPort,
+                 Duration stateTtl, String lakeDir, String otlpEndpoint, RuleConfig rules) {
 
     static JobConfig load(String[] args, Map<String, String> env) {
         Properties p = Settings.defaults();
@@ -53,11 +53,20 @@ record JobConfig(String bootstrapServers, String schemaRegistryUrl, Duration sch
                 Settings.string(p, "kafka.group-id"),
                 Settings.duration(p, "checkpoint.interval"),
                 fileSystemUri(Settings.path(p, "checkpoint.dir")),
+                restore(Settings.string(p, "checkpoint.restore")),
                 Settings.integer(p, "local.web-ui-port"),
                 Settings.duration(p, "state.ttl"),
                 Settings.path(p, "lake.dir"),
                 p.getProperty("tracing.otlp-endpoint", "").trim(),
                 RuleConfig.from(p));
+    }
+
+    private static boolean restore(String value) {
+        return switch (value) {
+            case "latest" -> true;
+            case "none" -> false;
+            default -> throw new IllegalArgumentException("checkpoint.restore must be latest or none, got: " + value);
+        };
     }
 
     /** Flink needs a scheme for checkpoint storage; a plain path is a local directory. */

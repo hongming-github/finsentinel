@@ -49,7 +49,8 @@ class McpTracingTest {
         Span caller = tracer.spanBuilder("caller").startSpan();
         try (McpServerConnection connection = new McpServerConnection("platform",
                 URI.create("http://localhost:" + port + "/mcp"), Duration.ofSeconds(5), Duration.ofSeconds(10), json,
-                () -> token, tracer);
+                () -> token, tracer,
+                new com.finsentinel.platform.resilience.CircuitBreaker(3, Duration.ofSeconds(30), java.time.Clock.systemUTC()));
              Scope ignored = caller.makeCurrent()) {
             connection.call("listCases", Map.of(), JsonNode.class);
         } finally {

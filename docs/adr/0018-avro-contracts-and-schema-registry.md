@@ -29,15 +29,19 @@ contract they can read and test against, and a change process that refuses break
   and would bloat the Flink job jar. We need four calls: look up an id, fetch a schema by id, register, set
   compatibility.
 - **Schemas are registered on purpose, never by producers** (`SchemaRegistration`: `./mvnw -pl contracts -am compile
-  exec:java`). Every producer and consumer looks up its own schema's id at startup and **fails to start** if it is not
+  exec:java`). Every producer looks up its own schema's id at startup and **fails to start** if it is not
   registered. Auto-registration would let any producer publish any shape and make the registry a log rather than a
-  gate.
+  gate. The platform only consumes, and since drill 9b (ADR 0026) its serdes (`AvroSerde.forReading`) need no
+  registry to be built: it starts and serves its API while the registry is down, and its listeners retry until the
+  registry answers. A consumer reads by the writer's id, so its own schema's registration guards nothing at startup.
 - **Compatibility: BACKWARD_TRANSITIVE** per subject: a new schema must read everything written with every earlier
   version, so consumers upgrade first, then producers, and replaying a topic from the start always works.
 - **Bad message vs registry outage**: a message that can never be read (not the wire format, unknown schema id, bytes
   that do not decode) is `InvalidMessageException` and goes to the DLQ/DLT. A registry that cannot answer is not the
   message's fault: the exception propagates, so Flink fails the task and restarts from the last checkpoint, and the
-  platform's listener retries. Good data is never discarded because a dependency was down. Schemas by id are cached
+  platform's listener retries until it succeeds (without a limit since ADR 0026; before that it gave up after two
+  retries and dead-lettered the record, which drill 07b caught). Good data is never discarded because a dependency was
+  down. Schemas by id are cached
   for the life of the process, so a running consumer only needs the registry for ids it has not seen.
 - **Where decoding happens**: Flink's source hands on raw bytes (`RawValue`), and `ParseTransactions` decodes, so an
   unreadable message is routed to the DLQ (as the original bytes) instead of failing the source. The platform's Kafka
