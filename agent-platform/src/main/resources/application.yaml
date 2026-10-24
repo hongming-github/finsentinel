@@ -112,6 +112,11 @@ finsentinel:
     max-per-hour: 60
     # Claims hold the lock for milliseconds; waiting longer than this means something is stuck.
     claim-lock-timeout: 2s
+    # A case is not claimed until the transactions behind its alerts are stored, or this long after its latest alert
+    # arrived; then it is analysed without them and the agents are told which are missing. The platform's copy of the
+    # transaction stream normally trails the alert by well under a second; under load in phase 9B it fell minutes
+    # behind and 44 analyses ran on no evidence (ADR 0025).
+    evidence-wait: 60s
     tools:
       max-days: 90
       max-transactions: 100

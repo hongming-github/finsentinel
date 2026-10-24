@@ -85,7 +85,14 @@ All on one laptop (8 cores, 16 GB, Docker Desktop); details and every table in `
 
 - **Evidence before analysis**: do not claim a case until its alerts' transactions are stored (or a bounded wait has
   passed, after which the agents are told the evidence is missing). A claim-query predicate keeps it multi-instance
-  safe.
+  safe. **Done 2026-10-24**: the claim query skips a case while any transaction its alerts name is missing from `txn`,
+  until `finsentinel.investigation.evidence-wait` (60 s) after its latest alert arrived; 0 turns the wait, and the
+  missing-evidence handling below, off. A case claimed without some of them runs anyway: the brief names them, the
+  report cannot clear the case while no tool has returned them (`CaseReportValidator`: missing evidence is not
+  evidence of legitimacy), and the stored analysis gets an `EVIDENCE_INCOMPLETE` case event with the ids.
+  `EvidenceGateTest` (not claimed until stored, every alert of the case counts, claimed after the wait, the analysis
+  told and the case recorded) and `CaseReportValidatorTest`; each part fails its test when reverted. Not re-measured
+  under the 9B load.
 - **A worker pool instead of batches**: claim whenever a slot frees up, so one slow analysis does not hold back the
   rest; then measure 8-16 concurrent analyses with a real model against provider rate limits. (The pool is done, ADR
   0026: `batch-size` became `concurrency`, still 2. The real-model measurement is not.)

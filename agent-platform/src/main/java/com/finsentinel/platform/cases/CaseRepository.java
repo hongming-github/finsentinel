@@ -44,6 +44,19 @@ public class CaseRepository {
             (coalesce(claim_renewed_at, claimed_at) < now() - make_interval(secs => :leaseSecs)
                                    or claimed_at < now() - make_interval(secs => :timeoutSecs))""";
 
+    /**
+     * Every transaction named by any of the case's alerts is stored, or the latest alert arrived longer than the
+     * evidence wait ago. A case runs on the evidence its alerts point to; the wait keeps a transaction that never
+     * arrives from holding the case forever.
+     */
+    private static final String EVIDENCE_STORED = """
+            and (not exists (select 1 from alert a cross join unnest(a.txn_ids) as named(txn_id)
+                             where a.case_id = c.case_id
+                               and not exists (select 1 from txn t
+                                               where t.tenant_id = a.tenant_id and t.txn_id = named.txn_id))
+                 or (select max(a.received_at) from alert a where a.case_id = c.case_id)
+                        < now() - make_interval(secs => :evidenceWaitSecs))""";
+
     private static final String PRIORITY_ORDER =
             "case priority when 'HIGH' then 0 when 'MEDIUM' then 1 else 2 end";
 
@@ -167,8 +180,8 @@ public class CaseRepository {
      * @throws org.springframework.dao.DataAccessException on lock timeout; recognise it with {@link #isLockTimeout}
      */
     @Transactional
-    public ClaimBatch claimWithinBudget(int batchSize, Duration claimTimeout, Duration lease, int maxAttempts,
-                                        int maxPerHour, Duration lockWaitTimeout) {
+    public ClaimBatch claimWithinBudget(int batchSize, Duration claimTimeout, Duration lease, Duration evidenceWait,
+                                        int maxAttempts, int maxPerHour, Duration lockWaitTimeout) {
         int limit = batchSize;
         if (maxPerHour > 0) {
             // set_config(..., true) is SET LOCAL: this transaction only, and it takes a bound parameter.
@@ -184,46 +197,57 @@ public class CaseRepository {
             }
             limit = Math.min(limit, remaining);
         }
-        return new ClaimBatch(claim(limit, claimTimeout, lease, maxAttempts), false);
+        return new ClaimBatch(claim(limit, claimTimeout, lease, evidenceWait, maxAttempts), false);
     }
 
     /**
-     * For a caller that never renews its claims (a one-shot harness): the lease is the whole claim timeout.
+     * For a caller that never renews its claims and stores its transactions before filing alerts (a one-shot
+     * harness): the lease is the whole claim timeout and there is no evidence wait.
      * Transactional itself: the call below does not go through the proxy, and check-and-claim must share the lock.
      */
     @Transactional
     public ClaimBatch claimWithinBudget(int batchSize, Duration claimTimeout, int maxAttempts, int maxPerHour,
                                         Duration lockWaitTimeout) {
-        return claimWithinBudget(batchSize, claimTimeout, claimTimeout, maxAttempts, maxPerHour, lockWaitTimeout);
+        return claimWithinBudget(batchSize, claimTimeout, claimTimeout, Duration.ZERO, maxAttempts, maxPerHour,
+                lockWaitTimeout);
     }
 
-    /** As {@link #claim(int, Duration, Duration, int)} for a caller that never renews: the lease is the timeout. */
+    /** As {@link #claim(int, Duration, Duration, Duration, int)} for a caller that never renews: the lease is the timeout. */
     List<CaseClaim> claim(int limit, Duration claimTimeout, int maxAttempts) {
-        return claim(limit, claimTimeout, claimTimeout, maxAttempts);
+        return claim(limit, claimTimeout, claimTimeout, Duration.ZERO, maxAttempts);
+    }
+
+    /** As {@link #claim(int, Duration, Duration, Duration, int)} without an evidence wait. */
+    List<CaseClaim> claim(int limit, Duration claimTimeout, Duration lease, int maxAttempts) {
+        return claim(limit, claimTimeout, lease, Duration.ZERO, maxAttempts);
     }
 
     /**
      * HIGH priority first, then oldest; also takes back claims that lapsed: not renewed for {@code lease} (the owner
-     * died) or held longer than {@code claimTimeout} (the owner is stuck). Skips cases waiting out a pause.
+     * died) or held longer than {@code claimTimeout} (the owner is stuck). Skips cases waiting out a pause, and, with
+     * a positive {@code evidenceWait}, cases whose alerts name a transaction the platform has not stored yet, until
+     * {@code evidenceWait} after the case's latest alert arrived. In the claim query, so it holds across instances.
      */
-    List<CaseClaim> claim(int limit, Duration claimTimeout, Duration lease, int maxAttempts) {
+    List<CaseClaim> claim(int limit, Duration claimTimeout, Duration lease, Duration evidenceWait, int maxAttempts) {
         return jdbc.sql("""
                         update fraud_case
                         set claimed_at = clock_timestamp(), claim_renewed_at = null, attempts = attempts + 1,
                             updated_at = now()
                         where case_id in (
-                            select case_id from fraud_case
+                            select case_id from fraud_case c
                             where stage = 'ANALYSIS' and attempts < :maxAttempts
                               and (claimed_at is null or %s)
                               and (next_attempt_at is null or next_attempt_at <= now())
+                              %s
                             order by %s, opened_at
                             limit :limit
                             for update skip locked)
                         returning *
-                        """.formatted(CLAIM_LAPSED, PRIORITY_ORDER))
+                        """.formatted(CLAIM_LAPSED, evidenceWait.isPositive() ? EVIDENCE_STORED : "", PRIORITY_ORDER))
                 .param("maxAttempts", maxAttempts)
                 .param("leaseSecs", lease.toMillis() / 1000.0)
                 .param("timeoutSecs", claimTimeout.toSeconds())
+                .param("evidenceWaitSecs", evidenceWait.toMillis() / 1000.0)
                 .param("limit", limit)
                 .query((rs, n) -> new CaseClaim(map(rs), rs.getTimestamp("claimed_at").toInstant()))
                 .list();
@@ -256,6 +280,17 @@ public class CaseRepository {
      */
     @Transactional
     public Completion complete(CaseClaim claim, AnalysisMode mode, InvestigationResult result, Review review) {
+        return complete(claim, mode, result, review, List.of());
+    }
+
+    /**
+     * @param missingTxnIds transactions named by the case's alerts that were not stored when the analysis began (the
+     *                      evidence wait ran out, ADR 0025): recorded on the case with the analysis, so the analyst
+     *                      sees it whatever the report says
+     */
+    @Transactional
+    public Completion complete(CaseClaim claim, AnalysisMode mode, InvestigationResult result, Review review,
+                               List<String> missingTxnIds) {
         FraudCase claimed = claim.fraudCase();
         Optional<Integer> currentRun = jdbc.sql("""
                         select analysis_run from fraud_case
@@ -274,6 +309,10 @@ public class CaseRepository {
             // On the case, from the platform: the analyst sees it whether or not the report mentions it (ADR 0016).
             event(claimed.caseId(), "UNTRUSTED_INSTRUCTIONS", CaseStage.ANALYSIS, CaseStage.ANALYSIS, "system",
                     Map.of("run", claimed.analysisRun(), "found", result.untrustedInstructions()));
+        }
+        if (!missingTxnIds.isEmpty()) {
+            event(claimed.caseId(), "EVIDENCE_INCOMPLETE", CaseStage.ANALYSIS, CaseStage.ANALYSIS, "system",
+                    Map.of("run", claimed.analysisRun(), "missingTxnIds", List.copyOf(missingTxnIds)));
         }
         // This run is over either way; earlier runs' leftovers (a failed attempt never resumed) go with it.
         deleteCheckpoints(claimed.caseId(), claimed.analysisRun());
@@ -581,6 +620,24 @@ public class CaseRepository {
                 .param("caseId", UUID.fromString(caseId))
                 .param("run", upToRun)
                 .update();
+    }
+
+    /**
+     * Transactions named by the case's alerts that the platform has not stored, in id order. Read in the case's
+     * tenant scope (set from the claimed case).
+     */
+    public List<String> missingTransactions(String tenantId, String caseId) {
+        return jdbc.sql("""
+                        select distinct named.txn_id
+                        from alert a cross join unnest(a.txn_ids) as named(txn_id)
+                        where a.tenant_id = :tenantId and a.case_id = :caseId
+                          and not exists (select 1 from txn t where t.tenant_id = a.tenant_id and t.txn_id = named.txn_id)
+                        order by named.txn_id
+                        """)
+                .param("tenantId", tenantId)
+                .param("caseId", UUID.fromString(caseId))
+                .query(String.class)
+                .list();
     }
 
     private void event(String caseId, String type, CaseStage from, CaseStage to, String actor, Map<String, ?> detail) {

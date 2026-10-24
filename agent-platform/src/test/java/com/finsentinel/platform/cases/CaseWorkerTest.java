@@ -481,8 +481,13 @@ class CaseWorkerTest {
     }
 
     static InvestigationProperties props(int maxPerHour, Duration lockTimeout, Duration lease, Duration heartbeat) {
+        return props(maxPerHour, lockTimeout, lease, heartbeat, Duration.ZERO);
+    }
+
+    static InvestigationProperties props(int maxPerHour, Duration lockTimeout, Duration lease, Duration heartbeat,
+                                         Duration evidenceWait) {
         return new InvestigationProperties(true, 5, Duration.ofMinutes(5), lease, heartbeat, 3,
                 new InvestigationProperties.Retry(Duration.ofMinutes(1), 2, Duration.ofMinutes(10)), maxPerHour, lockTimeout,
-                new InvestigationProperties.Tools(90, 100, 1000), new InvestigationProperties.Report(60, 40, 1, true));
+                evidenceWait, new InvestigationProperties.Tools(90, 100, 1000), new InvestigationProperties.Report(60, 40, 1, true));
     }
 }
