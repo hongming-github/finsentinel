@@ -16,8 +16,9 @@ import java.util.regex.Pattern;
  *
  * <p>Rules, all learned from the actual documents:
  * <ul>
- *   <li>Numbered sub-section headings (TRM's "3.1 Role of the Board ...") and wrapped unnumbered headings become
- *       the {@code section} context of the paragraphs they introduce instead of chunks of their own.</li>
+ *   <li>Numbered sub-section headings (TRM's "3.1 Role of the Board ..."), Notice 626's roman-numbered ones
+ *       ("(IV) Identification and Verification of Identity of Beneficial Owner") and wrapped unnumbered headings
+ *       become the {@code section} context of the paragraphs they introduce instead of chunks of their own.</li>
  *   <li>Section headings ("4  Duties of the responsible FI") are accepted only when their number is the next
  *       expected one, which keeps footnotes ("13 The cooling off period ...") from posing as headings.</li>
  *   <li>Page numbers, "Internal" footers, "[Amended on ...]" notes, table-of-contents lines and running headers
@@ -34,6 +35,8 @@ final class RegulationChunker {
             Pattern.CASE_INSENSITIVE);
     private static final Pattern EDIT_NOTE = Pattern.compile("^\\s*\\[(?:Amended|Deleted|Inserted|Added)[^\\]]*\\]\\s*$");
     private static final Pattern TOC_LEADER = Pattern.compile("\\.{5,}|…{3,}");
+    /** Notice 626 numbers its sub-headings "(I) Identification of Customer", "(II) ...". */
+    private static final Pattern ROMAN_HEADING = Pattern.compile("^\\(([IVX]{1,5})\\)\\s+([A-Z].*)$");
     /**
      * A defined term at the start of a line, in each form the MAS documents use: {@code “term” means}, {@code “term”
      * include(s)}, {@code “term”, in relation to X, means}, {@code “term” or “other term” means}, {@code “term” –}.
@@ -114,7 +117,7 @@ final class RegulationChunker {
             List<String> trailing = trailingHeading(paragraph.lines);
             if (!trailing.isEmpty() && next.sectionTitle.equals(paragraph.sectionTitle)) {
                 paragraph.lines.subList(paragraph.lines.size() - trailing.size(), paragraph.lines.size()).clear();
-                next.subHeading = String.join(" ", trailing);
+                next.subHeading = joinHeading(trailing);
             }
         }
         paragraphs.removeIf(p -> p.heading);
@@ -144,10 +147,25 @@ final class RegulationChunker {
         }
         List<String> candidate = lines.subList(start, end);
         String joined = String.join(" ", candidate);
-        boolean headingLike = Character.isUpperCase(candidate.getFirst().charAt(0))
+        boolean headingLike = (ROMAN_HEADING.matcher(candidate.getFirst()).matches()
+                || Character.isUpperCase(candidate.getFirst().charAt(0)))
                 && joined.length() <= 200
                 && !DEFINITION.matcher(candidate.getFirst()).matches();
         return headingLike ? List.copyOf(candidate) : List.of();
+    }
+
+    /**
+     * A wrapped heading's lines joined with spaces; a roman-numbered heading under an unnumbered one ("Responsibility
+     * of the Ordering Institution" then "(I) Identification and Recording of Information") is a level of its own.
+     */
+    private static String joinHeading(List<String> lines) {
+        StringBuilder out = new StringBuilder();
+        for (String line : lines) {
+            Matcher roman = ROMAN_HEADING.matcher(line);
+            String text = roman.matches() ? "(" + roman.group(1) + ") " + roman.group(2) : line;
+            out.append(out.isEmpty() ? "" : roman.matches() ? " / " : " ").append(text);
+        }
+        return out.toString();
     }
 
     private static boolean endsSentence(String line) {

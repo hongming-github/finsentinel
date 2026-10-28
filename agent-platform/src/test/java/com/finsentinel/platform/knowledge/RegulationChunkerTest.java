@@ -77,6 +77,45 @@ class RegulationChunkerTest {
     }
 
     @Test
+    void romanNumeralSubheadingsIntroduceTheirParagraphs() {
+        // Notice 626 numbers its sub-headings "(I)", "(II)" ...: read as text, 6.13 kept the sub-heading of 6.2.
+        List<RegulationChunk> chunks = chunker.chunk("doc", List.of("""
+                1        Customer due diligence
+                1.1      A bank shall not open anonymous accounts.
+                Where There Are Reasonable Grounds for Suspicion
+                1.2      Where a bank suspects money laundering, it shall perform CDD measures.
+                (I)      Identification of Customer
+                1.3      A bank shall identify each customer.
+                (II)     Identification and Verification of Identity of Natural Person Appointed to Act on a
+                Customer’s Behalf
+                1.4      Where a customer appoints a natural person to act on its behalf, the bank shall identify them.
+                1.5      A bank shall verify the due authority of each such person.
+                """));
+
+        assertThat(chunks).extracting(RegulationChunk::ref).containsExactly("1.1", "1.2", "1.3", "1.4", "1.5");
+        assertThat(chunks.get(1).text()).isEqualTo("Where a bank suspects money laundering, it shall perform CDD measures.");
+        assertThat(chunks.get(2).section()).isEqualTo("Customer due diligence / (I) Identification of Customer");
+        assertThat(chunks.get(3).section()).isEqualTo("Customer due diligence / (II) Identification and Verification of "
+                + "Identity of Natural Person Appointed to Act on a Customer’s Behalf");
+        assertThat(chunks.get(4).section()).as("sub-heading carries forward").isEqualTo(chunks.get(3).section());
+    }
+
+    @Test
+    void aRomanNumeralSubheadingUnderAnUnnumberedOneIsALevelOfItsOwn() {
+        List<RegulationChunk> chunks = chunker.chunk("doc", List.of("""
+                1        Wire transfers
+                1.1      This paragraph applies to wire transfers.
+                Responsibility of the Ordering Institution
+                (I)      Identification and Recording of Information
+                1.2      Before effecting a wire transfer, a bank shall identify the originator.
+                """));
+
+        assertThat(chunks.getFirst().text()).isEqualTo("This paragraph applies to wire transfers.");
+        assertThat(chunks.get(1).section()).isEqualTo(
+                "Wire transfers / Responsibility of the Ordering Institution / (I) Identification and Recording of Information");
+    }
+
+    @Test
     void numberedSubsectionHeadingIsNotItsOwnChunk() {
         List<RegulationChunk> chunks = chunker.chunk("doc", List.of("""
                 1        Technology Risk Governance and Oversight

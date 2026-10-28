@@ -65,3 +65,31 @@ form; a quoted term followed by anything else still continues the definition bef
 chunks, 11 new, 11 changed, no other chunk changed. `RetrievalEvalTest` unchanged in every mode (hybrid + rerank 0.94 /
 0.91): none of its 32 questions asks for a definition, which is why it did not catch this. Definition questions belong
 in the set.
+
+## Notice 626 sub-headings (2026-10-28)
+
+Notice 626 numbers its sub-headings "(I) Identification of Customer", "(II) ...". Starting with a bracket, they did
+not count as headings: each stayed at the end of the paragraph before it, and every paragraph after it kept the
+previous sub-heading. So 6.4 to 6.26 were filed under "Where There Are Reasonable Grounds for Suspicion ..." (6.13,
+on beneficial owners, among them), and the wire-transfer paragraphs likewise. The section path is part of the embedded
+text and of what the model reads. Found by the dataset owner reading chunks. A roman-numbered line now starts a
+sub-heading, its own level under an unnumbered one ("Responsibility of the Ordering Institution / (I) ...").
+30 section paths and 9 paragraph tails changed, all in Notice 626; the other documents have none.
+`RetrievalEvalTest` after the fix, every mode up (before: ADR 0023's numbers, unchanged by the definitions fix):
+
+| Mode | paraphrased (22) | term queries (10) | all (32) |
+|---|---|---|---|
+| vector | 0.82 / 0.69 | 0.90 / 0.85 | 0.84 / 0.74 (was 0.84 / 0.70) |
+| keyword | 0.50 / 0.39 | 0.90 / 0.75 | 0.63 / 0.51 (was 0.59 / 0.50) |
+| hybrid (RRF) | 0.77 / 0.58 | 0.90 / 0.85 | 0.81 / 0.66 (was 0.78 / 0.64) |
+| hybrid + rerank | 0.95 / 0.91 | 1.00 / 1.00 | 0.97 / 0.94 (was 0.94 / 0.91) |
+
+No question asks about Notice 626's customer due diligence; the gain is fewer wrong candidates: 23 CDD and wire
+transfer paragraphs no longer carry "Where There Are Reasonable Grounds for Suspicion" in their embedded text, which
+had pulled them towards suspicious-transaction questions. One miss left (the phishing-refund question). The vector,
+keyword and hybrid rows are deterministic; the rerank row has the reranker's run-to-run noise.
+
+Still open, also Notice 626 only: 39 lettered paragraphs inserted by amendment (6.8A-B, 6.11A-C, 6.14A-D, 6.17A-C,
+6.20A, 6.31A, 6.41A, 15.7A, 15.9A and the whole of section 11A on value transfers) are not paragraph starts, so each
+is merged into the paragraph before it; section 11A sits inside `notice-626-2025:11.16:value-transfer-originator`.
+Fixing it adds chunk ids with letters, which the chunk-id patterns in `Grounding` and `GoldenDataset` do not accept yet.

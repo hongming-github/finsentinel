@@ -2,6 +2,7 @@ target/
 .idea/
 *.iml
 .vscode/
+.obsidian/
 .DS_Store
 *.log
 .env
