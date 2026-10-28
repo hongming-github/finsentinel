@@ -101,6 +101,38 @@ class RegulationChunkerTest {
     }
 
     @Test
+    void annexesAndAppendicesEndTheLastParagraph() {
+        // TRM's last paragraph swallowed Annexes A to C, Notice 626's its amendment history and both appendices.
+        List<RegulationChunk> chunks = chunker.chunk("doc", List.of("""
+                1        IT audit
+                1.1      The FI should ensure its IT auditors have the requisite skills.
+                Endnotes on History of Amendments
+                1.      Amendment with effect from 1 July 2025.
+                Annex A: Application Security Testing
+                A.1      Application security testing aims to find exploitable weaknesses.
+                A.2      Common testing methods include static and dynamic analysis.
+                Annex B: BYOD Security
+                B.1      BYOD allows staff to use their own devices.
+                Appendix 1
+                1. Financial institutions regulated by the Authority.
+                Note: the institutions in Appendix 2 fall within
+                Appendix 1.
+                Appendix 2
+                1. Banks in Singapore licensed under the BA.
+                """));
+
+        assertThat(chunks).extracting(RegulationChunk::chunkId).containsExactly("doc:1.1", "doc:A.1", "doc:A.2",
+                "doc:B.1", "doc:appendix-1", "doc:appendix-2");
+        assertThat(chunks.getFirst().text()).isEqualTo("The FI should ensure its IT auditors have the requisite skills.");
+        assertThat(chunks.get(1).section()).isEqualTo("Annex A: Application Security Testing");
+        assertThat(chunks.get(3).section()).isEqualTo("Annex B: BYOD Security");
+        assertThat(chunks.get(4).section()).isEqualTo("Appendix 1");
+        assertThat(chunks.get(4).text()).as("a reference wrapped to a line start is not a heading")
+                .endsWith("fall within\nAppendix 1.");
+        assertThat(chunks.get(5).text()).isEqualTo("1. Banks in Singapore licensed under the BA.");
+    }
+
+    @Test
     void aLetteredSectionInsertedByAmendmentIsASectionOfItsOwn() {
         // Notice 626 inserted "11A VALUE TRANSFERS" between 11 and 12: read as text, the whole section sat inside
         // 11.2's last definition. Lettered paragraphs within a section (6.8A) stay with the paragraph before them.

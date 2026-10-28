@@ -100,7 +100,17 @@ number in the text; the dataset owner agreed. `Grounding` and `GoldenDataset` no
 and an `11A` id was not seen at all, so an answer naming one it was not given would have passed).
 `RetrievalEvalTest` after it: hybrid + rerank unchanged at 0.97 / 0.94 (paraphrased 0.95 / 0.93, terms 1.00 / 0.95);
 vector 0.84 / 0.74 -> 0.81 / 0.71, all of it in the term queries (0.90 / 0.85 -> 0.80 / 0.75); keyword unchanged; hybrid
-0.81 / 0.66 -> 0.81 / 0.65. The likely cause (not traced per question) is that 11A's value-transfer paragraphs are near
-copies of the wire-transfer ones the set asks about ("cross-border wire transfer exceeds S$1,500 originator
-information" expects 11.5; 11A has the same rule for value transfers), real text that was hidden before. The
-pipeline the agents use, hybrid + rerank, does not lose anything.
+0.81 / 0.66 -> 0.81 / 0.65. A first guess blamed 11A's value-transfer paragraphs, near copies of the wire-transfer
+ones the set asks about; the next change, which touched neither, brought vector back to 0.84 / 0.74 (below), so the
+guess does not hold and the dip is unexplained, possibly a near tie in the vector ranking. The pipeline the agents use,
+hybrid + rerank, did not move.
+
+Back matter (also 2026-10-28): the last paragraph of a document ran on into whatever followed it. TRM 15.1.4, one
+sentence, carried Annexes A to C (application security testing, BYOD, mobile application security; split into two
+parts), and Notice 626 15.15 its history of amendments and both appendices. "Annex A: ...", "Appendix 1" and
+"Endnotes on History of Amendments" now end the numbered body: an annex's paragraphs are chunks of their own under
+the document's own numbers (`trm-2021:A.1`, `A.2`, `B.1`, `C.1`, all four the annexes have), each appendix (a list of
+institutions) is one chunk (`notice-626-2025:appendix-1`, `-2`), the amendment history is dropped. 654 -> 658 chunks,
+4 removed, 8 added, nothing else changed. `Grounding` and `GoldenDataset` accept the new ids.
+`RetrievalEvalTest` after it: vector 0.84 / 0.74, keyword 0.63 / 0.51, hybrid 0.81 / 0.68, hybrid + rerank 0.97 / 0.92
+(the rerank MRR moves by a few points between runs; hit@5 has stayed at 0.97 since the sub-heading fix).

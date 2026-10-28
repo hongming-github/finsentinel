@@ -25,7 +25,7 @@ import java.util.stream.Collectors;
 public record GoldenDataset(Map<String, Set<String>> chunkSets, List<GoldenCase> cases) {
 
     static final String RESOURCE = "eval/golden-cases.json";
-    private static final Pattern CHUNK_ID = Pattern.compile("[a-z0-9-]+:[0-9]+[A-Z]?[0-9.]*(:[a-z0-9-]+)?(-p[0-9]+)?");
+    private static final Pattern CHUNK_ID = Pattern.compile("[a-z0-9-]+:([0-9]+[A-Z]?[0-9.]*|[A-Z](\\.[0-9]+)+|appendix-[0-9]+)(:[a-z0-9-]+)?(-p[0-9]+)?");
     private static final Set<String> SYSTEMS = Set.of("banking", "compliance");
 
     public GoldenDataset {

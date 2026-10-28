@@ -29,8 +29,19 @@ import java.util.regex.Pattern;
  */
 final class RegulationChunker {
 
-    /** "4.7", "3.1.2"; in a lettered section, "11A.3". A letter after a paragraph number (6.8A) is not a start. */
-    private static final Pattern PARAGRAPH = Pattern.compile("^\\s*(\\d{1,2}[A-Z]?(?:\\.\\d{1,2}){1,3})\\s+(\\S.*)$");
+    /**
+     * "4.7", "3.1.2"; in a lettered section, "11A.3"; in an annex, "A.1". A letter after a paragraph number (6.8A) is
+     * not a start.
+     */
+    private static final Pattern PARAGRAPH = Pattern.compile(
+            "^\\s*((?:\\d{1,2}[A-Z]?|[A-Z])(?:\\.\\d{1,2}){1,3})\\s+(\\S.*)$");
+    /** TRM's "Annex A: Application Security Testing", paragraphs A.1, A.2 ... */
+    private static final Pattern ANNEX = Pattern.compile("^(?:Annex|ANNEX)\\s+([A-Z])\\s*[:–—-]\\s*(\\S.*)$");
+    /** Notice 626's "Appendix 1", a list rather than numbered paragraphs: one chunk each. */
+    private static final Pattern APPENDIX = Pattern.compile("^(?:Appendix|APPENDIX)\\s+(\\d{1,2})$");
+    /** Notice 626's history of amendments after the last paragraph: not regulation text. */
+    private static final Pattern ENDNOTES = Pattern.compile("^Endnotes on History of Amendments$",
+            Pattern.CASE_INSENSITIVE);
     /** "4  Duties of the responsible FI"; an amendment inserts lettered sections ("11A  VALUE TRANSFERS"). */
     private static final Pattern SECTION = Pattern.compile("^\\s*(\\d{1,2})([A-Z])?\\s+([A-Z][^.;:]{2,100}?)\\s*$");
     private static final Pattern PAGE_NUMBER = Pattern.compile("^\\s*(?:page\\s+)?\\d{1,3}(?:\\s+of\\s+\\d{1,3})?\\s*$",
@@ -68,14 +79,34 @@ final class RegulationChunker {
         int section = 0;
         String sectionId = "";
         String sectionTitle = "";
+        boolean backMatter = false;
         for (int p = 0; p < pages.size(); p++) {
             for (String raw : pages.get(p).split("\\R")) {
                 String line = raw.strip();
                 if (isNoise(line, runningHeaders)) {
                     continue;
                 }
+                // Back matter after the last section ends the paragraph before it; numbered sections do not resume.
+                Matcher annex = ANNEX.matcher(line);
+                Matcher appendix = APPENDIX.matcher(line);
+                if (section > 0 && (annex.matches() || appendix.matches() || ENDNOTES.matcher(line).matches())) {
+                    backMatter = true;
+                    current = null;
+                    if (annex.matches()) {
+                        sectionId = annex.group(1);
+                        sectionTitle = "Annex " + annex.group(1) + ": " + annex.group(2).strip();
+                    } else if (appendix.matches()) {
+                        sectionId = "appendix-" + appendix.group(1);
+                        sectionTitle = "Appendix " + appendix.group(1);
+                        current = new Paragraph(sectionId, sectionTitle, p + 1);
+                        paragraphs.add(current);
+                    } else {
+                        sectionId = "";
+                    }
+                    continue;
+                }
                 Matcher sectionMatch = SECTION.matcher(line);
-                if (sectionMatch.matches() && nextSection(sectionMatch, section, sectionId)) {
+                if (!backMatter && sectionMatch.matches() && nextSection(sectionMatch, section, sectionId)) {
                     section = Integer.parseInt(sectionMatch.group(1));
                     sectionId = sectionMatch.group(1) + (sectionMatch.group(2) == null ? "" : sectionMatch.group(2));
                     sectionTitle = sectionMatch.group(3).strip();
@@ -292,12 +323,13 @@ final class RegulationChunker {
         return Integer.compare(x.length, y.length);
     }
 
+    /** An annex's letter ("A" of "A.1") sorts before every number; refs in one annex share it. */
     private static int number(String part) {
-        return Integer.parseInt(part.replaceAll("[A-Z]$", ""));
+        return part.matches("[A-Z]") ? 0 : Integer.parseInt(part.replaceAll("[A-Z]$", ""));
     }
 
     private static boolean belongsToSection(String ref, String sectionId) {
-        return !sectionId.isEmpty() && ref.substring(0, ref.indexOf('.')).equals(sectionId);
+        return !sectionId.isEmpty() && ref.indexOf('.') > 0 && ref.substring(0, ref.indexOf('.')).equals(sectionId);
     }
 
     private static boolean isNoise(String line, Set<String> runningHeaders) {
