@@ -89,7 +89,18 @@ chunks no longer carry "Where There Are Reasonable Grounds for Suspicion" in the
 the suspicious-transaction questions (a likely reason, not traced question by question). One miss left (the phishing-refund question). The vector,
 keyword and hybrid rows are deterministic; the rerank row has the reranker's run-to-run noise.
 
-Still open, also Notice 626 only: 39 lettered paragraphs inserted by amendment (6.8A-B, 6.11A-C, 6.14A-D, 6.17A-C,
-6.20A, 6.31A, 6.41A, 15.7A, 15.9A and the whole of section 11A on value transfers) are not paragraph starts, so each
-is merged into the paragraph before it; section 11A sits inside `notice-626-2025:11.16:value-transfer-originator`.
-Fixing it adds chunk ids with letters, which the chunk-id patterns in `Grounding` and `GoldenDataset` do not accept yet.
+Lettered numbers (also 2026-10-28, Notice 626 only): an amendment inserted section 11A (value transfers) between 11
+and 12. Its heading "11A VALUE TRANSFERS" was not a section (numbers had to be integers ascending by one), so all of it
+sat inside `notice-626-2025:11.16:value-transfer-originator-p1` to `-p4`, an id that named the wrong paragraph. A
+lettered section now follows its number (11, 11A, 12) and its paragraphs (11A.1 to 11A.21) are chunks of their own:
+636 -> 654 chunks, 9 removed and 27 added, nothing else changed. Lettered paragraphs inside a section (6.8A, 6.14A-D,
+15.7A) still continue the paragraph before them, which reads naturally (6.14A to D elaborate 6.14) and keeps their
+number in the text; the dataset owner agreed. `Grounding` and `GoldenDataset` now accept `11A.3` in chunk ids, and
+`Grounding` also reads a split paragraph's `-p2` whole (it cut it to `6.14`, so a correct answer would have been refused,
+and an `11A` id was not seen at all, so an answer naming one it was not given would have passed).
+`RetrievalEvalTest` after it: hybrid + rerank unchanged at 0.97 / 0.94 (paraphrased 0.95 / 0.93, terms 1.00 / 0.95);
+vector 0.84 / 0.74 -> 0.81 / 0.71, all of it in the term queries (0.90 / 0.85 -> 0.80 / 0.75); keyword unchanged; hybrid
+0.81 / 0.66 -> 0.81 / 0.65. The likely cause (not traced per question) is that 11A's value-transfer paragraphs are near
+copies of the wire-transfer ones the set asks about ("cross-border wire transfer exceeds S$1,500 originator
+information" expects 11.5; 11A has the same rule for value transfers), real text that was hidden before. The
+pipeline the agents use, hybrid + rerank, does not lose anything.

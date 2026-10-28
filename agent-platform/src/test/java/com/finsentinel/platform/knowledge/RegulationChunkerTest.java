@@ -101,6 +101,36 @@ class RegulationChunkerTest {
     }
 
     @Test
+    void aLetteredSectionInsertedByAmendmentIsASectionOfItsOwn() {
+        // Notice 626 inserted "11A VALUE TRANSFERS" between 11 and 12: read as text, the whole section sat inside
+        // 11.2's last definition. Lettered paragraphs within a section (6.8A) stay with the paragraph before them.
+        List<RegulationChunk> chunks = chunker.chunk("doc", List.of("""
+                1        Wire transfers
+                1.1      This paragraph applies to wire transfers.
+                1.2      For the purposes of paragraph 1 –
+                “wire transfer originator” means the account holder who allows the wire transfer.
+                1A       Value transfers
+                1A.1 Paragraph 1A shall apply to a bank that sends digital tokens.
+                1A.2 Before effecting a value transfer, a bank shall identify the originator, as paragraph
+                1A.1 requires.
+                1A.3 A bank shall keep the records for five years.
+                1A.3A A bank shall also keep the originator's address.
+                2        Record keeping
+                2.1      A bank shall keep records.
+                """));
+
+        assertThat(chunks).extracting(RegulationChunk::chunkId).containsExactly("doc:1.1", "doc:1.2",
+                "doc:1.2:wire-transfer-originator", "doc:1A.1", "doc:1A.2", "doc:1A.3", "doc:2.1");
+        assertThat(chunks.get(2).text()).isEqualTo(
+                "“wire transfer originator” means the account holder who allows the wire transfer.");
+        assertThat(chunks.get(3).section()).isEqualTo("Value transfers");
+        assertThat(chunks.get(4).text()).as("a cross-reference wrapped to a line start stays in its paragraph")
+                .endsWith("1A.1 requires.");
+        assertThat(chunks.get(5).text()).contains("1A.3A A bank shall also keep the originator's address.");
+        assertThat(chunks.get(6).section()).isEqualTo("Record keeping");
+    }
+
+    @Test
     void aRomanNumeralSubheadingUnderAnUnnumberedOneIsALevelOfItsOwn() {
         List<RegulationChunk> chunks = chunker.chunk("doc", List.of("""
                 1        Wire transfers

@@ -29,8 +29,10 @@ import java.util.regex.Pattern;
  */
 final class RegulationChunker {
 
-    private static final Pattern PARAGRAPH = Pattern.compile("^\\s*(\\d{1,2}(?:\\.\\d{1,2}){1,3})\\s+(\\S.*)$");
-    private static final Pattern SECTION = Pattern.compile("^\\s*(\\d{1,2})\\s+([A-Z][^.;:]{2,100}?)\\s*$");
+    /** "4.7", "3.1.2"; in a lettered section, "11A.3". A letter after a paragraph number (6.8A) is not a start. */
+    private static final Pattern PARAGRAPH = Pattern.compile("^\\s*(\\d{1,2}[A-Z]?(?:\\.\\d{1,2}){1,3})\\s+(\\S.*)$");
+    /** "4  Duties of the responsible FI"; an amendment inserts lettered sections ("11A  VALUE TRANSFERS"). */
+    private static final Pattern SECTION = Pattern.compile("^\\s*(\\d{1,2})([A-Z])?\\s+([A-Z][^.;:]{2,100}?)\\s*$");
     private static final Pattern PAGE_NUMBER = Pattern.compile("^\\s*(?:page\\s+)?\\d{1,3}(?:\\s+of\\s+\\d{1,3})?\\s*$",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern EDIT_NOTE = Pattern.compile("^\\s*\\[(?:Amended|Deleted|Inserted|Added)[^\\]]*\\]\\s*$");
@@ -64,6 +66,7 @@ final class RegulationChunker {
         List<Paragraph> paragraphs = new ArrayList<>();
         Paragraph current = null;
         int section = 0;
+        String sectionId = "";
         String sectionTitle = "";
         for (int p = 0; p < pages.size(); p++) {
             for (String raw : pages.get(p).split("\\R")) {
@@ -72,14 +75,15 @@ final class RegulationChunker {
                     continue;
                 }
                 Matcher sectionMatch = SECTION.matcher(line);
-                if (sectionMatch.matches() && Integer.parseInt(sectionMatch.group(1)) == section + 1) {
-                    section++;
-                    sectionTitle = sectionMatch.group(2).strip();
+                if (sectionMatch.matches() && nextSection(sectionMatch, section, sectionId)) {
+                    section = Integer.parseInt(sectionMatch.group(1));
+                    sectionId = sectionMatch.group(1) + (sectionMatch.group(2) == null ? "" : sectionMatch.group(2));
+                    sectionTitle = sectionMatch.group(3).strip();
                     current = null;
                     continue;
                 }
                 Matcher paragraphMatch = PARAGRAPH.matcher(line);
-                if (paragraphMatch.matches() && belongsToSection(paragraphMatch.group(1), section)
+                if (paragraphMatch.matches() && belongsToSection(paragraphMatch.group(1), sectionId)
                         && startsParagraph(paragraphMatch, current)) {
                     current = new Paragraph(paragraphMatch.group(1), sectionTitle, p + 1);
                     current.lines.add(paragraphMatch.group(2));
@@ -255,11 +259,32 @@ final class RegulationChunker {
         return ascending && !Character.isLowerCase(paragraph.group(2).charAt(0));
     }
 
+    /**
+     * Section numbers ascend from 1 (dates and footnotes look like headings); an inserted lettered section follows its
+     * number: 11, then 11A, 11B, then 12.
+     */
+    private static boolean nextSection(Matcher match, int section, String sectionId) {
+        int number = Integer.parseInt(match.group(1));
+        String letter = match.group(2);
+        if (letter == null) {
+            return number == section + 1;
+        }
+        if (section == 0 || number != section) {
+            return false;
+        }
+        char last = sectionId.charAt(sectionId.length() - 1);
+        return letter.charAt(0) == (Character.isLetter(last) ? last + 1 : 'A');
+    }
+
+    /** Compares "11A.3" with "11A.11": number by number, a section's letter after its number. */
     static int compareRefs(String a, String b) {
         String[] x = a.split("\\.");
         String[] y = b.split("\\.");
         for (int i = 0; i < Math.min(x.length, y.length); i++) {
-            int c = Integer.compare(Integer.parseInt(x[i]), Integer.parseInt(y[i]));
+            int c = Integer.compare(number(x[i]), number(y[i]));
+            if (c == 0) {
+                c = x[i].compareTo(y[i]);
+            }
             if (c != 0) {
                 return c;
             }
@@ -267,9 +292,12 @@ final class RegulationChunker {
         return Integer.compare(x.length, y.length);
     }
 
-    private static boolean belongsToSection(String ref, int section) {
-        int major = Integer.parseInt(ref.substring(0, ref.indexOf('.')));
-        return section > 0 && major == section;
+    private static int number(String part) {
+        return Integer.parseInt(part.replaceAll("[A-Z]$", ""));
+    }
+
+    private static boolean belongsToSection(String ref, String sectionId) {
+        return !sectionId.isEmpty() && ref.substring(0, ref.indexOf('.')).equals(sectionId);
     }
 
     private static boolean isNoise(String line, Set<String> runningHeaders) {

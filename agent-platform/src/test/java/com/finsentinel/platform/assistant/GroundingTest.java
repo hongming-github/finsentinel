@@ -55,6 +55,20 @@ class GroundingTest {
                 "the answer names passage " + named + ", which you were not given");
     }
 
+    /** Lettered sections ("11A") and parts of long paragraphs ("-p2") are passage ids too, read whole. */
+    @Test
+    void letteredAndSplitPassageIdsAreReadWhole() {
+        String lettered = "notice-626-2025:11A.3";
+        String part = "notice-626-2025:6.14-p2";
+        AssistantModel.Answer answer = new AssistantModel.Answer("Value transfers (" + lettered + ") and beneficial "
+                + "owners (" + part + ").", List.of(), List.of(lettered, part));
+
+        assertThat(Grounding.problems(answer, CASE, Set.of(), Set.of(lettered, part), "")).isEmpty();
+        assertThat(Grounding.problems(answer, CASE, Set.of(), Set.of("notice-626-2025:6.14-p1"), "")).contains(
+                "the answer names passage " + lettered + ", which you were not given",
+                "the answer names passage " + part + ", which you were not given");
+    }
+
     @Test
     void aSummaryRepeatsOnlyIdsOfTheTurnsItFolds() {
         assertThat(Grounding.summaryProblems("Asked about " + TXN + " and eupg-2024:4.2.",
