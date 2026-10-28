@@ -106,6 +106,44 @@ class RegulationChunkerTest {
     }
 
     @Test
+    void definitionsInEveryFormTheMasDocumentsUseStartTheirOwnChunk() {
+        // Each form below was merged into the previous definition's chunk, so "unauthorised transaction" was
+        // retrieved, and cited, as "unique identifier".
+        List<RegulationChunk> chunks = chunker.chunk("doc", List.of("""
+                1        Definitions
+                1.1      For the purposes of these Guidelines:
+                “unique identifier” means a combination of letters, numbers or symbols;
+                “unauthorised transaction”   in relation to any protected account, means any payment
+                transaction initiated by any person without the knowledge of an account user;
+                “subscriber”, in relation to a responsible Telco, means—
+                “high-risk activities” include, but are not limited to—
+                “CDD measures” or “customer due diligence measures” means the measures required;
+                “connected party” –
+                        (a) in relation to a legal person, means any director;
+                “similar services” includes services undertaken for securities transactions;
+                """));
+
+        assertThat(chunks).extracting(RegulationChunk::chunkId).containsExactly("doc:1.1:unique-identifier",
+                "doc:1.1:unauthorised-transaction", "doc:1.1:subscriber", "doc:1.1:high-risk-activities",
+                "doc:1.1:cdd-measures", "doc:1.1:connected-party", "doc:1.1:similar-services");
+        assertThat(chunks.get(1).text()).endsWith("without the knowledge of an account user;");
+        assertThat(chunks.get(5).text()).contains("(a) in relation to a legal person");
+    }
+
+    @Test
+    void aQuotedTermInsideADefinitionDoesNotStartANewOne() {
+        List<RegulationChunk> chunks = chunker.chunk("doc", List.of("""
+                1        Definitions
+                1.1      For the purposes of these Guidelines:
+                “protected account” means any payment account that—
+                “bank” or “finance company” as the case may be, and held in the name of individuals;
+                """));
+
+        assertThat(chunks).extracting(RegulationChunk::chunkId).doesNotContain("doc:1.1:bank");
+        assertThat(chunks.getLast().text()).contains("“bank” or “finance company” as the case may be");
+    }
+
+    @Test
     void crossReferenceWrappedToLineStartStaysInItsParagraph() {
         List<RegulationChunk> chunks = chunker.chunk("doc", List.of("""
                 1        Responsibility for losses

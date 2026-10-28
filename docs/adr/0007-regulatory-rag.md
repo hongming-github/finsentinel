@@ -52,3 +52,16 @@ With everything in one system prompt, transfer-scam guidance talked the model ou
 - `gpt-5.4-mini` (non-reasoning) still misjudges the authorised-push-payment case about one time in three;
   `gpt-5.5` was 9/9 in the same test. Phase 5 routes transfer and HIGH-severity cases to the stronger model.
 - The corpus is global (public regulation), the one deliberate exception to tenant-scoped reads.
+
+## Definitions fix (2026-10-27)
+
+A defined term was split off only in the form `“term” means`. MAS documents also write `“term” include`, `“term”,
+in relation to X, means`, `“term” or “other term” means` and `“term” –`; each of those stayed inside the previous
+term's chunk. Ten chunks held two definitions, among them the three that matter most here: "unauthorised transaction"
+was retrieved as `eupg-2024:2.1:unique-identifier`, "seemingly authorised transaction" (the SRF's scope) as
+`srf-2024:2.1:responsible-telco`, "high-risk activities" as `eupg-2024:2.1:finance-company`, and agents cited them
+under those ids. Found by dumping every chunk for review (no tool showed them before). `DEFINITION` now accepts each
+form; a quoted term followed by anything else still continues the definition before it (tested). Result: 625 -> 636
+chunks, 11 new, 11 changed, no other chunk changed. `RetrievalEvalTest` unchanged in every mode (hybrid + rerank 0.94 /
+0.91): none of its 32 questions asks for a definition, which is why it did not catch this. Definition questions belong
+in the set.

@@ -34,7 +34,14 @@ final class RegulationChunker {
             Pattern.CASE_INSENSITIVE);
     private static final Pattern EDIT_NOTE = Pattern.compile("^\\s*\\[(?:Amended|Deleted|Inserted|Added)[^\\]]*\\]\\s*$");
     private static final Pattern TOC_LEADER = Pattern.compile("\\.{5,}|…{3,}");
-    private static final Pattern DEFINITION = Pattern.compile("^\\s*[“\"]([^”\"]{1,80})[”\"]\\s+(?:means|has|includes|refers|shall)\\b.*");
+    /**
+     * A defined term at the start of a line, in each form the MAS documents use: {@code “term” means}, {@code “term”
+     * include(s)}, {@code “term”, in relation to X, means}, {@code “term” or “other term” means}, {@code “term” –}.
+     * A term followed by anything else ({@code “bank” or “finance company” as the case may be}) continues the
+     * definition before it.
+     */
+    private static final Pattern DEFINITION = Pattern.compile("^\\s*[“\"]([^”\"]{1,80})[”\"]\\s*,?\\s*"
+            + "(?:(?:or\\s+[“\"][^”\"]{1,80}[”\"]\\s+)?(?:means|has|includes?|refers|shall)\\b|in relation to\\b|[–—]).*");
 
     private final int maxChars;
 
