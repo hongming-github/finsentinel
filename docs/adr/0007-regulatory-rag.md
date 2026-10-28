@@ -138,3 +138,13 @@ candidates reranked (`VECTOR_RERANK`, evaluation only), since vector alone beat 
   question between runs, so the dip after the 11A fix was that, not 11A.
 - The one miss is unchanged: "Who pays back a phishing victim if the bank failed one of its anti-scam obligations?"
   expects SRF 6.2 and gets 6.6, 6.7, 4.2.5, 7.7 and EUPG 3.19.
+
+## Re-indexing follows the chunks, not only the file (2026-10-28)
+
+`KnowledgeSync` re-indexed a document only when its file's SHA-256 changed. None of the fixes above changes a file, so
+a database indexed before them would have kept its old chunks for good, and nothing showed it: every test and
+evaluation starts from an empty database. Every run now chunks every listed PDF (seconds for these four) and compares
+an index version, the SHA-256 of the file's hash and every chunk's id, section, page and text, with the one stored in
+`kb_document.sha256`; a chunker fix or a `chunk-chars` change re-indexes the documents it affects. The first run after
+this change re-indexes all four once (existing rows hold the file's hash), with unchanged passages coming from the
+embedding cache. A PDF that now yields no chunks is reported and its old index kept, as before.

@@ -57,6 +57,25 @@ class KnowledgeSyncAndSearchTest {
     }
 
     @Test
+    void aChunkingChangeReindexesAnUnchangedFile() throws IOException {
+        // The file stays the same, its chunks do not (a chunker fix, chunk-chars). With the file's hash alone deciding,
+        // a database indexed before the 2026-10-28 chunker fixes kept its old chunks for good.
+        KnowledgeTestDocs.pdf(dir.resolve("docs/pay.pdf"), List.of(
+                "1    Duties of the responsible FI",
+                "1.1  A responsible FI should impose a cooling off period of at least twelve hours",
+                "     before a new payee added on a new device can receive any funds from the account,",
+                "     and should notify the account holder in real time when a payee is added."));
+        sync(5000, 5000).sync();
+
+        KnowledgeSync.Result rechunked = sync(5000, 200).sync();
+
+        assertThat(rechunked.indexed()).isEqualTo(1);
+        assertThat(jdbc.sql("select chunk_id from kb_chunk order by chunk_id").query(String.class).list())
+                .containsExactly("pay:1.1-p1", "pay:1.1-p2");
+        assertThat(sync(5000, 200).sync().unchanged()).as("same chunks again").isEqualTo(1);
+    }
+
+    @Test
     void documentsDroppedFromTheManifestAreRemoved() throws IOException {
         sync(5000).sync();
         KnowledgeTestDocs.manifest(dir);
@@ -139,7 +158,11 @@ class KnowledgeSyncAndSearchTest {
     }
 
     private KnowledgeSync sync(int maxChunks) {
-        KnowledgeProperties p = new KnowledgeProperties(dir, false, maxChunks, props.chunkChars(), props.minFontPt(), props.batchSize(),
+        return sync(maxChunks, props.chunkChars());
+    }
+
+    private KnowledgeSync sync(int maxChunks, int chunkChars) {
+        KnowledgeProperties p = new KnowledgeProperties(dir, false, maxChunks, chunkChars, props.minFontPt(), props.batchSize(),
                 props.search());
         return new KnowledgeSync(repository, embedder, p, json);
     }

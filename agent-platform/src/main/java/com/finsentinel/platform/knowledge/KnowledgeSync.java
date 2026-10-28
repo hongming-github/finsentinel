@@ -10,6 +10,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
@@ -20,8 +21,10 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Makes the database match knowledge/sources.json: new or changed PDFs (by SHA-256) are chunked, embedded and
- * swapped in; documents no longer listed are removed; unchanged ones are skipped. Safe to run on every start.
+ * Makes the database match knowledge/sources.json: every PDF is chunked on each run, and a document whose chunks
+ * differ from what is indexed (a new or changed file, or a change to the chunker or its settings) is embedded and
+ * swapped in; documents no longer listed are removed; unchanged ones are skipped. Safe to run on every start:
+ * chunking four PDFs takes seconds, and unchanged passages come from the embedding cache.
  */
 @Component
 public class KnowledgeSync {
@@ -67,16 +70,17 @@ public class KnowledgeSync {
                 missing++;
                 continue;
             }
-            String sha = sha256(file);
-            if (!sha.equals(indexed.get(doc.id()))) {
-                List<RegulationChunk> chunks = new RegulationChunker(props.chunkChars()).chunk(doc.id(), PdfText.pages(file, props.minFontPt()));
-                if (chunks.isEmpty()) {
-                    // Indexing it empty would hide the problem behind a "done" sync.
-                    log.warn("{} produced no chunks; its layout does not match the chunker (numbered sections from 1)", file);
-                    unreadable++;
-                    continue;
-                }
-                planned.add(new Planned(doc, sha, chunks));
+            List<RegulationChunk> chunks = new RegulationChunker(props.chunkChars()).chunk(doc.id(), PdfText.pages(file, props.minFontPt()));
+            if (chunks.isEmpty()) {
+                // Indexing it empty would hide the problem behind a "done" sync; what was indexed before stays.
+                log.warn("{} produced no chunks; its layout does not match the chunker (numbered sections from 1)", file);
+                unreadable++;
+                continue;
+            }
+            // The file's hash alone kept a database indexed before a chunker fix on the old chunks for good.
+            String version = indexVersion(sha256(file), chunks);
+            if (!version.equals(indexed.get(doc.id()))) {
+                planned.add(new Planned(doc, version, chunks));
             }
         }
         int toEmbed = planned.stream().mapToInt(p -> p.chunks().size()).sum();
@@ -102,6 +106,16 @@ public class KnowledgeSync {
         return "%s §%s (%s)%n%s".formatted(doc.shortName(), chunk.ref(), chunk.section(), chunk.text());
     }
 
+    /** What an index of the document holds: the file and every chunk made from it, so either changing re-indexes. */
+    static String indexVersion(String fileSha256, List<RegulationChunk> chunks) {
+        StringBuilder content = new StringBuilder(fileSha256);
+        for (RegulationChunk c : chunks) {
+            content.append('\n').append(c.chunkId()).append('\t').append(c.section()).append('\t').append(c.page())
+                    .append('\t').append(c.text());
+        }
+        return sha256(content.toString().getBytes(StandardCharsets.UTF_8));
+    }
+
     private List<SourceDocument> readManifest() {
         JsonNode root = json.readTree(props.dir().resolve("sources.json").toFile());
         List<SourceDocument> docs = new ArrayList<>();
@@ -111,9 +125,15 @@ public class KnowledgeSync {
 
     private static String sha256(Path file) {
         try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(file)));
+            return sha256(Files.readAllBytes(file));
         } catch (IOException e) {
             throw new UncheckedIOException(e);
+        }
+    }
+
+    private static String sha256(byte[] bytes) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException(e);
         }

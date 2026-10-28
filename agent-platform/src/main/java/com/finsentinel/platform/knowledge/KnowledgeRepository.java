@@ -22,6 +22,7 @@ class KnowledgeRepository {
         this.jdbcTemplate = jdbcTemplate;
     }
 
+    /** Each document's index version ({@link KnowledgeSync#indexVersion}: the file and its chunks), kept in {@code sha256}. */
     Map<String, String> documentHashes() {
         return jdbc.sql("select doc_id, sha256 from kb_document")
                 .query(rs -> {
