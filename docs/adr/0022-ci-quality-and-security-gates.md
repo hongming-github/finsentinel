@@ -111,6 +111,31 @@ Every fixed version was checked on Maven Central and released at least two weeks
     every build logged four warnings (Flyway's and Redgate's feeds answer 401, java.net's certificate has expired).
     Worth its own change: deciding how to filter or block those repositories.
 
+### Upgrades (2026-10-28)
+
+Advisories published after the last green run on `main` (2026-10-26) failed both scans with no code change:
+
+| Library | Was | Now | Where it came from | Advisory |
+|---|---|---|---|---|
+| snappy-java | 1.1.10.7, 1.1.10.8 | 1.1.10.10 (2026-10-03) | kafka-clients 4.2.1 (simulator, stream job, platform tests), Spark | CVE-2026-108106, CVE-2026-93451 (HIGH) |
+| Guava | 32.0.0-jre | 33.7.2-jre (2026-09-29) | Spark, through `curator-client` (`batch-job`, provided) | CVE-2026-102554 (HIGH) |
+| certifi (Python example) | 2026.7.22 | 2026.10.23 | `httpx`, `requests`, `langchain-openai` (`uv.lock`) | GHSA-6q48-6c7w-9gw2 (CRITICAL) |
+
+- **Root `dependencyManagement` entries, no Spring-module overrides.** Spring Boot 4.1.1 manages neither artifact (its
+  `guava` entry is Caffeine's adapter), so plain entries in the root win in every module, as lz4's do; the platform's
+  test classpath resolves snappy-java 1.1.10.10 too.
+- **snappy-java 1.1.10.10, not 1.1.10.9 or the newest.** 1.1.10.9 is the first fixed release; 1.1.10.10 followed the
+  same day with a fix for a double release of stream buffers in the code 1.1.10.9 changed. 1.1.10.12 changes the
+  Hadoop stream header size, a behaviour change with no security fix.
+- **Guava 32 to 33** stays inside `batch-job`'s provided Spark classpath (Spark uses its own shaded copy); on a cluster
+  Spark's own jars apply, as for Netty and Jackson above.
+- **certifi breaks the two-week rule**: the first fixed release (2026.10.18) is ten days old, and a CRITICAL finding in
+  the example's lock file does not wait (the advisory: the bundle trusted compromised emSign root CAs).
+  `uv lock --upgrade-package certifi` took the newest, 2026.10.23, a CA bundle with no code; the example's other
+  packages are unchanged.
+- **Checked locally** with the workflow's Trivy image and commands: the SBOM scan and the repository scan report 0
+  findings; the same repository scan with the old `uv.lock` still fails on certifi. `clean verify` passes.
+
 ### Why not
 
 - **A formatter (Spotless)**: it would rewrite nearly every file for no reduction in risk; `ratchetFrom` could enforce
