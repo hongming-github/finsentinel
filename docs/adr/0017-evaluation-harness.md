@@ -20,15 +20,15 @@ model routing (ADR 0011), SINGLE vs MULTI (ADR 0010), the reviewer on gpt-5.5 (c
   vs a shopping trip at familiar merchants, a travel notice that matches vs one for another country, a recurring rent
   transfer vs a first-time one, a mule payee without takeover signals, a bank without the screening vendor, personal
   data in a staff note. Times are durations relative to the run, so a case never goes stale. Each case says what an
-  expert accepts (dispositions, risk range, required and forbidden tools, regulations from a named set of relevant
-  passages, planted instructions flagged, missing checks reported, text that must not appear) and carries the expert's
+  expert accepts (dispositions, risk range, required and forbidden tools, regulations from named sets of relevant
+  passages, one set per regulatory question, planted instructions flagged, missing checks reported, text that must not appear) and carries the expert's
   view for the judge.
 - **The dataset is validated before anything runs** (`GoldenDataset.problems`): ids, transaction refs, durations,
   systems, tool names (read from the tools class, so a renamed tool fails), chunk ids and sets. A mistake in the data
   costs nothing.
 - **Deterministic grading** (`CaseGrader`): every check is a fact about the stored result, a run passes when all
   pass. Metrics: pass rate (overall, per case, per category), tool-selection accuracy (required tools called), and
-  regulation relevance (a cited passage is in the case's relevant set; retrieval recall itself stays with
+  regulation relevance (a cited passage in each of the case's relevant sets; retrieval recall itself stays with
   `RetrievalEvalTest`, ADR 0007).
 - **Repeated runs**: each case runs `eval.repeats` times (default 3) per mode; per-case pass rates make variance
   visible instead of hiding it in one pass/fail.
@@ -121,6 +121,70 @@ The gate turns it down every time: at best 65% against 85%, and two critical cas
 
 Changes to the expectations are for the dataset's owner to decide (one case at a time, each recorded here); the
 baseline stays as the guard that a passing evaluation cannot be reached without judgement.
+
+## Review by the dataset owner (2026-10-27)
+
+The owner reviewed all 17 cases (13 accepted as they were). The changes, each a tightening:
+
+- **NEEDS_REVIEW no longer accepted where the evidence settles the case.** `outlier-at-home`, `shopping-trip-burst`,
+  `travel-notice-matches`: LIKELY_LEGITIMATE only, risk at most 40 (the validator's own bound for that disposition);
+  a familiar merchant, a shopping trip or a travel notice that fits is not work for an analyst (at most a notification
+  to the customer). `pii-in-staff-note` and `geo-impossible-travel`: LIKELY_FRAUD only; the travel verdict is
+  IMPOSSIBLE, a lower bound (ADR 0021), so there is nothing left to review. The two share their transactions, so they
+  move together. Their expert views now say the same.
+- **Regulation sets, one per question.** The single 23-passage set let any one cited passage pass, including one on a
+  telco's liability that answers neither question. Checked against the MAS PDFs: `str-reporting` (Notice 626 14.2,
+  14.3); `loss-takeover` (cooling-off and alert duties SRF 4.2.1, 4.2.2, 4.2.5, EUPG 4.7, 4.21; SRF loss sections 6.1,
+  6.2, 6.3, 6.7, 6.8, 7.13; EUPG 5.2, 5.4-5.6) for `takeover-mule-payee` and `injection-fake-system-message`;
+  `loss-customer-transfer` (EUPG 5.2-5.6) for the four transfers the customer most likely made themselves. The SRF
+  covers only "seemingly authorised transactions" (a scammer impersonates an entity and the customer types credentials
+  into a fake site); a payment the customer knowingly made is an authorised transaction (EUPG 5.3), outside both the
+  SRF's loss sharing and the EUPG's liability rules. Dropped: SRF 6.4, 6.5, 7.14 (telco liability, no SMS in any
+  case), SRF 4.2.4 and EUPG 4.14 (the kill switch), EUPG 3.14 (the customer's reporting duty). A case now needs a
+  cited passage from each of its sets (`CaseGrader`, `regulations relevant`).
+- **Leniency baseline after the change** (`LenientAgentBaselineTest`): 2/17 at scores 40-59 and 7/17 at 60-80 with
+  the plain summary (was 5 and 9), 3 and 9 with the boilerplate (was 6 and 11). Seven cases now demand one
+  disposition (was two).
+
+**Evaluation on the tightened set** (gpt-6-luna, SINGLE, 17 x 3, $0.058):
+[`docs/eval/2026-10-27-tightened-expectations.md`](../eval/2026-10-27-tightened-expectations.md). Pass rate 73%
+(37/51), down from 100% on the old expectations; the gate fails. Every failure is one of two findings:
+
+- **`outlier-at-home` 1/3**: NEEDS_REVIEW twice (risk 45). The agent hedges on a one-off large card payment at a
+  familiar merchant; the old expectation hid it. The other false positives held (3/3 each).
+- **Customer-made transfers 0/12** (`app-scam-new-payee`, `injection-payee-name`, `mule-payee-no-takeover`,
+  `bank-without-screening`): every run cited both STR passages and then SRF 6.2/6.7 for the loss, never EUPG 5.3. The
+  agent does what our LARGE_AMOUNT playbook says: "search who bears the loss (Shared Responsibility Framework)", for
+  every suspicious transfer. The playbook, not the model, sends an authorised push payment to the wrong framework.
+  Dispositions on these cases were all acceptable.
+
+The owner chose to fix the playbook. LARGE_AMOUNT's regulation line now always asks about a report to STRO and
+splits the loss question: no takeover signals, whether a payment the customer consented to counts as unauthorised
+(EUPG); takeover signals, the bank's cooling-off and alert duties and who bears the loss under the SRF. The eight
+LARGE_AMOUNT cases x 3 after each step (customer-made transfers / takeover cases / `outlier-at-home`):
+
+| Step | Customer-made (12) | Takeover (6) | outlier (3) | Cost |
+|---|---|---|---|---|
+| Old playbook (from the full run) | 0 | 6 | 1 | |
+| Split, takeover line naming "unauthorised transaction" | 11 | 0 | 0 | $0.040 |
+| Takeover line naming the SRF | 9 | 1 | 0 | $0.037 |
+| Same, chunker fixed (ADR 0007) | 10 | 3 | 0 | $0.038 |
+
+Report of the last row: [`docs/eval/2026-10-27-large-amount-playbook.md`](../eval/2026-10-27-large-amount-playbook.md).
+With definitions now chunks of their own, agents cite them: the remaining failures cite
+`eupg-2024:2.1:unauthorised-transaction` or `srf-2024:2.1:seemingly-authorised-transaction` (and EUPG 5.3 on takeover
+cases) where the sets expect loss passages. Search queries are not in the report, so which search returned them is not
+known. `outlier-at-home` fails on its own: NEEDS_REVIEW or once LIKELY_FRAUD 78, a card-section problem the regulation
+work does not touch.
+
+**Loosened, with the owner's agreement:** `loss-customer-transfer` also accepts the two definitions,
+`eupg-2024:2.1:unauthorised-transaction` (a payment initiated without the account user's knowledge and consent) and
+`srf-2024:2.1:seemingly-authorised-transaction` (the SRF's phishing scope). For a payment the customer made, they
+answer the loss question the way EUPG 5.3 does: it is not unauthorised, so neither framework's loss rules cover it.
+They were missing from the set only because the chunker had hidden them inside other terms' chunks. `loss-takeover`
+does not accept them: there the question is whether the bank met its duties and who bears the loss, which a
+definition does not answer. Re-graded from the last run's records (no new run): customer-made 12/12, takeover 3/6,
+`outlier-at-home` 0/3, 18/24 in all; the gate still fails on the takeover cases and `outlier-at-home`, both open.
 
 ## Not done yet
 

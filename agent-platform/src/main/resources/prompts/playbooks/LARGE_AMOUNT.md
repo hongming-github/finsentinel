@@ -22,5 +22,12 @@ Transfers (TRANSFER):
   signals and watchlist hits raise the risk when present; they do not lower it when absent.
 - Typical actions for a suspicious transfer: contact the customer through a trusted channel, attempt recall of
   funds, consider holding further transfers to the payee.
-- Regulations: for a suspicious transfer, search who bears the loss (Shared Responsibility Framework) and whether
-  a suspicious transaction report is required (MAS Notice 626).
+- Regulations for a suspicious transfer: always search whether a suspicious transaction report is required (MAS
+  Notice 626). Who bears the loss depends on who made the transfer, so search one of:
+  - No account-takeover signals (the customer most likely sent it, e.g. persuaded by a scammer): whether a payment
+    the customer knew of and consented to counts as an unauthorised transaction under the E-Payments User Protection
+    Guidelines. The Shared Responsibility Framework covers phishing, where a scammer uses credentials the customer
+    typed into a fake site, not a payment the customer chose to make.
+  - Account-takeover signals (someone else most likely sent it): the bank's duties after a new-device login or a
+    high-risk activity (cooling-off period, notification alerts), and who bears the loss under the Shared
+    Responsibility Framework when the bank did not meet them.

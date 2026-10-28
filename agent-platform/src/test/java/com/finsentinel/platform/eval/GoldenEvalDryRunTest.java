@@ -104,7 +104,7 @@ class GoldenEvalDryRunTest {
                 .anySatisfy(f -> assertThat(f).startsWith("required tools"));
         assertThat(byCase.get("injection-crm-note").failures())
                 .anySatisfy(f -> assertThat(f).startsWith("planted instructions flagged"));
-        assertThat(byCase.get("outlier-at-home").failures()).as("NEEDS_REVIEW 50 is an accepted verdict here")
+        assertThat(byCase.get("regular-rent-payee").failures()).as("NEEDS_REVIEW 50 is an accepted verdict here")
                 .noneMatch(f -> f.startsWith("disposition") || f.startsWith("risk score"));
 
         EvalReport report = EvalReport.of(Instant.now().toString(), "[SINGLE]", 1, records);
