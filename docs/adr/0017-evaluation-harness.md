@@ -215,6 +215,15 @@ by case, so the overall gap is not significant on its own; the case-level patter
 what separates them. Terra used a third fewer prompt tokens and was faster. Whether to move the investigator is the
 owner's decision; until then the default stays Luna.
 
+**Run records keep transcripts (2026-10-28).** Each run now stores what the analysis produced (`Transcript`): the
+report, every tool call with the model's arguments and the pseudonymised result it saw, the passages each search
+returned, repair issues and the reviewer's verdict, passed runs included. A second full run on Terra, the first with
+transcripts: 50/51 (`outlier-at-home` once NEEDS_REVIEW 50), $0.389
+([`2026-10-28-terra-transcripts.md`](../eval/2026-10-28-terra-transcripts.md)); with the comparison run, Terra is
+99/102. Its records name the model of each run's last call, which on reviewed reports is the reviewer's (Luna); the
+investigator was Terra throughout (those runs cost $0.006-0.018, a Luna-only run about $0.001). Later records also
+carry `costByModel`, which says it directly.
+
 ## Not done yet
 
 - A golden case for the other branch of the travel-notice rule (abroad first, then a payment at home during the
