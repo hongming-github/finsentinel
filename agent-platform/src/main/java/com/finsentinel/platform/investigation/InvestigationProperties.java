@@ -17,14 +17,16 @@ import java.time.Duration;
  * @param maxPerHour   spend circuit breaker: investigations started per rolling hour; 0 = unlimited.
  *                     An upstream alert storm must not turn directly into an unbounded LLM bill.
  * @param claimLockTimeout longest wait for the cross-instance claim lock before skipping a poll
+ * @param evidenceWait longest a case waits for the transactions behind its alerts to be stored before it is analysed
+ *                     without them (the agents are then told what is missing); 0 = no wait (ADR 0025)
  * @param tools        limits on what one tool call may fetch
  * @param report       acceptance rules for the agent's report
  */
 @ConfigurationProperties("finsentinel.investigation")
 public record InvestigationProperties(boolean enabled, int concurrency, Duration claimTimeout, Duration claimLease,
                                       Duration claimHeartbeat, int maxAttempts,
-                                      Retry retry, int maxPerHour, Duration claimLockTimeout, Tools tools,
-                                      Report report) {
+                                      Retry retry, int maxPerHour, Duration claimLockTimeout,
+                                      Duration evidenceWait, Tools tools, Report report) {
 
     public InvestigationProperties {
         require(concurrency > 0, "concurrency must be positive");
@@ -38,6 +40,7 @@ public record InvestigationProperties(boolean enabled, int concurrency, Duration
                 "claim-heartbeat must be positive and at most half of claim-lease");
         require(claimLockTimeout != null && !claimLockTimeout.isNegative() && !claimLockTimeout.isZero(),
                 "claim-lock-timeout must be positive");
+        require(evidenceWait != null && !evidenceWait.isNegative(), "evidence-wait must be 0 or positive");
         require(retry != null, "retry settings are required");
         require(tools != null, "tools settings are required");
         require(report != null, "report settings are required");

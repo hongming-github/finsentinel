@@ -26,6 +26,9 @@ import java.lang.annotation.Target;
         // Every analysis here is a stub. The suite runs more than the default 60 an hour, which the budget would then
         // refuse; the budget itself is tested with its own settings (CaseWorkerTest, ConcurrentCaseClaimTest).
         "finsentinel.investigation.max-per-hour=100000",
+        // Test alerts name transactions the tests never store; the evidence wait is tested with its own setting
+        // (EvidenceGateTest).
+        "finsentinel.investigation.evidence-wait=0s",
         "finsentinel.knowledge.sync-on-startup=false",
         "finsentinel.outbox.enabled=false",
         "finsentinel.knowledge.search.rerank.enabled=false",

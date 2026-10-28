@@ -51,7 +51,7 @@ class LlmCaseInvestigator implements CaseInvestigator {
         LlmUsage usage = draft.usage();
         boolean involvesTransfer = tools.involvesTransfer();
         List<String> problems = CaseReportValidator.problems(draft.value(), tools.seenTxnIds(), tools.seenChunkIds(),
-                involvesTransfer, tools.untrustedInstructions(), rules);
+                involvesTransfer, tools.untrustedInstructions(), caseContext.missingTxnIds(), rules);
         List<String> repaired = new ArrayList<>();
         for (int repair = 0; !problems.isEmpty() && repair < rules.maxRepairs(); repair++) {
             repaired.addAll(problems);
@@ -59,7 +59,7 @@ class LlmCaseInvestigator implements CaseInvestigator {
                     ReportWriting.FIX_WITH_TOOLS));
             usage = usage.plus(draft.usage());
             problems = CaseReportValidator.problems(draft.value(), tools.seenTxnIds(), tools.seenChunkIds(),
-                    involvesTransfer, tools.untrustedInstructions(), rules);
+                    involvesTransfer, tools.untrustedInstructions(), caseContext.missingTxnIds(), rules);
         }
         if (!problems.isEmpty()) {
             throw new InvalidReportException(problems);

@@ -260,8 +260,10 @@ published to `case.events.v1` through a transactional outbox.
 Inside ANALYSIS a Spring AI Alibaba graph runs the agents (`finsentinel.analysis.mode`: `SINGLE`, one investigator,
 the default; or `MULTI`, deterministic plan, parallel specialists and a report writer, ADR 0010). In both, an LLM
 reviewer checks the report against the author's evidence and can send it back once; its verdict is stored with the
-analysis. The graph checkpoints after every node to `graph_checkpoint` (plain
-JSON). If the platform dies mid-analysis, its claims lapse after `claim-lease` (live runs renew theirs every
+analysis. A case is not claimed until the transactions its alerts name are stored (the platform copies the
+transaction stream itself, and under load the copy fell behind the alerts), or `evidence-wait` after its latest alert;
+then the agents are told what is missing and the report cannot clear the case (ADR 0025). The graph checkpoints after
+every node to `graph_checkpoint` (plain JSON). If the platform dies mid-analysis, its claims lapse after `claim-lease` (live runs renew theirs every
 `claim-heartbeat`), and the next worker to claim the case resumes after the last finished node; a worker whose claim
 was taken can no longer write checkpoints.
 

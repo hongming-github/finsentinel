@@ -64,7 +64,7 @@ class LlmReportWriter implements ReportWriter {
         LlmGateway.Answer<CaseReport> draft = ask(caseContext, brief);
         LlmUsage usage = draft.usage();
         List<String> problems = CaseReportValidator.problems(draft.value(), seenTxnIds, seenChunkIds,
-                plan.involvesTransfer(), untrusted, rules);
+                plan.involvesTransfer(), untrusted, caseContext.missingTxnIds(), rules);
         List<String> repaired = new ArrayList<>();
         for (int repair = 0; !problems.isEmpty() && repair < rules.maxRepairs(); repair++) {
             repaired.addAll(problems);
@@ -72,7 +72,7 @@ class LlmReportWriter implements ReportWriter {
                     ReportWriting.FIX_WITHOUT_TOOLS + allowedIds(draft.value(), seenTxnIds)));
             usage = usage.plus(draft.usage());
             problems = CaseReportValidator.problems(draft.value(), seenTxnIds, seenChunkIds, plan.involvesTransfer(),
-                    untrusted, rules);
+                    untrusted, caseContext.missingTxnIds(), rules);
         }
         if (!problems.isEmpty()) {
             Set<String> unseen = new HashSet<>(CaseReportValidator.ungrounded(draft.value(), seenTxnIds));

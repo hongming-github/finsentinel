@@ -28,7 +28,23 @@ final class CaseReportValidator {
     static List<String> problems(CaseReport report, Set<String> seenTxnIds, Set<String> seenChunkIds,
                                  boolean involvesTransfer, List<String> untrustedInstructions,
                                  InvestigationProperties.Report rules) {
+        return problems(report, seenTxnIds, seenChunkIds, involvesTransfer, untrustedInstructions, Set.of(), rules);
+    }
+
+    /**
+     * @param missingTxnIds transactions behind the alerts that were not stored when the run began (ADR 0025): while
+     *                      no tool has returned one of them, the alert cannot have been explained away, so the case is
+     *                      not cleared
+     */
+    static List<String> problems(CaseReport report, Set<String> seenTxnIds, Set<String> seenChunkIds,
+                                 boolean involvesTransfer, List<String> untrustedInstructions,
+                                 Set<String> missingTxnIds, InvestigationProperties.Report rules) {
         List<String> problems = new ArrayList<>();
+        List<String> stillMissing = missingTxnIds.stream().filter(id -> !seenTxnIds.contains(id)).sorted().toList();
+        if (!stillMissing.isEmpty() && report.disposition() == Disposition.LIKELY_LEGITIMATE) {
+            problems.add("transactions %s behind the alerts were never returned by a tool; a case cannot be cleared on "
+                    .formatted(stillMissing) + "incomplete evidence: use NEEDS_REVIEW and say which evidence was missing");
+        }
         if (!untrustedInstructions.isEmpty() && report.disposition() == Disposition.LIKELY_LEGITIMATE) {
             // A report that cleared the case never searched regulations; once it is not cleared, a transfer needs
             // them. Said now, so the one repair does both (it failed 2 of 7 times when said only after it).
