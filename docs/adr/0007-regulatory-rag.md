@@ -84,9 +84,9 @@ sub-heading, its own level under an unnumbered one ("Responsibility of the Order
 | hybrid (RRF) | 0.77 / 0.58 | 0.90 / 0.85 | 0.81 / 0.66 (was 0.78 / 0.64) |
 | hybrid + rerank | 0.95 / 0.91 | 1.00 / 1.00 | 0.97 / 0.94 (was 0.94 / 0.91) |
 
-No question asks about Notice 626's customer due diligence; the gain is fewer wrong candidates: 23 CDD and wire
-transfer paragraphs no longer carry "Where There Are Reasonable Grounds for Suspicion" in their embedded text, which
-had pulled them towards suspicious-transaction questions. One miss left (the phishing-refund question). The vector,
+No question asks about Notice 626's customer due diligence, so the gain is most likely fewer wrong candidates: 23
+chunks no longer carry "Where There Are Reasonable Grounds for Suspicion" in their embedded text, a phrase close to
+the suspicious-transaction questions (a likely reason, not traced question by question). One miss left (the phishing-refund question). The vector,
 keyword and hybrid rows are deterministic; the rerank row has the reranker's run-to-run noise.
 
 Still open, also Notice 626 only: 39 lettered paragraphs inserted by amendment (6.8A-B, 6.11A-C, 6.14A-D, 6.17A-C,
