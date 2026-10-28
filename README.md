@@ -338,6 +338,10 @@ indexed as 625 chunks (ADR 0007):
 - **Hybrid retrieval with a listwise rerank**: 20 pgvector (HNSW, cosine) and 20 Postgres full-text candidates, fused
   by reciprocal rank (ranks only, so cosine and `ts_rank` never need normalising), graded 0-3 by `gpt-6-luna` in one
   call. A failed embedding or rerank degrades the ranking, never the search, and is not cached.
+- **A cross-encoder as the alternative, measured**: `reranker/` serves `BAAI/bge-reranker-v2-m3` (FlagEmbedding,
+  compose profile `reranker`), selectable with `rerank.using: cross-encoder`. Same 32 questions: hit@3 0.94 and MRR
+  0.84 against the LLM's 0.97 / 0.92, the same ranking every run, nothing sent to a provider, 1.6 s per search on the
+  laptop's GPU but 19 s in a 4-vCPU container. Production stays on the LLM ([ADR 0030](docs/adr/0030-cross-encoder-reranker.md)).
 - **The agent writes the queries**: one short question about one topic per call, at most three per case. There is no
   separate rewriting step (multi-query, HyDE): the caller has already turned the case into regulatory questions,
   the rerank closed the paraphrase gap (0.73 to 0.91 hit@5 on paraphrased questions), and a non-deterministic rewrite
@@ -442,6 +446,7 @@ configuration and add the `--add-opens` flags from `stream-job/pom.xml` (`flink.
 | fake-llm (profile `load`) | 8096 |
 | Web console (`scripts/stack.sh console`) | 8097 |
 | Kafka UI (`kafka-ui` profile) | 8098 |
+| Cross-encoder reranker (`reranker` profile) | 8099 |
 | Grafana (`obs` profile), OTLP gRPC / HTTP | 3000, 4317 / 4318 |
 | Flink UI (local run) | 8082 |
 | Flink UI (`stream` profile) | 8081 |
@@ -454,7 +459,8 @@ configuration and add the `--add-opens` flags from `stream-job/pom.xml` (`flink.
 # Real-model checks (cost money, not deterministic; run several times)
 ./mvnw -pl agent-platform test -Dtest=LiveInvestigationTest -Dlive=true -Dsurefire.failIfNoSpecifiedTests=false
 
-# Retrieval evaluation: hit@5 and MRR for vector, keyword, hybrid, hybrid+rerank (needs fetched documents)
+# Retrieval evaluation: hit@3, hit@5 and MRR for vector, keyword, hybrid, hybrid+rerank (needs fetched documents);
+# also the cross-encoder when the reranker service answers on :8099 (-Dcross-encoder=true to require it)
 ./mvnw -pl agent-platform test -Dtest=RetrievalEvalTest -Dlive=true -Dsurefire.failIfNoSpecifiedTests=false
 ```
 
@@ -497,3 +503,4 @@ proposes updates weekly.
 - [0027 A web console over the tenant-scoped API, signed in with PKCE](docs/adr/0027-web-console.md)
 - [0028 A case assistant: multi-turn conversations about one case](docs/adr/0028-case-assistant.md)
 - [0029 GPT-6.1 Terra writes the reports](docs/adr/0029-terra-investigator.md)
+- [0030 A cross-encoder reranker, measured against the LLM reranker](docs/adr/0030-cross-encoder-reranker.md)

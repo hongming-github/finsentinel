@@ -3,6 +3,7 @@ package com.finsentinel.platform.knowledge;
 import com.finsentinel.platform.llm.LlmUsage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -17,28 +18,41 @@ import java.util.stream.Collectors;
 
 /**
  * Hybrid retrieval over the regulatory corpus: vector and keyword candidates fused with reciprocal rank fusion,
- * then optionally reranked by an LLM. {@link Mode} exists so the retrieval evaluation can compare the stages.
+ * then optionally reranked by an LLM or a cross-encoder (ADR 0030). {@link Mode} exists so the retrieval evaluation can compare the stages.
  * The production pipeline goes through {@link SearchCache}; the evaluation modes never do.
  */
 @Component
 public class KnowledgeSearch {
 
-    /** HYBRID_RERANK is the production pipeline; the others exist for the retrieval evaluation's comparison. */
-    public enum Mode { VECTOR, KEYWORD, HYBRID, VECTOR_RERANK, HYBRID_RERANK }
+    /**
+     * HYBRID_RERANK is the production pipeline, with the configured reranker; the others exist for the retrieval
+     * evaluation's comparison. HYBRID_CROSS_ENCODER reranks with the cross-encoder whatever is configured.
+     */
+    public enum Mode { VECTOR, KEYWORD, HYBRID, VECTOR_RERANK, HYBRID_RERANK, HYBRID_CROSS_ENCODER }
 
     private static final Logger log = LoggerFactory.getLogger(KnowledgeSearch.class);
 
     private final KnowledgeRepository repository;
     private final Embedder embedder;
     private final Reranker reranker;
+    private final Reranker crossEncoder;
     private final SearchCache cache;
     private final KnowledgeProperties.Search props;
 
-    KnowledgeSearch(KnowledgeRepository repository, Embedder embedder, Reranker reranker, SearchCache cache,
-                    KnowledgeProperties props) {
+    @Autowired
+    KnowledgeSearch(KnowledgeRepository repository, Embedder embedder, LlmReranker llm,
+                    CrossEncoderReranker crossEncoder, SearchCache cache, KnowledgeProperties props) {
+        this(repository, embedder, props.search().rerank().using() == KnowledgeProperties.Using.CROSS_ENCODER
+                ? crossEncoder : llm, crossEncoder, cache, props);
+    }
+
+    /** @param reranker the production pipeline's reranker; crossEncoder serves HYBRID_CROSS_ENCODER */
+    KnowledgeSearch(KnowledgeRepository repository, Embedder embedder, Reranker reranker, Reranker crossEncoder,
+                    SearchCache cache, KnowledgeProperties props) {
         this.repository = repository;
         this.embedder = embedder;
         this.reranker = reranker;
+        this.crossEncoder = crossEncoder;
         this.cache = cache;
         this.props = props.search();
     }
@@ -74,6 +88,11 @@ public class KnowledgeSearch {
         return run(query, mode, topK).hits();
     }
 
+    /** For the retrieval evaluation: also what reranking cost and whether a stage fell back. */
+    Ranked evaluate(String query, Mode mode, int topK) {
+        return run(query, mode, topK);
+    }
+
     /**
      * @param cacheHit served from {@link SearchCache}; null when the cache is off
      * @param savedUsd on a hit, what the cached search had cost to produce
@@ -82,7 +101,7 @@ public class KnowledgeSearch {
     }
 
     /** @param degraded a stage failed and was skipped (keyword-only, or fused order instead of reranked) */
-    private record Ranked(List<RegulationHit> hits, LlmUsage usage, boolean degraded) {
+    record Ranked(List<RegulationHit> hits, LlmUsage usage, boolean degraded) {
     }
 
     private record Fused(List<String> ids, boolean degraded) {
@@ -93,12 +112,13 @@ public class KnowledgeSearch {
             case VECTOR, VECTOR_RERANK ->
                     new Fused(repository.vectorSearch(embedder.embed(query), props.candidates()), false);
             case KEYWORD -> new Fused(repository.keywordSearch(query, props.candidates()), false);
-            case HYBRID, HYBRID_RERANK -> hybrid(query);
+            case HYBRID, HYBRID_RERANK, HYBRID_CROSS_ENCODER -> hybrid(query);
         };
         Reranker.Ranking ranking = new Reranker.Ranking(fused.ids(), LlmUsage.NONE);
         boolean degraded = fused.degraded();
-        if (mode == Mode.HYBRID_RERANK || mode == Mode.VECTOR_RERANK) {
-            Optional<Reranker.Ranking> reranked = rerank(query, fused.ids());
+        if (mode == Mode.HYBRID_RERANK || mode == Mode.VECTOR_RERANK || mode == Mode.HYBRID_CROSS_ENCODER) {
+            Optional<Reranker.Ranking> reranked = rerank(mode == Mode.HYBRID_CROSS_ENCODER ? crossEncoder : reranker,
+                    query, fused.ids());
             degraded |= reranked.isEmpty();
             ranking = reranked.orElse(ranking);
         }
@@ -138,7 +158,7 @@ public class KnowledgeSearch {
     }
 
     /** Empty when the reranker failed: the caller keeps the fused order. */
-    private Optional<Reranker.Ranking> rerank(String query, List<String> fused) {
+    private Optional<Reranker.Ranking> rerank(Reranker reranker, String query, List<String> fused) {
         List<String> top = fused.subList(0, Math.min(props.candidates(), fused.size()));
         Map<String, KnowledgeRepository.StoredPassage> passages = byId(top);
         List<Reranker.Candidate> candidates = top.stream()

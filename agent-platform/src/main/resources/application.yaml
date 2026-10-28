@@ -218,9 +218,18 @@ finsentinel:
       agent-passage-chars: 900
       rerank:
         enabled: true
+        # llm or cross-encoder (ADR 0030). The cross-encoder needs the reranker service (compose profile reranker);
+        # when it is down or slow, search keeps the fused order, as for a failed LLM call.
+        using: llm
         # gpt-6-luna since 2026-10-15 (ADR 0023): same hit@5, better MRR than gpt-5.4-nano, which shuts down 2027-04-01.
         model: gpt-6-luna
         max-passage-chars: 700
+        cross-encoder:
+          url: http://localhost:8099
+          model: BAAI/bge-reranker-v2-m3
+          connect-timeout: 1s
+          # 20 candidates of up to 512 tokens on CPU; see ADR 0030 for measured times.
+          timeout: 10s
       # Exact question match only (normalised case and spacing). A semantic (embedding similarity) cache was measured
       # and rejected: one-word-apart questions with different answers score 0.95 cosine (ADR 0013).
       cache:

@@ -2,6 +2,7 @@ package com.finsentinel.platform.knowledge;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
 
@@ -32,7 +33,7 @@ public record KnowledgeProperties(Path dir, boolean syncOnStartup, int maxChunks
      * @param rrfK               reciprocal rank fusion constant; 60 is the value from the original RRF paper
      * @param maxSearchesPerCase searches one investigation may run; each one can cost a rerank call
      * @param agentPassageChars  passage text returned to the agent per hit; long passages drown the case evidence
-     * @param rerank             LLM reranking of the fused candidates
+     * @param rerank             reranking of the fused candidates
      * @param cache              exact-match cache of search results, shared by every instance
      */
     public record Search(int candidates, int topK, int rrfK, int maxSearchesPerCase, int agentPassageChars,
@@ -48,10 +49,38 @@ public record KnowledgeProperties(Path dir, boolean syncOnStartup, int maxChunks
 
     /**
      * @param enabled         rerank on/off; decided by the retrieval evaluation, not by taste
-     * @param model           a small, cheap model is enough to score relevance
-     * @param maxPassageChars passage text sent to the reranker per candidate
+     * @param using           which reranker the production pipeline uses (ADR 0030)
+     * @param model           the LLM reranker's model; a small, cheap model is enough to score relevance
+     * @param maxPassageChars passage text sent to the LLM reranker per candidate
+     * @param crossEncoder    the cross-encoder service; contacted only when used
      */
-    public record Rerank(boolean enabled, String model, int maxPassageChars) {
+    public record Rerank(boolean enabled, Using using, String model, int maxPassageChars, CrossEncoder crossEncoder) {
+
+        public Rerank {
+            if (using == null || model == null || model.isBlank() || maxPassageChars <= 0 || crossEncoder == null) {
+                throw new IllegalArgumentException("finsentinel.knowledge.search.rerank: invalid settings");
+            }
+        }
+    }
+
+    /** LLM: a listwise grade from a chat model. CROSS_ENCODER: scores from the reranker service (reranker/). */
+    public enum Using { LLM, CROSS_ENCODER }
+
+    /**
+     * @param url            base URL of the reranker service
+     * @param model          the model the service must run; it refuses requests naming another, so a swapped model
+     *                       cannot change rankings (or serve them from the search cache) unnoticed
+     * @param connectTimeout to open a connection
+     * @param timeout        for the whole answer; past it, search keeps the fused order
+     */
+    public record CrossEncoder(URI url, String model, Duration connectTimeout, Duration timeout) {
+
+        public CrossEncoder {
+            if (url == null || model == null || model.isBlank() || connectTimeout == null || connectTimeout.isNegative()
+                    || connectTimeout.isZero() || timeout == null || timeout.isNegative() || timeout.isZero()) {
+                throw new IllegalArgumentException("finsentinel.knowledge.search.rerank.cross-encoder: invalid settings");
+            }
+        }
     }
 
     /**

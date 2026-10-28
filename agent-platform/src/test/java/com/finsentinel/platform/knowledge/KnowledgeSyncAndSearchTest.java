@@ -2,15 +2,21 @@ package com.finsentinel.platform.knowledge;
 
 import com.finsentinel.platform.FakeEmbedder;
 import com.finsentinel.platform.PlatformTest;
+import com.sun.net.httpserver.HttpServer;
+import io.micrometer.observation.ObservationRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.web.client.RestClient;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.URI;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -138,12 +144,33 @@ class KnowledgeSyncAndSearchTest {
     }
 
     @Test
+    void aCrossEncoderServiceThatIsDownLeavesTheFusedOrder() throws IOException {
+        sync(5000).sync();
+        HttpServer closed = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+        int port = closed.getAddress().getPort();
+        closed.stop(0);
+        KnowledgeProperties.Search s = props.search();
+        KnowledgeProperties down = new KnowledgeProperties(dir, false, props.maxChunks(), props.chunkChars(),
+                props.minFontPt(), props.batchSize(), new KnowledgeProperties.Search(s.candidates(), s.topK(), s.rrfK(),
+                s.maxSearchesPerCase(), s.agentPassageChars(), new KnowledgeProperties.Rerank(true,
+                KnowledgeProperties.Using.CROSS_ENCODER, s.rerank().model(), s.rerank().maxPassageChars(),
+                new KnowledgeProperties.CrossEncoder(URI.create("http://localhost:" + port), "BAAI/bge-reranker-v2-m3",
+                        Duration.ofSeconds(1), Duration.ofSeconds(1))), s.cache()));
+        CrossEncoderReranker crossEncoder = new CrossEncoderReranker(RestClient.builder(), down, ObservationRegistry.NOOP);
+        KnowledgeSearch search = new KnowledgeSearch(repository, embedder, crossEncoder, crossEncoder, cache, down);
+
+        assertThat(search.search("cooling off period", KnowledgeSearch.Mode.HYBRID_CROSS_ENCODER, 1))
+                .extracting(RegulationHit::chunkId).containsExactly("pay:2.1");
+    }
+
+    @Test
     void searchFallsBackToKeywordsWhenTheEmbeddingProviderIsDown() {
         sync(5000).sync();
         Embedder down = texts -> {
             throw new IllegalStateException("embedding provider down");
         };
-        KnowledgeSearch search = new KnowledgeSearch(repository, down, (q, candidates) -> List.of(), cache, props);
+        Reranker none = (q, candidates) -> List.of();
+        KnowledgeSearch search = new KnowledgeSearch(repository, down, none, none, cache, props);
 
         assertThat(search.search("suspicious transaction report", KnowledgeSearch.Mode.HYBRID, 1))
                 .extracting(RegulationHit::chunkId).containsExactly("pay:3.1");
@@ -168,6 +195,6 @@ class KnowledgeSyncAndSearchTest {
     }
 
     private KnowledgeSearch search(Reranker reranker) {
-        return new KnowledgeSearch(repository, embedder, reranker, cache, props);
+        return new KnowledgeSearch(repository, embedder, reranker, reranker, cache, props);
     }
 }

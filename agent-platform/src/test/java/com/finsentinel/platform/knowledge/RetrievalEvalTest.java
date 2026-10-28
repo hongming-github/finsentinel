@@ -12,9 +12,15 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -27,6 +33,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Needs scripts/fetch-knowledge.sh and OPENAI_API_KEY. First run embeds the corpus (then cached on disk);
  * every run makes one small rerank call per question.
  * Run: ./mvnw -pl agent-platform test -Dtest=RetrievalEvalTest -Dlive=true -Dsurefire.failIfNoSpecifiedTests=false
+ *
+ * <p>HYBRID_CROSS_ENCODER runs when the reranker service (finsentinel.knowledge.search.rerank.cross-encoder.url,
+ * compose profile reranker) answers /health; add -Dcross-encoder=true to fail instead of skipping it when it does not
+ * (ADR 0030). A fallen-back ranking is counted per mode, and any in that mode fails the run: its scores would be the
+ * fused order's.
  */
 @PlatformTest
 @TestPropertySource(properties = "finsentinel.test.fake-ai=false")
@@ -43,6 +54,8 @@ class RetrievalEvalTest {
     KnowledgeSearch search;
     @Autowired
     JsonMapper json;
+    @Autowired
+    KnowledgeProperties props;
 
     @BeforeEach
     void index() {
@@ -55,17 +68,25 @@ class RetrievalEvalTest {
         List<Question> questions = questions();
         Map<KnowledgeSearch.Mode, Map<String, Score>> scores = new EnumMap<>(KnowledgeSearch.Mode.class);
         Map<KnowledgeSearch.Mode, Long> latencyMs = new EnumMap<>(KnowledgeSearch.Mode.class);
+        Map<KnowledgeSearch.Mode, BigDecimal> costUsd = new EnumMap<>(KnowledgeSearch.Mode.class);
+        Map<KnowledgeSearch.Mode, Integer> degraded = new EnumMap<>(KnowledgeSearch.Mode.class);
+        Map<KnowledgeSearch.Mode, Map<String, Integer>> ranks = new EnumMap<>(KnowledgeSearch.Mode.class);
         List<String> misses = new ArrayList<>();
-        for (KnowledgeSearch.Mode mode : KnowledgeSearch.Mode.values()) {
+        for (KnowledgeSearch.Mode mode : modes()) {
             Map<String, Score> byStyle = new TreeMap<>();
             long started = System.nanoTime();
             for (Question q : questions) {
-                List<String> ids = search.search(q.text(), mode, K).stream().map(RegulationHit::chunkId).toList();
+                KnowledgeSearch.Ranked ranked = search.evaluate(q.text(), mode, K);
+                List<String> ids = ranked.hits().stream().map(RegulationHit::chunkId).toList();
+                costUsd.merge(mode, ranked.usage().costUsd(), BigDecimal::add);
+                degraded.merge(mode, ranked.degraded() ? 1 : 0, Integer::sum);
                 int rank = firstRelevantRank(ids, q.relevant());
+                ranks.computeIfAbsent(mode, m -> new LinkedHashMap<>()).put(q.text(), rank);
                 byStyle.computeIfAbsent(q.style(), s -> new Score()).add(rank);
                 byStyle.computeIfAbsent("all", s -> new Score()).add(rank);
-                if ((rank == 0 || rank > AGENT_K) && mode == KnowledgeSearch.Mode.HYBRID_RERANK) {
-                    misses.add((rank == 0 ? "" : "rank " + rank + ", not handed to the agent: ") + q.text()
+                if ((rank == 0 || rank > AGENT_K) && (mode == KnowledgeSearch.Mode.HYBRID_RERANK
+                        || mode == KnowledgeSearch.Mode.HYBRID_CROSS_ENCODER)) {
+                    misses.add(mode + " " + (rank == 0 ? "" : "rank " + rank + ", not handed to the agent: ") + q.text()
                             + "\n      expected " + q.relevant() + "\n      got      " + ids);
                 }
             }
@@ -75,13 +96,57 @@ class RetrievalEvalTest {
 
         System.out.printf("%nRetrieval evaluation: %d questions, top %d (hit@%d / hit@%d / MRR)%n", questions.size(), K,
                 AGENT_K, K);
-        System.out.printf("%-14s %20s %20s %20s %10s%n", "mode", "paraphrase", "terms", "all", "ms/query");
-        scores.forEach((mode, s) -> System.out.printf("%-14s %20s %20s %20s %10d%n", mode,
-                s.get("paraphrase"), s.get("terms"), s.get("all"), latencyMs.get(mode)));
+        System.out.printf("Rerank in HYBRID_RERANK / VECTOR_RERANK: %s%n", props.search().rerank().using());
+        System.out.printf("%-20s %20s %20s %20s %10s %12s %9s%n", "mode", "paraphrase", "terms", "all", "ms/query",
+                "USD/query", "degraded");
+        scores.forEach((mode, s) -> System.out.printf("%-20s %20s %20s %20s %10d %12.6f %9d%n", mode,
+                s.get("paraphrase"), s.get("terms"), s.get("all"), latencyMs.get(mode),
+                costUsd.get(mode).divide(BigDecimal.valueOf(questions.size()), 8, RoundingMode.HALF_UP),
+                degraded.get(mode)));
         misses.forEach(m -> System.out.println("  MISS " + m));
+        if (ranks.containsKey(KnowledgeSearch.Mode.HYBRID_CROSS_ENCODER)) {
+            // Where the two rerankers disagree: rank of the first relevant passage, 0 = not in the top five.
+            System.out.printf("Rank of the first relevant passage where the rerankers differ (%s / cross-encoder):%n",
+                    props.search().rerank().using());
+            ranks.get(KnowledgeSearch.Mode.HYBRID_RERANK).forEach((q, rank) -> {
+                int ce = ranks.get(KnowledgeSearch.Mode.HYBRID_CROSS_ENCODER).get(q);
+                if (ce != rank) {
+                    System.out.printf("  %d / %d  %s%n", rank, ce, q);
+                }
+            });
+        }
+        if (scores.containsKey(KnowledgeSearch.Mode.HYBRID_CROSS_ENCODER)) {
+            assertThat(degraded.get(KnowledgeSearch.Mode.HYBRID_CROSS_ENCODER))
+                    .as("cross-encoder rankings that fell back to the fused order").isZero();
+        }
 
         // A floor, not a target: catches a broken index or chunker, not small ranking shifts.
         assertThat(scores.get(KnowledgeSearch.Mode.HYBRID).get("all").hitRate()).isGreaterThanOrEqualTo(0.6);
+    }
+
+    private List<KnowledgeSearch.Mode> modes() {
+        List<KnowledgeSearch.Mode> modes = new ArrayList<>(List.of(KnowledgeSearch.Mode.values()));
+        if (!crossEncoderUp()) {
+            assertThat(Boolean.getBoolean("cross-encoder")).as("-Dcross-encoder=true, but the reranker service at %s "
+                    + "does not answer", props.search().rerank().crossEncoder().url()).isFalse();
+            System.out.println("Reranker service not reachable: HYBRID_CROSS_ENCODER skipped");
+            modes.remove(KnowledgeSearch.Mode.HYBRID_CROSS_ENCODER);
+        }
+        return modes;
+    }
+
+    private boolean crossEncoderUp() {
+        KnowledgeProperties.CrossEncoder ce = props.search().rerank().crossEncoder();
+        try (HttpClient client = HttpClient.newBuilder().connectTimeout(ce.connectTimeout()).build()) {
+            HttpResponse<Void> health = client.send(HttpRequest.newBuilder(ce.url().resolve("/health"))
+                    .timeout(ce.timeout()).build(), HttpResponse.BodyHandlers.discarding());
+            return health.statusCode() == 200;
+        } catch (IOException e) {
+            return false;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
     }
 
     private static int firstRelevantRank(List<String> ids, Set<String> relevant) {

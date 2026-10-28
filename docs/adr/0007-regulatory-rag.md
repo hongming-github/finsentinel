@@ -148,3 +148,9 @@ an index version, the SHA-256 of the file's hash and every chunk's id, section, 
 `kb_document.sha256`; a chunker fix or a `chunk-chars` change re-indexes the documents it affects. The first run after
 this change re-indexes all four once (existing rows hold the file's hash), with unchanged passages coming from the
 embedding cache. A PDF that now yields no chunks is reported and its old index kept, as before.
+
+## Cross-encoder compared (2026-10-28)
+
+A cross-encoder (`bge-reranker-v2-m3`, served from `reranker/`) against the LLM reranker on the same candidates:
+hit@3 / hit@5 / MRR 0.94 / 0.94 / 0.84 against 0.97 / 0.97 / 0.92, in two runs each. Production stays on the LLM
+reranker; the setting, the numbers and the latency by hardware are in ADR 0030.
