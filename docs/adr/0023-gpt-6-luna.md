@@ -3,6 +3,7 @@
 - Status: accepted
 - Date: 2026-10-15
 - Amends: ADR 0011 (model per role), ADR 0007 (reranker), ADR 0013 (prompt order for the provider's cache)
+- Amended by: ADR 0029 (the investigator moved to gpt-6.1-terra on 2026-10-28)
 
 ## Context
 

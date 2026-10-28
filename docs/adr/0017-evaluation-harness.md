@@ -186,6 +186,35 @@ does not accept them: there the question is whether the bank met its duties and 
 definition does not answer. Re-graded from the last run's records (no new run): customer-made 12/12, takeover 3/6,
 `outlier-at-home` 0/3, 18/24 in all; the gate still fails on the takeover cases and `outlier-at-home`, both open.
 
+**Same three failing cases on `gpt-6.1-terra` (2026-10-28)**, investigator only (reviewer stays Luna), same playbook
+and chunks, 3 x 3: 9/9. `outlier-at-home` LIKELY_LEGITIMATE 8-15 each time; both takeover cases LIKELY_FRAUD 90-98
+citing a `loss-takeover` passage. $0.0102 per run against Luna's $0.0010 on the same cases (10x, matching the price
+ratio, which also shows Terra ran: cost is computed from the model the provider reports); p50 latency 16.6 s against
+12.0 s. Terra ($1 / $0.05 cached / $1.25 cache write / $5) takes function tools on Chat Completions at reasoning
+effort `none`, alone and together with a JSON schema (one probe call each). Report:
+[`docs/eval/2026-10-28-terra-investigator.md`](../eval/2026-10-28-terra-investigator.md). Nine runs on the three
+hardest cases are a signal, not a comparison (Wilson 95% for 9/9: 70%-100%): moving the investigator needs the full
+set on both models with cost, as ADR 0011 and 0023 did.
+
+**Full set on both, final dataset and playbook (2026-10-28)**, 17 x 3, SINGLE, only the investigator differs:
+
+| | Luna | Terra |
+|---|---|---|
+| Pass rate | 86% (44/51), gate fails | **96% (49/51), gate passes** |
+| Regulation relevance | 78% | 100% |
+| Cost per run | $0.0013 | $0.0078 (6x) |
+| Latency p50 / p95 | 12.6 s / 30.3 s | 10.7 s / 24.0 s |
+| Prompt tokens, 51 runs | 952k | 636k |
+
+Reports: [`2026-10-28-full-luna.md`](../eval/2026-10-28-full-luna.md),
+[`2026-10-28-full-terra.md`](../eval/2026-10-28-full-terra.md). Terra is ahead on three cases and behind on none:
+both takeover cases (3/3 each against 1/3; Luna cites definitions or EUPG 5.3 where the loss passages are expected)
+and `outlier-at-home` (2/3 against 1/3). Both still hedge once on `outlier-at-home` and `shopping-trip-burst`
+(NEEDS_REVIEW where LIKELY_LEGITIMATE is expected). Fisher one-sided p = 0.08 on 49/51 vs 44/51, with runs clustered
+by case, so the overall gap is not significant on its own; the case-level pattern (the critical takeover cases) is
+what separates them. Terra used a third fewer prompt tokens and was faster. Whether to move the investigator is the
+owner's decision; until then the default stays Luna.
+
 ## Not done yet
 
 - A golden case for the other branch of the travel-notice rule (abroad first, then a payment at home during the
