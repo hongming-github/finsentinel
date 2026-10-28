@@ -13,16 +13,19 @@ import java.time.Duration;
  * @param syncOnStartup ingest new or changed documents when the platform starts
  * @param maxChunks     refuse a sync that would embed more than this many chunks: a cost guard against a wrong file
  * @param chunkChars    longest chunk before it is split into parts
+ * @param contextChars  longest "Refers to: ..." line naming what a chunk's cross-references point to, shown to the
+ *                      reranker with it (ADR 0030); whole entries are dropped from the end past it
  * @param minFontPt     text below this size is dropped as footnotes (the MAS documents use 12pt body, 9pt notes)
  * @param batchSize     texts per embedding request
  * @param search        retrieval settings
  */
 @ConfigurationProperties("finsentinel.knowledge")
-public record KnowledgeProperties(Path dir, boolean syncOnStartup, int maxChunks, int chunkChars, float minFontPt,
-                                  int batchSize, Search search) {
+public record KnowledgeProperties(Path dir, boolean syncOnStartup, int maxChunks, int chunkChars, int contextChars,
+                                  float minFontPt, int batchSize, Search search) {
 
     public KnowledgeProperties {
-        if (dir == null || maxChunks <= 0 || chunkChars < 200 || minFontPt < 0 || batchSize <= 0 || search == null) {
+        if (dir == null || maxChunks <= 0 || chunkChars < 200 || contextChars < 0 || minFontPt < 0 || batchSize <= 0
+                || search == null) {
             throw new IllegalArgumentException("finsentinel.knowledge: invalid settings");
         }
     }

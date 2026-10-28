@@ -153,4 +153,6 @@ embedding cache. A PDF that now yields no chunks is reported and its old index k
 
 A cross-encoder (`bge-reranker-v2-m3`, served from `reranker/`) against the LLM reranker on the same candidates:
 hit@3 / hit@5 / MRR 0.94 / 0.94 / 0.84 against 0.97 / 0.97 / 0.92, in two runs each. Production stays on the LLM
-reranker; the setting, the numbers and the latency by hardware are in ADR 0030.
+reranker; the setting, the numbers and the latency by hardware are in ADR 0030. So is a cross-reference context
+line ("Refers to: §6 (CUSTOMER DUE DILIGENCE)") for the reranker: built, measured, and off by default, since embedding
+it hurt vector search and reranking with it was a wash on 32 questions.

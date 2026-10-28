@@ -342,6 +342,8 @@ indexed as 625 chunks (ADR 0007):
   compose profile `reranker`), selectable with `rerank.using: cross-encoder`. Same 32 questions: hit@3 0.94 and MRR
   0.84 against the LLM's 0.97 / 0.92, the same ranking every run, nothing sent to a provider, 1.6 s per search on the
   laptop's GPU but 19 s in a 4-vCPU container. Production stays on the LLM ([ADR 0030](docs/adr/0030-cross-encoder-reranker.md)).
+  A "Refers to: §6 (CUSTOMER DUE DILIGENCE)" line for cross-references fixed the question it targeted and cost two
+  others, and hurt vector search when embedded: off by default (`knowledge.context-chars`), same ADR.
 - **The agent writes the queries**: one short question about one topic per call, at most three per case. There is no
   separate rewriting step (multi-query, HyDE): the caller has already turned the case into regulatory questions,
   the rerank closed the paraphrase gap (0.73 to 0.91 hit@5 on paraphrased questions), and a non-deterministic rewrite

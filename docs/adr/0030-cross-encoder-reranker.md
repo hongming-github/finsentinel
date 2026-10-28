@@ -80,6 +80,45 @@ its GPU it is 2.4 times faster. In the compose container it is too slow to be us
 vCPUs, and Linux aarch64 PyTorch uses OpenBLAS where macOS uses Accelerate. With the 10 s timeout, every search would
 fall back to the fused order there. A Linux x86_64 server with more cores or a GPU was not measured.
 
+## Cross-references for the reranker: built, measured, off (2026-10-28)
+
+Notice 626 14.4, the tipping-off question's answer, never says "due diligence": it says "the measures as required by
+paragraphs 6, 7 or 8". The cross-encoder scored it 0.17 against the question, and 0.80 once "(customer due diligence)"
+was written after the paragraph numbers (one hand-built check). Done generally:
+
+- `CrossReferences` turns a passage's references into a line from the documents' own headings: "Refers to: §6
+  (CUSTOMER DUE DILIGENCE (“CDD”)); §7 (SIMPLIFIED CUSTOMER DUE DILIGENCE); §8 (ENHANCED ...)". Resolved: paragraph
+  and section numbers, lists and ranges, "Annex A", and references into another document of the corpus by its short
+  name ("paragraph 4.7 of the EUPG"). Left out: other instruments ("of MAS Notice TCA-N03"), numbers that name no
+  section, and the passage's own section title. 66 of 658 chunks get a line; whole entries past
+  `finsentinel.knowledge.context-chars` are dropped (EUPG 4.29's full line runs to 1,000 characters).
+- It is made at sync, stored in `kb_chunk.context` (V17) and part of the index version. The reranker reads it between
+  the passage's header and its text. The agent never gets it: what a report quotes stays the regulation's own words.
+
+Measured with `RetrievalEvalTest` (all 32 questions, hit@3 / hit@5 / MRR):
+
+| | No context | Context embedded and reranked | Context reranked only |
+|---|---|---|---|
+| vector | 0.84 / 0.84 / 0.74 | 0.75-0.78 / 0.78-0.81 / 0.66-0.69 (two runs) | 0.84 / 0.84 / 0.74 |
+| hybrid + LLM rerank | 0.97 / 0.97 / 0.92 (two runs) | 0.97 / 0.97 / 0.94 | 0.97 / 0.97 / 0.94 |
+| hybrid + cross-encoder | 0.94 / 0.94 / 0.84 (two runs) | 0.94 / 0.97 / 0.86 | 0.91 / 0.97 / 0.86 |
+
+- Embedded, it hurt vector search: the PEP question's own passages (section 8, enhanced CDD) dropped out of the top
+  five. About ten passages cite "§8 (ENHANCED CUSTOMER DUE DILIGENCE)", and with that line their vectors moved
+  towards every enhanced-CDD question. A vector compresses the whole passage into one point, and a heading that many
+  passages cite moves all of them. So the line is not embedded.
+- Reranked only, the cross-encoder ranks the tipping-off passage first (it was not in the top five) and loses two
+  others to rank 4. On "alert customers about money leaving their account", SRF 4.2.5's line ("real-time detection
+  and blocking") matched "how quickly". On "when is the mobile operator responsible", SRF 6.4 and 7.7.1 carry the
+  same line, so it separated nothing. Net: hit@3 one question lower, hit@5 one higher, MRR +0.02.
+- The LLM reranker's MRR of 0.94 is inside its usual 0.92-0.94.
+
+Decision: the code stays, `context-chars` defaults to 0 (off). On 32 questions the result cannot be told from noise,
+and tuning the rules against the same 32 questions would fit them rather than the corpus. A larger evaluation set
+with more cross-reference questions comes first; then measure again with
+`-Dfinsentinel.knowledge.context-chars=300`. `-Dretrieval.modes=VECTOR,KEYWORD,HYBRID` measures the stages without
+a reranker for nothing once the embeddings are cached, and `-Dretrieval.ranks=true` prints every question's rank.
+
 ## Consequences
 
 - Production keeps the LLM reranker: it ranks better on this corpus, and the cross-encoder's advantages (no data

@@ -188,7 +188,7 @@ class CrossEncoderRerankerTest {
     private static CrossEncoderReranker reranker(URI url, ObservationRegistry observations) {
         KnowledgeProperties.CrossEncoder crossEncoder =
                 new KnowledgeProperties.CrossEncoder(url, MODEL, Duration.ofSeconds(1), Duration.ofSeconds(1));
-        KnowledgeProperties props = new KnowledgeProperties(Path.of("knowledge"), false, 5000, 2400, 10, 100,
+        KnowledgeProperties props = new KnowledgeProperties(Path.of("knowledge"), false, 5000, 2400, 300, 10, 100,
                 new KnowledgeProperties.Search(20, 3, 60, 3, 900,
                         new KnowledgeProperties.Rerank(true, KnowledgeProperties.Using.CROSS_ENCODER, "gpt-6-luna",
                                 700, crossEncoder),

@@ -206,6 +206,11 @@ finsentinel:
     sync-on-startup: true
     max-chunks: 5000
     chunk-chars: 2400
+    # A chunk's cross-references named by their headings ("Refers to: §6 (CUSTOMER DUE DILIGENCE)"), shown to the
+    # reranker only, never embedded or handed to the agent; the longest line in characters, 0 = off. Off on measured
+    # data (ADR 0030): it fixed the question it was built for and cost two others on 32 questions. 300 was the value
+    # tried (the LLM reranker reads 700 characters a passage; EUPG 4.29's full line runs to 1,000).
+    context-chars: 0
     min-font-pt: 10
     batch-size: 100
     search:

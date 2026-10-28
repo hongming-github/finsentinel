@@ -163,8 +163,7 @@ public class KnowledgeSearch {
         Map<String, KnowledgeRepository.StoredPassage> passages = byId(top);
         List<Reranker.Candidate> candidates = top.stream()
                 .filter(passages::containsKey)
-                .map(id -> new Reranker.Candidate(id, passages.get(id).shortName() + " §" + passages.get(id).ref()
-                        + " (" + passages.get(id).section() + ")\n" + passages.get(id).text()))
+                .map(id -> candidate(passages.get(id)))
                 .toList();
         List<String> reranked;
         LlmUsage usage;
@@ -182,6 +181,15 @@ public class KnowledgeSearch {
             fused.stream().filter(id -> !reranked.contains(id)).limit(props.topK() - reranked.size()).forEach(reranked::add);
         }
         return Optional.of(new Reranker.Ranking(reranked, usage));
+    }
+
+    /**
+     * What a reranker reads: where the passage sits, what its cross-references point to (ahead of the text, so the
+     * LLM reranker's cut keeps it), then the text. The agent gets the text without the context line.
+     */
+    private static Reranker.Candidate candidate(KnowledgeRepository.StoredPassage p) {
+        return new Reranker.Candidate(p.chunkId(), p.shortName() + " §" + p.ref() + " (" + p.section() + ")\n"
+                + (p.context().isEmpty() ? "" : p.context() + "\n") + p.text());
     }
 
     /** Full passages by chunk id, in the order asked; unknown ids are left out. */

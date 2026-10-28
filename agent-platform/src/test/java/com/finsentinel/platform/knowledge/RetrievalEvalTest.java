@@ -18,6 +18,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -37,7 +38,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>HYBRID_CROSS_ENCODER runs when the reranker service (finsentinel.knowledge.search.rerank.cross-encoder.url,
  * compose profile reranker) answers /health; add -Dcross-encoder=true to fail instead of skipping it when it does not
  * (ADR 0030). A fallen-back ranking is counted per mode, and any in that mode fails the run: its scores would be the
- * fused order's.
+ * fused order's. -Dretrieval.modes=VECTOR,HYBRID runs only those modes (the ones without a reranker cost nothing once
+ * the corpus embeddings are cached); -Dretrieval.ranks=true prints every question's rank in every mode.
+ * -Dfinsentinel.knowledge.context-chars=300 measures the reranker with the cross-reference lines (ADR 0030).
  */
 @PlatformTest
 @TestPropertySource(properties = "finsentinel.test.fake-ai=false")
@@ -104,7 +107,16 @@ class RetrievalEvalTest {
                 costUsd.get(mode).divide(BigDecimal.valueOf(questions.size()), 8, RoundingMode.HALF_UP),
                 degraded.get(mode)));
         misses.forEach(m -> System.out.println("  MISS " + m));
-        if (ranks.containsKey(KnowledgeSearch.Mode.HYBRID_CROSS_ENCODER)) {
+        if (Boolean.getBoolean("retrieval.ranks")) {
+            System.out.println("Rank of the first relevant passage per question (0 = not in the top five):");
+            System.out.println("  " + String.join(" ", ranks.keySet().stream().map(KnowledgeSearch.Mode::name).toList()));
+            for (Question q : questions) {
+                System.out.println("  " + String.join(" ", ranks.values().stream()
+                        .map(r -> String.valueOf(r.get(q.text()))).toList()) + "  " + q.text());
+            }
+        }
+        if (ranks.containsKey(KnowledgeSearch.Mode.HYBRID_CROSS_ENCODER)
+                && ranks.containsKey(KnowledgeSearch.Mode.HYBRID_RERANK)) {
             // Where the two rerankers disagree: rank of the first relevant passage, 0 = not in the top five.
             System.out.printf("Rank of the first relevant passage where the rerankers differ (%s / cross-encoder):%n",
                     props.search().rerank().using());
@@ -121,12 +133,18 @@ class RetrievalEvalTest {
         }
 
         // A floor, not a target: catches a broken index or chunker, not small ranking shifts.
-        assertThat(scores.get(KnowledgeSearch.Mode.HYBRID).get("all").hitRate()).isGreaterThanOrEqualTo(0.6);
+        if (scores.containsKey(KnowledgeSearch.Mode.HYBRID)) {
+            assertThat(scores.get(KnowledgeSearch.Mode.HYBRID).get("all").hitRate()).isGreaterThanOrEqualTo(0.6);
+        }
     }
 
     private List<KnowledgeSearch.Mode> modes() {
         List<KnowledgeSearch.Mode> modes = new ArrayList<>(List.of(KnowledgeSearch.Mode.values()));
-        if (!crossEncoderUp()) {
+        String only = System.getProperty("retrieval.modes");
+        if (only != null) {
+            modes.retainAll(Arrays.stream(only.split(",")).map(String::trim).map(KnowledgeSearch.Mode::valueOf).toList());
+        }
+        if (modes.contains(KnowledgeSearch.Mode.HYBRID_CROSS_ENCODER) && !crossEncoderUp()) {
             assertThat(Boolean.getBoolean("cross-encoder")).as("-Dcross-encoder=true, but the reranker service at %s "
                     + "does not answer", props.search().rerank().crossEncoder().url()).isFalse();
             System.out.println("Reranker service not reachable: HYBRID_CROSS_ENCODER skipped");

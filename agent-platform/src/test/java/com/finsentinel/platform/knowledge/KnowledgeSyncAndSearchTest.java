@@ -17,6 +17,7 @@ import java.net.InetSocketAddress;
 import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -144,6 +145,39 @@ class KnowledgeSyncAndSearchTest {
     }
 
     @Test
+    void crossReferencesReachTheRerankerOnly() throws IOException {
+        KnowledgeTestDocs.pdf(dir.resolve("docs/pay.pdf"), List.of(
+                "1    Overview",
+                "1.1  These Guidelines apply to responsible financial institutions.",
+                "2    Duties of the responsible FI",
+                "2.1  A responsible FI should impose a cooling off period of at least 12 hours.",
+                "3    Suspicious transactions",
+                "3.1  A bank may stop the measures in paragraph 2 where they would tip off the customer."));
+        List<String> embedded = new ArrayList<>();
+        // Off by default (ADR 0030); 300 is the value the evaluation tried.
+        KnowledgeProperties p = new KnowledgeProperties(dir, false, 5000, props.chunkChars(), 300,
+                props.minFontPt(), props.batchSize(), props.search());
+        new KnowledgeSync(repository, texts -> {
+            embedded.addAll(texts);
+            return embedder.embed(texts);
+        }, p, json).sync();
+        List<String> reranked = new ArrayList<>();
+        KnowledgeSearch search = search((q, candidates) -> {
+            candidates.forEach(c -> reranked.add(c.text()));
+            return candidates.stream().map(Reranker.Candidate::id).toList();
+        });
+
+        List<RegulationHit> hits = search.search("tip off the customer", KnowledgeSearch.Mode.HYBRID_RERANK, 3);
+
+        String context = "Refers to: §2 (Duties of the responsible FI)";
+        assertThat(embedded).contains("pay §3.1 (Suspicious transactions)\nA bank may stop the measures in paragraph 2 "
+                + "where they would tip off the customer.");
+        assertThat(reranked).anyMatch(t -> t.contains(context + "\nA bank may stop the measures"));
+        assertThat(hits).extracting(RegulationHit::chunkId).contains("pay:3.1");
+        assertThat(hits).allSatisfy(h -> assertThat(h.text()).doesNotContain("Refers to"));
+    }
+
+    @Test
     void aCrossEncoderServiceThatIsDownLeavesTheFusedOrder() throws IOException {
         sync(5000).sync();
         HttpServer closed = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
@@ -151,7 +185,7 @@ class KnowledgeSyncAndSearchTest {
         closed.stop(0);
         KnowledgeProperties.Search s = props.search();
         KnowledgeProperties down = new KnowledgeProperties(dir, false, props.maxChunks(), props.chunkChars(),
-                props.minFontPt(), props.batchSize(), new KnowledgeProperties.Search(s.candidates(), s.topK(), s.rrfK(),
+                props.contextChars(), props.minFontPt(), props.batchSize(), new KnowledgeProperties.Search(s.candidates(), s.topK(), s.rrfK(),
                 s.maxSearchesPerCase(), s.agentPassageChars(), new KnowledgeProperties.Rerank(true,
                 KnowledgeProperties.Using.CROSS_ENCODER, s.rerank().model(), s.rerank().maxPassageChars(),
                 new KnowledgeProperties.CrossEncoder(URI.create("http://localhost:" + port), "BAAI/bge-reranker-v2-m3",
@@ -189,8 +223,8 @@ class KnowledgeSyncAndSearchTest {
     }
 
     private KnowledgeSync sync(int maxChunks, int chunkChars) {
-        KnowledgeProperties p = new KnowledgeProperties(dir, false, maxChunks, chunkChars, props.minFontPt(), props.batchSize(),
-                props.search());
+        KnowledgeProperties p = new KnowledgeProperties(dir, false, maxChunks, chunkChars, props.contextChars(), props.minFontPt(),
+                props.batchSize(), props.search());
         return new KnowledgeSync(repository, embedder, p, json);
     }
 
