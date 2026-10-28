@@ -108,13 +108,15 @@ public record GoldenCase(String id, String category, Boolean critical, String de
     }
 
     /**
-     * @param required         the report must carry regulatory notes
-     * @param relevantChunkSet name of a chunk set in the dataset: at least one cited passage must be in it
+     * @param required          the report must carry regulatory notes
+     * @param relevantChunkSets names of chunk sets in the dataset, one per question the notes must answer (e.g. whether
+     *                          a report to STRO is required, who bears the loss): each needs a cited passage from it
      */
-    public record Regulations(Boolean required, String relevantChunkSet) {
+    public record Regulations(Boolean required, List<String> relevantChunkSets) {
 
         public Regulations {
             required = required != null && required;
+            relevantChunkSets = relevantChunkSets == null ? List.of() : List.copyOf(relevantChunkSets);
         }
     }
 }

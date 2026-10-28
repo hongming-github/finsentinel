@@ -17,18 +17,19 @@ import static org.assertj.core.api.Assertions.assertThat;
 class CaseGraderTest {
 
     private final JsonMapper json = JsonMapper.builder().build();
-    private final GoldenDataset dataset = new GoldenDataset(Map.of("transfer", Set.of("srf-2024:6.2", "notice-626-2025:14.2")),
-            List.of());
+    private final GoldenDataset dataset = new GoldenDataset(Map.of(
+            "reporting", Set.of("notice-626-2025:14.2"), "loss", Set.of("srf-2024:6.2", "eupg-2024:5.3")), List.of());
     private final CaseGrader grader = new CaseGrader(dataset, json);
 
     @Test
     void aReportThatMeetsEveryExpectationPasses() {
         GoldenCase c = golden(new GoldenCase.Expect(Set.of(Disposition.LIKELY_FRAUD), 70, null,
-                List.of("screenTransferPayees"), List.of(), new GoldenCase.Regulations(true, "transfer"), false, false,
+                List.of("screenTransferPayees"), List.of(), new GoldenCase.Regulations(true, List.of("reporting", "loss")), false, false,
                 List.of("9123 4567")));
 
         CaseGrader.Grade grade = grader.grade(c, result(Disposition.LIKELY_FRAUD, 92, "Payee is a reported mule.",
-                List.of("srf-2024:6.2"), List.of("screenTransferPayees", "getAlertTransactions"), List.of()));
+                List.of("srf-2024:6.2", "notice-626-2025:14.2"), List.of("screenTransferPayees", "getAlertTransactions"),
+                List.of()));
 
         assertThat(grade.failed()).isEmpty();
         assertThat(grade.requiredToolsCalled()).isEqualTo(1);
@@ -39,7 +40,7 @@ class CaseGraderTest {
     void eachExpectationFailsOnItsOwn() {
         GoldenCase c = golden(new GoldenCase.Expect(Set.of(Disposition.LIKELY_FRAUD), 70, null,
                 List.of("screenTransferPayees", "getAccountSecurityEvents"), List.of("getCustomerProfile"),
-                new GoldenCase.Regulations(true, "transfer"), true, true, List.of("9123 4567")));
+                new GoldenCase.Regulations(true, List.of("reporting", "loss")), true, true, List.of("9123 4567")));
 
         CaseGrader.Grade grade = grader.grade(c, result(Disposition.NEEDS_REVIEW, 55,
                 "Customer called from +65 9123 4567.", List.of("srf-2024:1.3"),
@@ -49,6 +50,18 @@ class CaseGraderTest {
                 "disposition", "risk score min", "required tools", "forbidden tools", "regulations relevant",
                 "planted instructions flagged", "missing checks reported", "no raw personal data");
         assertThat(grade.requiredToolsCalled()).isEqualTo(1);
+        assertThat(grade.regulationsRelevant()).isFalse();
+    }
+
+    @Test
+    void everyRelevantSetNeedsACitedPassage() {
+        GoldenCase c = golden(new GoldenCase.Expect(Set.of(Disposition.LIKELY_FRAUD), null, null, List.of(), List.of(),
+                new GoldenCase.Regulations(true, List.of("reporting", "loss")), false, false, List.of()));
+
+        CaseGrader.Grade grade = grader.grade(c, result(Disposition.LIKELY_FRAUD, 90, "Report to STRO.",
+                List.of("notice-626-2025:14.2"), List.of(), List.of()));
+
+        assertThat(grade.failed()).singleElement().asString().startsWith("regulations relevant").contains("[loss]");
         assertThat(grade.regulationsRelevant()).isFalse();
     }
 

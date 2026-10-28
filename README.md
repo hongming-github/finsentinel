@@ -15,7 +15,7 @@ linked. The weak ones are included.
 |---|---|---|
 | Detection latency, payment to alert (p95) | 142 ms at 50 tps, 626 ms at 10,000 tps | Flink job, simulator traffic ([ADR 0025](docs/adr/0025-load-tests.md)) |
 | Stream catch-up throughput | 80,000 transactions/s on average | 4 million queued transactions, bound by 6 Kafka partitions, not CPU (ADR 0025) |
-| Agent quality, golden evaluation | 51/51 runs pass, tool selection 100% | 17 cases x 3 on gpt-6-luna ([report](docs/eval/2026-10-15-luna.md), [ADR 0023](docs/adr/0023-gpt-6-luna.md)) |
+| Agent quality, golden evaluation | 49/51 runs pass, tool selection 100%, regulation relevance 100% (Luna 44/51) | 17 cases x 3 after a domain review tightened them; report writer on gpt-6.1-terra ([report](docs/eval/2026-10-28-full-terra.md), [ADR 0029](docs/adr/0029-terra-investigator.md), [ADR 0017](docs/adr/0017-evaluation-harness.md)) |
 | Model cost per case | $0.0012 in the evaluation, $0.003 end to end | End to end: 23 live alerts, review and repairs included (ADR 0025) |
 | Payment to report with a real model (p95) | **107 s** (analysis alone: 38 s) | 23 live alerts on gpt-6-luna, 8 workers; the model and queue rounds dominate, not detection (ADR 0025) |
 | Prompt tokens read from the provider's cache | 59%; the reviewer's **0%** | 17 cases; the reviewer's prefix is under the 1,024-token minimum ([report](docs/eval/2026-10-16-prompt-cache.md), ADR 0023) |
@@ -496,3 +496,4 @@ proposes updates weekly.
 - [0026 Chaos drills under steady traffic](docs/adr/0026-chaos-drills.md)
 - [0027 A web console over the tenant-scoped API, signed in with PKCE](docs/adr/0027-web-console.md)
 - [0028 A case assistant: multi-turn conversations about one case](docs/adr/0028-case-assistant.md)
+- [0029 GPT-6.1 Terra writes the reports](docs/adr/0029-terra-investigator.md)

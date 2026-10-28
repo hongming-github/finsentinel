@@ -34,6 +34,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class RetrievalEvalTest {
 
     private static final int K = 5;
+    /** What a search hands the agent (finsentinel.knowledge.search.top-k): a passage ranked 4th or 5th never reaches it. */
+    private static final int AGENT_K = 3;
 
     @Autowired
     KnowledgeSync sync;
@@ -62,17 +64,19 @@ class RetrievalEvalTest {
                 int rank = firstRelevantRank(ids, q.relevant());
                 byStyle.computeIfAbsent(q.style(), s -> new Score()).add(rank);
                 byStyle.computeIfAbsent("all", s -> new Score()).add(rank);
-                if (rank == 0 && mode == KnowledgeSearch.Mode.HYBRID_RERANK) {
-                    misses.add(q.text() + "\n      expected " + q.relevant() + "\n      got      " + ids);
+                if ((rank == 0 || rank > AGENT_K) && mode == KnowledgeSearch.Mode.HYBRID_RERANK) {
+                    misses.add((rank == 0 ? "" : "rank " + rank + ", not handed to the agent: ") + q.text()
+                            + "\n      expected " + q.relevant() + "\n      got      " + ids);
                 }
             }
             scores.put(mode, byStyle);
             latencyMs.put(mode, (System.nanoTime() - started) / 1_000_000 / questions.size());
         }
 
-        System.out.printf("%nRetrieval evaluation: %d questions, top %d (hit@%d / MRR)%n", questions.size(), K, K);
-        System.out.printf("%-14s %14s %14s %14s %12s%n", "mode", "paraphrase", "terms", "all", "ms/query");
-        scores.forEach((mode, s) -> System.out.printf("%-14s %14s %14s %14s %12d%n", mode,
+        System.out.printf("%nRetrieval evaluation: %d questions, top %d (hit@%d / hit@%d / MRR)%n", questions.size(), K,
+                AGENT_K, K);
+        System.out.printf("%-14s %20s %20s %20s %10s%n", "mode", "paraphrase", "terms", "all", "ms/query");
+        scores.forEach((mode, s) -> System.out.printf("%-14s %20s %20s %20s %10d%n", mode,
                 s.get("paraphrase"), s.get("terms"), s.get("all"), latencyMs.get(mode)));
         misses.forEach(m -> System.out.println("  MISS " + m));
 
@@ -107,6 +111,7 @@ class RetrievalEvalTest {
     private static final class Score {
         private int questions;
         private int hits;
+        private int agentHits;
         private double reciprocalRanks;
 
         void add(int rank) {
@@ -114,6 +119,9 @@ class RetrievalEvalTest {
             if (rank > 0) {
                 hits++;
                 reciprocalRanks += 1.0 / rank;
+            }
+            if (rank > 0 && rank <= AGENT_K) {
+                agentHits++;
             }
         }
 
@@ -127,7 +135,7 @@ class RetrievalEvalTest {
 
         @Override
         public String toString() {
-            return "%.2f / %.2f".formatted(hitRate(), mrr());
+            return "%.2f / %.2f / %.2f".formatted((double) agentHits / questions, hitRate(), mrr());
         }
     }
 }

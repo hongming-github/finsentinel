@@ -62,16 +62,17 @@ final class EvalHarness {
                 scenario.alert().customerId(), List.of(scenario.alert()), 1, null, c.setup().connectedSystems());
 
         long started = System.nanoTime();
-        InvestigationResult result;
+        CaseAnalysisGraph.Outcome outcome;
         try {
             // As the worker does: the analysis runs in the case's tenant scope.
-            result = Tenancy.call(tenant, () -> graph.analyse(context, claim.claimedAt(), mode)).investigation();
+            outcome = Tenancy.call(tenant, () -> graph.analyse(context, claim.claimedAt(), mode));
         } catch (RuntimeException e) {
             return new RunRecord(c.id(), c.category(), c.critical(), mode.name(), repeat, RunRecord.FAILED, null,
                     null, List.of(ANALYSIS_FAILED + e.getMessage()), c.expect().requiredTools().size(), 0, null,
                     null, null, null, (System.nanoTime() - started) / 1_000_000, null, null, null, List.of());
         }
         long latencyMs = (System.nanoTime() - started) / 1_000_000;
+        InvestigationResult result = outcome.investigation();
         CaseGrader.Grade grade = grader.grade(c, result);
         BigDecimal cost = result.costUsd();
         Double judgeScore = null;
@@ -86,7 +87,8 @@ final class EvalHarness {
                 grade.passed() ? RunRecord.PASSED : RunRecord.FAILED, result.report().disposition().name(),
                 result.report().riskScore(), grade.failed(), grade.requiredTools(), grade.requiredToolsCalled(),
                 grade.regulationsRelevant(), judgeScore, unsupported, cost, latencyMs, result.inputTokens(),
-                result.cachedInputTokens(), result.cacheWriteTokens(), grade.passed() ? List.of() : explanation(result));
+                result.cachedInputTokens(), result.cacheWriteTokens(), grade.passed() ? List.of() : explanation(result),
+                Transcript.of(outcome));
     }
 
     /**

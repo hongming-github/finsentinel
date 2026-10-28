@@ -23,7 +23,8 @@ import java.util.stream.Collectors;
 @Component
 public class KnowledgeSearch {
 
-    public enum Mode { VECTOR, KEYWORD, HYBRID, HYBRID_RERANK }
+    /** HYBRID_RERANK is the production pipeline; the others exist for the retrieval evaluation's comparison. */
+    public enum Mode { VECTOR, KEYWORD, HYBRID, VECTOR_RERANK, HYBRID_RERANK }
 
     private static final Logger log = LoggerFactory.getLogger(KnowledgeSearch.class);
 
@@ -89,13 +90,14 @@ public class KnowledgeSearch {
 
     private Ranked run(String query, Mode mode, int topK) {
         Fused fused = switch (mode) {
-            case VECTOR -> new Fused(repository.vectorSearch(embedder.embed(query), props.candidates()), false);
+            case VECTOR, VECTOR_RERANK ->
+                    new Fused(repository.vectorSearch(embedder.embed(query), props.candidates()), false);
             case KEYWORD -> new Fused(repository.keywordSearch(query, props.candidates()), false);
             case HYBRID, HYBRID_RERANK -> hybrid(query);
         };
         Reranker.Ranking ranking = new Reranker.Ranking(fused.ids(), LlmUsage.NONE);
         boolean degraded = fused.degraded();
-        if (mode == Mode.HYBRID_RERANK) {
+        if (mode == Mode.HYBRID_RERANK || mode == Mode.VECTOR_RERANK) {
             Optional<Reranker.Ranking> reranked = rerank(query, fused.ids());
             degraded |= reranked.isEmpty();
             ranking = reranked.orElse(ranking);

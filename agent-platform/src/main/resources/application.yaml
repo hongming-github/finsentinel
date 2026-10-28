@@ -26,7 +26,8 @@ spring:
       chat:
         model: gpt-6-luna
         # Chat Completions (which Spring AI 2.0 uses) takes function tools only without reasoning (gpt-5.4-mini
-        # rejected the combination; gpt-6-luna documents tools on Chat Completions with reasoning effort none only).
+        # rejected the combination; gpt-6-luna documents tools on Chat Completions with reasoning effort none only;
+        # gpt-6.1-terra takes them at none too, probed 2026-10-28; gpt-6.1-sol and gpt-6-astra have no none).
         # The agent's work is tool-driven lookups, so non-reasoning mode is the better latency/cost trade anyway.
         reasoning-effort: none
       embedding:
@@ -146,8 +147,10 @@ finsentinel:
           include_reasoning: false
     # The model of each agent role on an ordinary case. "provider:model"; a bare name is OpenAI.
     models:
-      # gpt-6-luna since 2026-10-15 (ADR 0023): 51/51 golden runs against gpt-5.4-mini's 44/48, at a ninth of the cost.
-      investigator: gpt-6-luna
+      # The investigator writes the report: gpt-6.1-terra since 2026-10-28 (ADR 0029), 49/51 golden runs against Luna's
+      # 44/51 on the tightened set (both takeover cases 3/3 against 1/3), at 6x Luna's cost per run. The other roles
+      # stay on gpt-6-luna (ADR 0023): they were not compared.
+      investigator: gpt-6.1-terra
       specialist: gpt-6-luna
       writer: gpt-6-luna
       reviewer: gpt-6-luna
@@ -173,6 +176,8 @@ finsentinel:
     # (OpenAI from GPT-5.6 on); without it writes cost the input rate. Keys with dots, colons or slashes need brackets.
     prices:
       "[gpt-6-luna]": { input: 0.10, cached-input: 0.01, cache-write: 0.125, output: 0.50 }
+      # gpt-6.1-terra: developers.openai.com model page, checked 2026-10-28.
+      "[gpt-6.1-terra]": { input: 1.00, cached-input: 0.05, cache-write: 1.25, output: 5.00 }
       "[gpt-5.5]": { input: 5.00, cached-input: 0.50, output: 30.00 }
       "[gpt-5.4-mini]": { input: 0.75, cached-input: 0.075, output: 4.50 }
       "[gpt-5.4-nano]": { input: 0.20, cached-input: 0.02, output: 1.25 }
