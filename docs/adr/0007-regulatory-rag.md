@@ -102,7 +102,7 @@ and an `11A` id was not seen at all, so an answer naming one it was not given wo
 vector 0.84 / 0.74 -> 0.81 / 0.71, all of it in the term queries (0.90 / 0.85 -> 0.80 / 0.75); keyword unchanged; hybrid
 0.81 / 0.66 -> 0.81 / 0.65. A first guess blamed 11A's value-transfer paragraphs, near copies of the wire-transfer
 ones the set asks about; the next change, which touched neither, brought vector back to 0.84 / 0.74 (below), so the
-guess does not hold and the dip is unexplained, possibly a near tie in the vector ranking. The pipeline the agents use,
+guess does not hold: vector alone moves by a question between runs on identical chunks (see hit@3 below). The pipeline the agents use,
 hybrid + rerank, did not move.
 
 Back matter (also 2026-10-28): the last paragraph of a document ran on into whatever followed it. TRM 15.1.4, one
@@ -114,3 +114,27 @@ institutions) is one chunk (`notice-626-2025:appendix-1`, `-2`), the amendment h
 4 removed, 8 added, nothing else changed. `Grounding` and `GoldenDataset` accept the new ids.
 `RetrievalEvalTest` after it: vector 0.84 / 0.74, keyword 0.63 / 0.51, hybrid 0.81 / 0.68, hybrid + rerank 0.97 / 0.92
 (the rerank MRR moves by a few points between runs; hit@5 has stayed at 0.97 since the sub-heading fix).
+
+## hit@3 and vector + rerank (2026-10-28)
+
+The evaluation reported hit@5, but a search hands the agent three passages (`top-k: 3`): a passage ranked 4th or 5th
+counted as found and never reached the agent. It now reports hit@3 / hit@5 / MRR, and compares a fifth mode, vector
+candidates reranked (`VECTOR_RERANK`, evaluation only), since vector alone beat hybrid before reranking:
+
+| Mode | paraphrased (22) | term queries (10) | all (32) |
+|---|---|---|---|
+| vector | 0.82 / 0.82 / 0.69 | 0.80 / 0.80 / 0.75 | 0.81 / 0.81 / 0.71 |
+| keyword | 0.50 / 0.50 / 0.39 | 0.90 / 0.90 / 0.75 | 0.63 / 0.63 / 0.51 |
+| hybrid (RRF) | 0.73 / 0.77 / 0.60 | 0.90 / 0.90 / 0.78 | 0.78 / 0.81 / 0.66 |
+| vector + rerank | 0.95 / 0.95 / 0.89 | 1.00 / 1.00 / 0.95 | 0.97 / 0.97 / 0.91 |
+| hybrid + rerank | 0.95 / 0.95 / 0.91 | 1.00 / 1.00 / 0.95 | 0.97 / 0.97 / 0.92 |
+
+- With the reranker, every passage found in the top five is in the top three: what the agent gets is what the
+  production row says.
+- Vector + rerank matches hybrid + rerank on this set (MRR 0.91 against 0.92, one question apart at most). Hybrid
+  stays: its keyword half finds exact terms ("STR", paragraph numbers) and is what still answers when the embedding
+  provider is down. 32 questions cannot separate the two.
+- Vector alone scored 0.84 / 0.74 on the previous run and 0.81 / 0.71 on this one with identical chunks: it moves by a
+  question between runs, so the dip after the 11A fix was that, not 11A.
+- The one miss is unchanged: "Who pays back a phishing victim if the bank failed one of its anti-scam obligations?"
+  expects SRF 6.2 and gets 6.6, 6.7, 4.2.5, 7.7 and EUPG 3.19.
