@@ -97,6 +97,9 @@ class GoldenEvalDryRunTest {
         assertThat(records).hasSize(dataset.cases().size()).allSatisfy(r -> {
             assertThat(r.status()).isIn(RunRecord.PASSED, RunRecord.FAILED);
             assertThat(r.failures()).noneMatch(f -> f.startsWith("analysis failed"));
+            // Every run keeps what it produced, passed or not, so a run can be read afterwards.
+            assertThat(r.transcript()).isNotNull();
+            assertThat(r.transcript().report().disposition().name()).isEqualTo(r.disposition());
         });
         Map<String, RunRecord> byCase = records.stream().collect(Collectors.toMap(RunRecord::caseId, r -> r));
         assertThat(byCase.get("takeover-mule-payee").failures())
