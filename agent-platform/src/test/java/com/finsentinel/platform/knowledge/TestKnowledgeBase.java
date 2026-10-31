@@ -20,8 +20,8 @@ public final class TestKnowledgeBase {
         KnowledgeTestDocs.manifest(dir, "pay");
         KnowledgeTestDocs.pdf(dir.resolve("docs/pay.pdf"), KnowledgeTestDocs.paymentsDoc());
         KnowledgeProperties props = context.getBean(KnowledgeProperties.class);
-        KnowledgeProperties local = new KnowledgeProperties(dir, false, 5000, props.chunkChars(), props.minFontPt(),
-                props.batchSize(), props.search());
+        KnowledgeProperties local = new KnowledgeProperties(dir, false, 5000, props.chunkChars(), props.contextChars(),
+                props.minFontPt(), props.batchSize(), props.search());
         new KnowledgeSync(context.getBean(KnowledgeRepository.class), new FakeEmbedder(), local,
                 context.getBean(JsonMapper.class)).sync();
     }

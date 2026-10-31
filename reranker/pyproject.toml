@@ -1,0 +1,39 @@
+[project]
+name = "finsentinel-reranker"
+version = "0.1.0"
+description = "Cross-encoder reranking of regulation passages for the FinSentinel platform (ADR 0030)"
+requires-python = "==3.12.*"
+# Versions checked on PyPI, each at least two weeks old when chosen (2026-10-28). FlagEmbedding rather than
+# sentence-transformers alone: the same library fine-tunes the reranker later.
+dependencies = [
+    "FlagEmbedding==1.4.2",
+    "fastapi==0.143.0",
+    "uvicorn==0.54.0",
+    "torch==2.14.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "httpx==0.28.1",
+]
+
+[tool.uv]
+# Newer releases wait two weeks before they enter the lock file.
+exclude-newer = "2026-10-14T00:00:00Z"
+# Except security fixes (ADR 0030): certifi 2026.7.22 carries GHSA-6q48-6c7w-9gw2 (CRITICAL, fixed in 2026.10.18),
+# filelock 4.1.1 CVE-2026-112940 (HIGH, fixed in 4.2.1).
+exclude-newer-package = { certifi = "2026-10-28T00:00:00Z", filelock = "2026-10-28T00:00:00Z" }
+
+# CPU wheels: PyPI's Linux x86_64 torch drags in about 3 GB of CUDA libraries the service never uses. The index also
+# has the macOS arm64 wheels, which can use the GPU (RERANKER_DEVICE=mps) when the service runs outside Docker.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

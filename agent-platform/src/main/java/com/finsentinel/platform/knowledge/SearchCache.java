@@ -51,8 +51,8 @@ class SearchCache {
         // Everything that changes which ids a question returns. Agent-side settings (passage length, searches per
         // case) only change what is done with them.
         this.settings = sha256(String.join("|", embeddingModel, String.valueOf(s.candidates()), String.valueOf(s.topK()),
-                String.valueOf(s.rrfK()), String.valueOf(s.rerank().enabled()), s.rerank().model(),
-                String.valueOf(s.rerank().maxPassageChars()))).substring(0, 16);
+                String.valueOf(s.rrfK()), String.valueOf(s.keywordWeight()), String.valueOf(s.rerank().enabled()), s.rerank().using().name(), s.rerank().model(),
+                String.valueOf(s.rerank().maxPassageChars()), s.rerank().crossEncoder().model())).substring(0, 16);
         this.hits = meters.counter("finsentinel.knowledge.search.cache", "result", "hit");
         this.misses = meters.counter("finsentinel.knowledge.search.cache", "result", "miss");
         this.errors = meters.counter("finsentinel.knowledge.search.cache", "result", "error");

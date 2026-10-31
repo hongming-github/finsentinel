@@ -5,6 +5,7 @@
 #   docker compose -f deploy/docker-compose.yml --profile core --profile stream up -d
 #   docker compose -f deploy/docker-compose.yml --profile obs up -d
 #   docker compose -f deploy/docker-compose.yml --profile kafka-ui up -d   # topics, messages, lag (with core)
+#   docker compose -f deploy/docker-compose.yml --profile reranker up -d --build  # cross-encoder reranker, ADR 0030
 #
 # Flink runs inside the IDE (embedded MiniCluster) during development; the `stream` profile is
 # for benchmarks and demos only.
@@ -226,7 +227,25 @@ services:
       JAVA_OPTS: -Xms128m -Xmx320m
     mem_limit: 512m
 
+  # ---------- reranker ----------
+
+  # Cross-encoder reranking of regulation passages (ADR 0030), used when finsentinel.knowledge.search.rerank.with is
+  # cross-encoder. Built from reranker/ (base images pinned by digest there). The first start downloads the model
+  # (about 2.3 GB) into the volume and is healthy only once it is loaded. Its own profile: it needs ~2.5 GB of memory.
+  reranker:
+    build: ../reranker
+    image: finsentinel-reranker:0.1.0
+    profiles: [reranker]
+    ports:
+      - "8099:8000"
+    environment:
+      RERANKER_DEVICE: cpu
+    volumes:
+      - reranker-models:/models
+    mem_limit: 3g
+
 volumes:
   kafka-data:
   pg-data:
   flink-checkpoints:
+  reranker-models:

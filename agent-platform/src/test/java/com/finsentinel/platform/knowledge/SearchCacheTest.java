@@ -174,15 +174,16 @@ class SearchCacheTest {
     private KnowledgeSearch search(SearchCache searchCache, Reranker reranker) {
         KnowledgeProperties.Search s = props.search();
         KnowledgeProperties withRerank = new KnowledgeProperties(dir, false, props.maxChunks(), props.chunkChars(),
-                props.minFontPt(), props.batchSize(), new KnowledgeProperties.Search(s.candidates(), s.topK(), s.rrfK(),
+                props.contextChars(), props.minFontPt(), props.batchSize(), new KnowledgeProperties.Search(s.candidates(), s.topK(), s.rrfK(), s.keywordWeight(),
                 s.maxSearchesPerCase(), s.agentPassageChars(),
-                new KnowledgeProperties.Rerank(true, s.rerank().model(), s.rerank().maxPassageChars()), s.cache()));
-        return new KnowledgeSearch(repository, embedder, reranker, searchCache, withRerank);
+                new KnowledgeProperties.Rerank(true, s.rerank().using(), s.rerank().model(), s.rerank().maxPassageChars(),
+                        s.rerank().crossEncoder()), s.cache()));
+        return new KnowledgeSearch(repository, embedder, reranker, reranker, searchCache, withRerank);
     }
 
     private void sync() {
-        KnowledgeProperties local = new KnowledgeProperties(dir, false, 5000, props.chunkChars(), props.minFontPt(),
-                props.batchSize(), props.search());
+        KnowledgeProperties local = new KnowledgeProperties(dir, false, 5000, props.chunkChars(), props.contextChars(),
+                props.minFontPt(), props.batchSize(), props.search());
         new KnowledgeSync(repository, embedder, local, json).sync();
     }
 }

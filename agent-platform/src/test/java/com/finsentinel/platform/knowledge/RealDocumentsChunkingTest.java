@@ -6,6 +6,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -48,6 +49,16 @@ class RealDocumentsChunkingTest {
     void notice626HasSuspiciousTransactionReporting() {
         assertThat(chunks("notice-626-2025"))
                 .anyMatch(c -> c.section().toUpperCase(Locale.ROOT).contains("SUSPICIOUS TRANSACTIONS REPORTING"));
+    }
+
+    @Test
+    void tippingOffNamesTheDueDiligenceSectionsItRefersTo() {
+        SourceDocument notice = new SourceDocument("notice-626-2025", "MAS Notice 626", "", "", "");
+        List<RegulationChunk> chunks = chunks("notice-626-2025");
+        CrossReferences references = new CrossReferences(Map.of(notice, chunks), 300);
+
+        assertThat(references.contextOf("notice-626-2025", find(chunks, "notice-626-2025:14.4")))
+                .startsWith("Refers to: §6 (CUSTOMER DUE DILIGENCE").contains("§7 (SIMPLIFIED", "§8 (ENHANCED");
     }
 
     private List<RegulationChunk> chunks(String docId) {
