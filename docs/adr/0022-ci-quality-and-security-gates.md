@@ -79,6 +79,13 @@ Every fixed version was checked on Maven Central and released at least two weeks
 Spring Boot 4.1.2 (2026-10-31) manages Tomcat 11.0.27, the version the override had reached, so the Tomcat override is
 gone from the platform and both MCP servers.
 
+Dependabot's framework-aligned group after Boot 4.1.2 and Spring AI 2.0.2 (PRs #34 and #37, closed 2026-10-31): the
+MCP SDK went to 2.1.0 with Spring AI 2.0.2 (#36), and Kafka to 4.2.2, the line Boot 4.1.2 and spring-kafka manage
+(released 2026-09-22; lz4 and snappy stay overridden). Left for the same reasons as on PR #9 above: Flink 2.3.0 (still
+no `flink-connector-kafka` for 2.3), Jackson 3 3.2.4 and JUnit 6.1.3 (Boot manages 3.1.7 and 6.0.3), Jackson 2
+2.22.4 and log4j 2.26.1 (Spark, 4.2.0 and 4.3.0 alike, is on Jackson 2.21 and log4j 2.25), Kafka 4.4.0. Spark 4.3.0
+(released 2026-10-27) is a minor upgrade of its own.
+
 - **Overrides go ahead of the Boot BOM.** Imported BOMs do not override each other: the first one listed wins, and a
   module's own imports come before those it inherits. A test showed it: with `jackson3.version` raised in the root,
   `contracts` resolved 3.1.7 and `agent-platform` still 3.1.5. So the three Spring modules import the Jackson BOMs

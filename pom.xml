@@ -46,7 +46,7 @@
         <!-- Logback to OpenTelemetry logs for the platform (ADR 0027): the release built against the OpenTelemetry above.
              Boot does not manage it. -->
         <opentelemetry-logback-appender.version>2.28.1-alpha</opentelemetry-logback-appender.version>
-        <kafka.version>4.2.1</kafka.version>
+        <kafka.version>4.2.2</kafka.version>
         <!-- Security fixes (ADR 0022 "Upgrades"). Jackson 2 stays on the 2.21 line that Spark 4.2.0
              (jackson-module-scala must match databind's minor) and Spring Boot 4.1.1 use; Jackson 3 on Boot's 3.1 line.
              The Spring modules import these ahead of the Boot BOM, which would otherwise win (see agent-platform). -->
@@ -128,13 +128,13 @@
                 <artifactId>kafka-clients</artifactId>
                 <version>${kafka.version}</version>
             </dependency>
-            <!-- kafka-clients 4.2.1 brings lz4-java 1.10.1 (4.2.2 still 1.11.2) and Spark 4.2.0 brings 1.11.0. -->
+            <!-- kafka-clients 4.2.2 brings lz4-java 1.11.2 and Spark 4.2.0 brings 1.11.0. -->
             <dependency>
                 <groupId>at.yawk.lz4</groupId>
                 <artifactId>lz4-java</artifactId>
                 <version>${lz4.version}</version>
             </dependency>
-            <!-- kafka-clients 4.2.1 brings snappy-java 1.1.10.7 and Spark 4.2.0 brings 1.1.10.8; Boot manages neither. -->
+            <!-- kafka-clients 4.2.2 brings snappy-java 1.1.10.7 and Spark 4.2.0 brings 1.1.10.8; Boot manages neither. -->
             <dependency>
                 <groupId>org.xerial.snappy</groupId>
                 <artifactId>snappy-java</artifactId>
