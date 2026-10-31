@@ -143,7 +143,7 @@
         <dependency>
             <groupId>io.modelcontextprotocol.sdk</groupId>
             <artifactId>mcp</artifactId>
-            <version>2.0.0</version>
+            <version>2.1.0</version>
         </dependency>
         <!-- Agent graph runtime for the ANALYSIS stage (ADR 0008): Spring AI Alibaba Graph, core only. Checkpoints go
              through our own fenced saver, not the library's savers. 2.0.0-M1.1 is the only line built for Spring AI
