@@ -76,6 +76,9 @@ Every fixed version was checked on Maven Central and released at least two weeks
 | Netty (BOM) | 4.2.13 | 4.2.17 (2026-08-04) | Spark (Boot already managed 4.2.17) |
 | lz4-java | 1.10.1, 1.11.0 | 1.11.4 (2026-09-25) | kafka-clients 4.2.1, Spark |
 
+Spring Boot 4.1.2 (2026-10-31) manages Tomcat 11.0.27, the version the override had reached, so the Tomcat override is
+gone from the platform and both MCP servers.
+
 - **Overrides go ahead of the Boot BOM.** Imported BOMs do not override each other: the first one listed wins, and a
   module's own imports come before those it inherits. A test showed it: with `jackson3.version` raised in the root,
   `contracts` resolved 3.1.7 and `agent-platform` still 3.1.5. So the three Spring modules import the Jackson BOMs
