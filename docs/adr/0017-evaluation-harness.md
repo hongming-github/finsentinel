@@ -224,6 +224,14 @@ transcripts: 50/51 (`outlier-at-home` once NEEDS_REVIEW 50), $0.389
 investigator was Terra throughout (those runs cost $0.006-0.018, a Luna-only run about $0.001). Later records also
 carry `costByModel`, which says it directly.
 
+**After the last chunker fixes (2026-10-31).** Roman-numeral sub-headings, Notice 626's section 11A and the annexes
+became chunks of their own after the two runs above (ADR 0007), so the corpus the agent searches changed. A third full
+run on Terra (Spring AI 2.0.1, before the 2.0.2 upgrade): 50/51, gate passes, $0.430 ($0.0084 a run), p50 11.6 s /
+p95 26.6 s, tool selection and regulation relevance 100%
+([`2026-10-31-full-terra.md`](../eval/2026-10-31-full-terra.md)). The one failure is again `outlier-at-home`
+(NEEDS_REVIEW, risk 45); `regular-rent-payee` hedged once too, which its expectation allows. Terra's three full runs:
+149/153.
+
 ## Not done yet
 
 - A golden case for the other branch of the travel-notice rule (abroad first, then a payment at home during the
