@@ -124,7 +124,7 @@ class McpServerConnection implements AutoCloseable {
         if (client == null) {
             McpSyncClient fresh = McpClient.sync(HttpClientStreamableHttpTransport.builder(url.toString())
                             .clientBuilder(HttpClient.newBuilder().connectTimeout(connectTimeout))
-                            .httpRequestCustomizer((request, method, endpoint, body, context) -> {
+                            .addHttpRequestCustomizer((request, method, endpoint, body, context) -> {
                                 request.header("Authorization", "Bearer " + bearerToken.get());
                                 // Captured on the calling thread (below): the request may go out on another one.
                                 if (context.get(Traces.HEADER) instanceof String traceparent) {

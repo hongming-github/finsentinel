@@ -12,6 +12,8 @@ updates:
     ignore:
       # Stays at the version Spring Boot manages (ADR 0020, root pom.xml): it moves with the Boot upgrade, never alone.
       - dependency-name: "io.opentelemetry:*"
+      # The release built against that OpenTelemetry (root pom.xml): a newer one is built against a newer API.
+      - dependency-name: "io.opentelemetry.instrumentation:opentelemetry-logback-appender-1.0"
     groups:
       # Versions chosen to match a framework rather than the newest release: Jackson 3, JUnit and Kafka follow Spring
       # Boot, log4j and Jackson 2 follow Spark, the MCP SDK follows Spring AI, and Flink waits for a matching

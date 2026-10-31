@@ -65,7 +65,7 @@ class PlatformMcpServerTest {
 
     private McpSyncClient connect(String token) {
         McpSyncClient c = McpClient.sync(HttpClientStreamableHttpTransport.builder("http://localhost:" + port)
-                        .httpRequestCustomizer((request, method, endpoint, body, context) ->
+                        .addHttpRequestCustomizer((request, method, endpoint, body, context) ->
                                 request.header("Authorization", "Bearer " + token))
                         .build())
                 .requestTimeout(Duration.ofSeconds(10))
