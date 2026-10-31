@@ -34,17 +34,19 @@ public record KnowledgeProperties(Path dir, boolean syncOnStartup, int maxChunks
      * @param candidates         results taken from each of the vector and keyword searches before fusion
      * @param topK               passages returned to the agent
      * @param rrfK               reciprocal rank fusion constant; 60 is the value from the original RRF paper
+     * @param keywordWeight      weight of the keyword ranking in the fusion, the vector ranking's being 1; between 0
+     *                           (vector order, keyword candidates last) and 1 (plain RRF)
      * @param maxSearchesPerCase searches one investigation may run; each one can cost a rerank call
      * @param agentPassageChars  passage text returned to the agent per hit; long passages drown the case evidence
      * @param rerank             reranking of the fused candidates
      * @param cache              exact-match cache of search results, shared by every instance
      */
-    public record Search(int candidates, int topK, int rrfK, int maxSearchesPerCase, int agentPassageChars,
-                         Rerank rerank, Cache cache) {
+    public record Search(int candidates, int topK, int rrfK, double keywordWeight, int maxSearchesPerCase,
+                         int agentPassageChars, Rerank rerank, Cache cache) {
 
         public Search {
-            if (candidates < topK || topK <= 0 || rrfK <= 0 || maxSearchesPerCase <= 0 || agentPassageChars < 200
-                    || rerank == null || cache == null) {
+            if (candidates < topK || topK <= 0 || rrfK <= 0 || !(keywordWeight >= 0 && keywordWeight <= 1)
+                    || maxSearchesPerCase <= 0 || agentPassageChars < 200 || rerank == null || cache == null) {
                 throw new IllegalArgumentException("finsentinel.knowledge.search: invalid settings");
             }
         }

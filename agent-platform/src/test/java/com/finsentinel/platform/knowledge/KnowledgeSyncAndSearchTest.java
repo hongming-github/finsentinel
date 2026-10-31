@@ -185,7 +185,7 @@ class KnowledgeSyncAndSearchTest {
         closed.stop(0);
         KnowledgeProperties.Search s = props.search();
         KnowledgeProperties down = new KnowledgeProperties(dir, false, props.maxChunks(), props.chunkChars(),
-                props.contextChars(), props.minFontPt(), props.batchSize(), new KnowledgeProperties.Search(s.candidates(), s.topK(), s.rrfK(),
+                props.contextChars(), props.minFontPt(), props.batchSize(), new KnowledgeProperties.Search(s.candidates(), s.topK(), s.rrfK(), s.keywordWeight(),
                 s.maxSearchesPerCase(), s.agentPassageChars(), new KnowledgeProperties.Rerank(true,
                 KnowledgeProperties.Using.CROSS_ENCODER, s.rerank().model(), s.rerank().maxPassageChars(),
                 new KnowledgeProperties.CrossEncoder(URI.create("http://localhost:" + port), "BAAI/bge-reranker-v2-m3",
@@ -212,10 +212,20 @@ class KnowledgeSyncAndSearchTest {
 
     @Test
     void reciprocalRankFusionRewardsAgreementBetweenLists() {
-        List<String> fused = KnowledgeSearch.fuse(List.of(List.of("a", "b", "c"), List.of("c", "b", "d")), 60);
+        List<String> fused = KnowledgeSearch.fuse(List.of(List.of("a", "b", "c"), List.of("c", "b", "d")),
+                List.of(1.0, 1.0), 60);
 
         assertThat(fused.subList(0, 2)).containsExactlyInAnyOrder("b", "c");
         assertThat(fused).containsExactlyInAnyOrder("a", "b", "c", "d");
+    }
+
+    @Test
+    void aLighterKeywordListMovesItsOwnFindsDown() {
+        List<List<String>> rankings = List.of(List.of("v1", "v2", "v3"), List.of("k1", "v3"));
+
+        assertThat(KnowledgeSearch.fuse(rankings, List.of(1.0, 1.0), 60)).startsWith("v3", "v1");
+        assertThat(KnowledgeSearch.fuse(rankings, List.of(1.0, 0.0), 60)).as("weight 0: vector order, keyword finds last")
+                .containsExactly("v1", "v2", "v3", "k1");
     }
 
     private KnowledgeSync sync(int maxChunks) {

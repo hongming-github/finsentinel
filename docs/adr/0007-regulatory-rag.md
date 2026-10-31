@@ -156,3 +156,74 @@ hit@3 / hit@5 / MRR 0.94 / 0.94 / 0.84 against 0.97 / 0.97 / 0.92, in two runs e
 reranker; the setting, the numbers and the latency by hardware are in ADR 0030. So is a cross-reference context
 line ("Refers to: §6 (CUSTOMER DUE DILIGENCE)") for the reranker: built, measured, and off by default, since embedding
 it hurt vector search and reranking with it was a wash on 32 questions.
+
+## 105 questions, a dev/test split and paired tests (2026-10-28)
+
+The 32 questions could not tell a one-question difference from noise, had no definition question although the agent
+asks for definitions most, tested the agent's query style with keyword strings it no longer writes (Terra writes full
+questions naming the instrument), and covered TRM (39% of the chunks) with five questions. `retrieval-eval.json` now
+holds 105, each with a category and a split:
+
+| Category | Questions | What it tests |
+|---|---|---|
+| paraphrase, terms | 22, 10 | the first 32, unchanged |
+| agent-query | 9 | queries the investigator and the case assistant sent, verbatim |
+| definition | 12 | the definition chunks, none asked before |
+| cross-reference | 10 | the answer names its subject only as "paragraphs 6, 7 or 8" |
+| near-miss | 13 | a neighbouring passage answers a slightly different question (simplified vs enhanced CDD, wire transfers up to vs above S$1,500, wire vs value transfers) |
+| coverage | 21 | Notice 626 and TRM topics with no question before |
+| case | 8 | an investigator's question with the case facts in it |
+
+- Labels of the added questions are pooled: every passage any of the six modes ranked in its top three was judged
+  against the PDF text, and 34 more answering passages were added to 28 questions. LLM rerank output was never taken
+  as a label.
+- The first 32 are dev (every past decision was made on them); the added 73 are split per category by a hash of the
+  question, 43 test and 30 dev. Tune on dev and run test once to confirm a decision.
+- `RetrievalEvalTest` reports dev, test and all, hit@3 / MRR per category, and every mode against HYBRID_RERANK on
+  the same questions (exact McNemar on hit@3; `McNemar`, unit-tested). `-Dretrieval.split`, `-Dretrieval.modes` and
+  `-Dretrieval.pool=FILE` (every mode's top ten, for labelling) keep runs cheap.
+
+Labels of the added questions were then judged again by a second annotator (another model, blind to the first's
+notes): 12 passages added, 3 removed, 3 ambiguous questions reworded, 6 suggestions declined (definitions that do not
+answer the question asked). Not yet reviewed by a person. Result on the final labels:
+
+| Mode | dev (62) | test (43) | all (105) | recall@20 |
+|---|---|---|---|---|
+| vector | 0.84 / 0.85 / 0.74 | 0.95 / 1.00 / 0.79 | 0.89 / 0.91 / 0.76 | 0.96 |
+| keyword | 0.63 / 0.68 / 0.53 | 0.65 / 0.72 / 0.55 | 0.64 / 0.70 / 0.54 | 0.85 |
+| hybrid (RRF) | 0.81 / 0.85 / 0.69 | 0.79 / 0.84 / 0.67 | 0.80 / 0.85 / 0.68 | 0.98 |
+| vector + LLM rerank | 0.97 / 0.97 / 0.95 | 0.95 / 0.98 / 0.95 | 0.96 / 0.97 / 0.95 | 0.98 |
+| hybrid + LLM rerank | 0.97 / 0.97 / 0.94 | 0.98 / 1.00 / 0.95 | 0.97 / 0.98 / 0.95 | 0.98 |
+| hybrid + cross-encoder | 0.94 / 0.94 / 0.84 | 0.86 / 0.93 / 0.79 | 0.90 / 0.93 / 0.82 | 0.98 |
+
+- Paired on hit@3, hybrid + LLM rerank beats hybrid alone (18 questions to 0, p < 0.001), vector alone (9 to 0,
+  p = 0.004) and the cross-encoder (7 to 0, p = 0.016). Vector + LLM rerank is level with it (1 to 0, p = 1): the
+  rerank, not the candidate source, does the work.
+- Before reranking, vector alone beats hybrid (0.89 against 0.80 hit@3): the keyword half pulls in passages that
+  share a word (the payee case's amount brought in Notice 626 CDD thresholds). See the fusion weight below.
+- Three questions miss the agent's top three: the colloquial phishing question (SRF 6.2), and two case questions,
+  the OTP read out to a caller (rank 4) and the new payee on a new phone, which every mode misses. Case questions are
+  the weakest category (0.75).
+
+## Fusion weight: measured, unchanged (2026-10-28)
+
+Vector alone beat hybrid before reranking (0.89 against 0.80 hit@3 on 105 questions), so the keyword ranking got a
+weight in the fusion (`knowledge.search.keyword-weight`, weighted RRF), and the evaluation a recall@20 column: the
+share of questions whose answer is among the twenty candidates the reranker is handed.
+
+- Dev, without reranking: weights 0.5 to 0.1 raise hybrid from 0.81 / 0.85 / 0.70 to 0.84-0.85 / 0.85-0.87 /
+  0.72-0.77; recall@20 stays 0.95-0.97, which vector alone also moves between from run to run. At 0, term queries
+  drop from 0.90 to 0.80 hit@3: the keyword half finds the exact terms.
+- Dev, with the LLM reranker: weight 1.0 and 0.2 rank all 62 questions identically (0.97 / 0.97 / 0.94).
+- Test, once: weight 1.0 1.00 / 1.00 / 0.95, weight 0.2 0.95 / 0.95 / 0.93 (2 questions to 0, p = 0.5). One of the
+  two is an agent query, "Cooling-off period requirements before outgoing transfers from a protected account": vector
+  search misses it, the keyword list has it first, and at 0.2 its score (0.2 / 61) falls below the vector list's
+  twentieth (1 / 80), so it never reaches the reranker.
+- Headroom: the fused twenty already hold every answer either list finds (103 of 105, the union of both top twenties
+  is also 103). The two left, the colloquial phishing question and the payee case with its amounts, are in neither
+  list: wording, not fusion.
+
+The weight stays 1.0 (plain RRF). Fusion decides only which candidates the reranker sees, and it already passes every
+answer either retriever finds; a lighter keyword list only tidies the fallback order and costs keyword-only finds.
+Two wording failures remain on 105 questions, both in query styles the agent does not send.
+

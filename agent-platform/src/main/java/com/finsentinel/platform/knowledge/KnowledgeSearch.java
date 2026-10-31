@@ -137,18 +137,19 @@ public class KnowledgeSearch {
             log.warn("Embedding failed, searching by keyword only: {}", e.toString());
             return new Fused(keyword, true);
         }
-        return new Fused(fuse(List.of(vector, keyword), props.rrfK()), false);
+        return new Fused(fuse(List.of(vector, keyword), List.of(1.0, props.keywordWeight()), props.rrfK()), false);
     }
 
     /**
-     * Reciprocal rank fusion: score(d) = sum over lists of 1 / (k + rank). Uses ranks only, so the incomparable
-     * scales of cosine distance and ts_rank never have to be normalised against each other.
+     * Weighted reciprocal rank fusion: score(d) = sum over lists of weight / (k + rank). Uses ranks only, so the
+     * incomparable scales of cosine distance and ts_rank never have to be normalised against each other.
      */
-    static List<String> fuse(List<List<String>> rankings, int k) {
+    static List<String> fuse(List<List<String>> rankings, List<Double> weights, int k) {
         Map<String, Double> scores = new LinkedHashMap<>();
-        for (List<String> ranking : rankings) {
+        for (int list = 0; list < rankings.size(); list++) {
+            List<String> ranking = rankings.get(list);
             for (int rank = 0; rank < ranking.size(); rank++) {
-                scores.merge(ranking.get(rank), 1.0 / (k + rank + 1), Double::sum);
+                scores.merge(ranking.get(rank), weights.get(list) / (k + rank + 1), Double::sum);
             }
         }
         return scores.entrySet().stream()

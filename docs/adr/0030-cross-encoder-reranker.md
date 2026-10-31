@@ -80,6 +80,11 @@ its GPU it is 2.4 times faster. In the compose container it is too slow to be us
 vCPUs, and Linux aarch64 PyTorch uses OpenBLAS where macOS uses Accelerate. With the 10 s timeout, every search would
 fall back to the fused order there. A Linux x86_64 server with more cores or a GPU was not measured.
 
+On the 105-question set (ADR 0007, 2026-10-28) the gap holds and is no longer noise: hit@3 0.90 against 0.97, MRR
+0.82 against 0.95, and on the same questions the LLM reranker is right where the cross-encoder is wrong seven times
+and never the other way (exact McNemar p = 0.016; on the 43 test questions alone 5 to 0, p = 0.063). The cross-encoder's
+weakest categories are cross-reference (0.70 hit@3) and definition (0.83) questions.
+
 ## Cross-references for the reranker: built, measured, off (2026-10-28)
 
 Notice 626 14.4, the tipping-off question's answer, never says "due diligence": it says "the measures as required by

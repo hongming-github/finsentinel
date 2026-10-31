@@ -219,6 +219,9 @@ finsentinel:
       # an impossible-travel case to "legitimate"; three trimmed ones did not.
       top-k: 3
       rrf-k: 60
+      # Weight of the keyword ranking in the fusion (vector ranking 1). 1.0 on measured data (ADR 0007): 0.2 ordered the
+      # fused list better but pushed keyword-only finds out of the reranker's twenty candidates and lost an agent query.
+      keyword-weight: 1.0
       max-searches-per-case: 3
       agent-passage-chars: 900
       rerank:
