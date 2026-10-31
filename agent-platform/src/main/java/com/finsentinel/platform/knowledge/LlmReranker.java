@@ -14,7 +14,7 @@ import java.util.Map;
 
 /**
  * Asks a small model to grade each candidate 0-3. A listwise grade in one call is far cheaper than a call per
- * passage, and a cross-encoder would mean hosting another model.
+ * passage. The alternative is {@link CrossEncoderReranker}, a hosted model (ADR 0030).
  */
 @Component
 class LlmReranker implements Reranker {

@@ -22,7 +22,7 @@ class GoldenDatasetTest {
                         null, null, null, List.of("crm"), null),
                 new GoldenCase.AlertSpec(AlertRule.GEO_JUMP, Severity.HIGH, List.of("t1", "t2")),
                 new GoldenCase.Expect(Set.of(Disposition.LIKELY_FRAUD), 80, 20, List.of("getProfile"), List.of(),
-                        new GoldenCase.Regulations(true, "no-such-set"), false, false, List.of()));
+                        new GoldenCase.Regulations(true, List.of("no-such-set")), false, false, List.of()));
         GoldenDataset dataset = new GoldenDataset(Map.of("set", Set.of("srf 6.2")), List.of(broken, broken));
 
         assertThat(dataset.problems()).containsExactlyInAnyOrder(

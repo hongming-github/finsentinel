@@ -19,9 +19,13 @@ final class Grounding {
 
     private static final Pattern UUID_ID = Pattern.compile(
             "\\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\b");
-    /** Some passages carry a name after the section number, e.g. {@code srf-2024:2.1:high-risk-activities}. */
-    private static final Pattern CHUNK_ID = Pattern.compile(
-            "\\b[a-z][a-z0-9]*(?:-[a-z0-9]+)*:\\d+(?:\\.\\d+)*(?::[a-z0-9]+(?:-[a-z0-9]+)*)?\\b");
+    /**
+     * Some passages carry a name after the section number ({@code srf-2024:2.1:high-risk-activities}), an inserted
+     * section a letter ({@code notice-626-2025:11A.3}), a part of a long paragraph a suffix ({@code 6.14-p2}); annexes
+     * are numbered by letter ({@code trm-2021:A.1}), appendices by name ({@code notice-626-2025:appendix-1}).
+     */
+    private static final Pattern CHUNK_ID = Pattern.compile("\\b[a-z][a-z0-9]*(?:-[a-z0-9]+)*:"
+            + "(?:\\d+[A-Z]?(?:\\.\\d+)*|[A-Z](?:\\.\\d+)+|appendix-\\d+)(?::[a-z0-9]+(?:-[a-z0-9]+)*)?(?:-p\\d+)?\\b");
 
     private Grounding() {
     }

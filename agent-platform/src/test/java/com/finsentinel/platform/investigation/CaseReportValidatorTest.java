@@ -32,6 +32,24 @@ class CaseReportValidatorTest {
                 false, List.of(), rules)).as("without planted instructions clearing is fine").isEmpty();
     }
 
+    /** Missing evidence is not evidence of legitimacy: the alert cannot have been explained away (ADR 0025). */
+    @Test
+    void aCaseCannotBeClearedWhileTransactionsBehindItsAlertsAreMissing() {
+        Set<String> missing = Set.of("t9");
+        assertThat(CaseReportValidator.problems(report(Disposition.LIKELY_LEGITIMATE, 10, List.of()), SEEN, Set.of(),
+                false, List.of(), missing, RULES)).singleElement().asString()
+                .contains("[t9]").contains("cannot be cleared");
+        assertThat(CaseReportValidator.problems(report(Disposition.NEEDS_REVIEW, 50, List.of()), SEEN, Set.of(),
+                false, List.of(), missing, RULES)).isEmpty();
+    }
+
+    @Test
+    void aTransactionStoredDuringTheAnalysisAndReturnedByATool() {
+        // Missing when the run began; a tool returned it later, so the agent saw it.
+        assertThat(CaseReportValidator.problems(report(Disposition.LIKELY_LEGITIMATE, 10, List.of("t1")), SEEN,
+                Set.of(), false, List.of(), Set.of("t1"), RULES)).isEmpty();
+    }
+
     @Test
     void dispositionMustMatchScore() {
         assertThat(problems(report(Disposition.LIKELY_FRAUD, 10, List.of())))

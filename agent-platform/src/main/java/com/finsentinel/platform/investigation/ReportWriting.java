@@ -57,6 +57,13 @@ public final class ReportWriting {
     static String caseData(CaseContext caseContext, JsonMapper json) {
         StringBuilder data = new StringBuilder("\n\nIts alerts:\n")
                 .append(json.writerWithDefaultPrettyPrinter().writeValueAsString(caseContext.alerts()));
+        if (!caseContext.missingTxnIds().isEmpty()) {
+            // Case data, not shared guidance: it goes with the alerts in the user message (ADR 0023).
+            data.append("\n\nTransactions behind these alerts were not stored yet when this analysis began: ")
+                    .append(caseContext.missingTxnIds().stream().sorted().toList())
+                    .append(". Work with what the tools return and say in the summary which evidence was missing. "
+                            + "Unless a tool returns them, the case cannot be cleared.");
+        }
         if (caseContext.analystNote() != null) {
             data.append("\n\nAn analyst reviewed an earlier report and sent the case back with this note. Address it "
                     + "explicitly in your findings:\n").append(caseContext.analystNote());

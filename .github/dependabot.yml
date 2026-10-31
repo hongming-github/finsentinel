@@ -75,3 +75,17 @@ updates:
     groups:
       python-minor-and-patch:
         update-types: [minor, patch]
+
+  # The cross-encoder reranker service (ADR 0030): its lock file and its two base images (uv, Python), pinned by digest.
+  - package-ecosystem: uv
+    directory: /reranker
+    schedule:
+      interval: monthly
+    groups:
+      reranker-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: docker
+    directory: /reranker
+    schedule:
+      interval: monthly

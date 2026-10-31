@@ -3,6 +3,7 @@ package com.finsentinel.platform.knowledge;
 import com.finsentinel.platform.llm.LlmUsage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -17,27 +18,41 @@ import java.util.stream.Collectors;
 
 /**
  * Hybrid retrieval over the regulatory corpus: vector and keyword candidates fused with reciprocal rank fusion,
- * then optionally reranked by an LLM. {@link Mode} exists so the retrieval evaluation can compare the stages.
+ * then optionally reranked by an LLM or a cross-encoder (ADR 0030). {@link Mode} exists so the retrieval evaluation can compare the stages.
  * The production pipeline goes through {@link SearchCache}; the evaluation modes never do.
  */
 @Component
 public class KnowledgeSearch {
 
-    public enum Mode { VECTOR, KEYWORD, HYBRID, HYBRID_RERANK }
+    /**
+     * HYBRID_RERANK is the production pipeline, with the configured reranker; the others exist for the retrieval
+     * evaluation's comparison. HYBRID_CROSS_ENCODER reranks with the cross-encoder whatever is configured.
+     */
+    public enum Mode { VECTOR, KEYWORD, HYBRID, VECTOR_RERANK, HYBRID_RERANK, HYBRID_CROSS_ENCODER }
 
     private static final Logger log = LoggerFactory.getLogger(KnowledgeSearch.class);
 
     private final KnowledgeRepository repository;
     private final Embedder embedder;
     private final Reranker reranker;
+    private final Reranker crossEncoder;
     private final SearchCache cache;
     private final KnowledgeProperties.Search props;
 
-    KnowledgeSearch(KnowledgeRepository repository, Embedder embedder, Reranker reranker, SearchCache cache,
-                    KnowledgeProperties props) {
+    @Autowired
+    KnowledgeSearch(KnowledgeRepository repository, Embedder embedder, LlmReranker llm,
+                    CrossEncoderReranker crossEncoder, SearchCache cache, KnowledgeProperties props) {
+        this(repository, embedder, props.search().rerank().using() == KnowledgeProperties.Using.CROSS_ENCODER
+                ? crossEncoder : llm, crossEncoder, cache, props);
+    }
+
+    /** @param reranker the production pipeline's reranker; crossEncoder serves HYBRID_CROSS_ENCODER */
+    KnowledgeSearch(KnowledgeRepository repository, Embedder embedder, Reranker reranker, Reranker crossEncoder,
+                    SearchCache cache, KnowledgeProperties props) {
         this.repository = repository;
         this.embedder = embedder;
         this.reranker = reranker;
+        this.crossEncoder = crossEncoder;
         this.cache = cache;
         this.props = props.search();
     }
@@ -73,6 +88,11 @@ public class KnowledgeSearch {
         return run(query, mode, topK).hits();
     }
 
+    /** For the retrieval evaluation: also what reranking cost and whether a stage fell back. */
+    Ranked evaluate(String query, Mode mode, int topK) {
+        return run(query, mode, topK);
+    }
+
     /**
      * @param cacheHit served from {@link SearchCache}; null when the cache is off
      * @param savedUsd on a hit, what the cached search had cost to produce
@@ -81,7 +101,7 @@ public class KnowledgeSearch {
     }
 
     /** @param degraded a stage failed and was skipped (keyword-only, or fused order instead of reranked) */
-    private record Ranked(List<RegulationHit> hits, LlmUsage usage, boolean degraded) {
+    record Ranked(List<RegulationHit> hits, LlmUsage usage, boolean degraded) {
     }
 
     private record Fused(List<String> ids, boolean degraded) {
@@ -89,14 +109,16 @@ public class KnowledgeSearch {
 
     private Ranked run(String query, Mode mode, int topK) {
         Fused fused = switch (mode) {
-            case VECTOR -> new Fused(repository.vectorSearch(embedder.embed(query), props.candidates()), false);
+            case VECTOR, VECTOR_RERANK ->
+                    new Fused(repository.vectorSearch(embedder.embed(query), props.candidates()), false);
             case KEYWORD -> new Fused(repository.keywordSearch(query, props.candidates()), false);
-            case HYBRID, HYBRID_RERANK -> hybrid(query);
+            case HYBRID, HYBRID_RERANK, HYBRID_CROSS_ENCODER -> hybrid(query);
         };
         Reranker.Ranking ranking = new Reranker.Ranking(fused.ids(), LlmUsage.NONE);
         boolean degraded = fused.degraded();
-        if (mode == Mode.HYBRID_RERANK) {
-            Optional<Reranker.Ranking> reranked = rerank(query, fused.ids());
+        if (mode == Mode.HYBRID_RERANK || mode == Mode.VECTOR_RERANK || mode == Mode.HYBRID_CROSS_ENCODER) {
+            Optional<Reranker.Ranking> reranked = rerank(mode == Mode.HYBRID_CROSS_ENCODER ? crossEncoder : reranker,
+                    query, fused.ids());
             degraded |= reranked.isEmpty();
             ranking = reranked.orElse(ranking);
         }
@@ -115,18 +137,19 @@ public class KnowledgeSearch {
             log.warn("Embedding failed, searching by keyword only: {}", e.toString());
             return new Fused(keyword, true);
         }
-        return new Fused(fuse(List.of(vector, keyword), props.rrfK()), false);
+        return new Fused(fuse(List.of(vector, keyword), List.of(1.0, props.keywordWeight()), props.rrfK()), false);
     }
 
     /**
-     * Reciprocal rank fusion: score(d) = sum over lists of 1 / (k + rank). Uses ranks only, so the incomparable
-     * scales of cosine distance and ts_rank never have to be normalised against each other.
+     * Weighted reciprocal rank fusion: score(d) = sum over lists of weight / (k + rank). Uses ranks only, so the
+     * incomparable scales of cosine distance and ts_rank never have to be normalised against each other.
      */
-    static List<String> fuse(List<List<String>> rankings, int k) {
+    static List<String> fuse(List<List<String>> rankings, List<Double> weights, int k) {
         Map<String, Double> scores = new LinkedHashMap<>();
-        for (List<String> ranking : rankings) {
+        for (int list = 0; list < rankings.size(); list++) {
+            List<String> ranking = rankings.get(list);
             for (int rank = 0; rank < ranking.size(); rank++) {
-                scores.merge(ranking.get(rank), 1.0 / (k + rank + 1), Double::sum);
+                scores.merge(ranking.get(rank), weights.get(list) / (k + rank + 1), Double::sum);
             }
         }
         return scores.entrySet().stream()
@@ -136,13 +159,12 @@ public class KnowledgeSearch {
     }
 
     /** Empty when the reranker failed: the caller keeps the fused order. */
-    private Optional<Reranker.Ranking> rerank(String query, List<String> fused) {
+    private Optional<Reranker.Ranking> rerank(Reranker reranker, String query, List<String> fused) {
         List<String> top = fused.subList(0, Math.min(props.candidates(), fused.size()));
         Map<String, KnowledgeRepository.StoredPassage> passages = byId(top);
         List<Reranker.Candidate> candidates = top.stream()
                 .filter(passages::containsKey)
-                .map(id -> new Reranker.Candidate(id, passages.get(id).shortName() + " §" + passages.get(id).ref()
-                        + " (" + passages.get(id).section() + ")\n" + passages.get(id).text()))
+                .map(id -> candidate(passages.get(id)))
                 .toList();
         List<String> reranked;
         LlmUsage usage;
@@ -160,6 +182,15 @@ public class KnowledgeSearch {
             fused.stream().filter(id -> !reranked.contains(id)).limit(props.topK() - reranked.size()).forEach(reranked::add);
         }
         return Optional.of(new Reranker.Ranking(reranked, usage));
+    }
+
+    /**
+     * What a reranker reads: where the passage sits, what its cross-references point to (ahead of the text, so the
+     * LLM reranker's cut keeps it), then the text. The agent gets the text without the context line.
+     */
+    private static Reranker.Candidate candidate(KnowledgeRepository.StoredPassage p) {
+        return new Reranker.Candidate(p.chunkId(), p.shortName() + " §" + p.ref() + " (" + p.section() + ")\n"
+                + (p.context().isEmpty() ? "" : p.context() + "\n") + p.text());
     }
 
     /** Full passages by chunk id, in the order asked; unknown ids are left out. */

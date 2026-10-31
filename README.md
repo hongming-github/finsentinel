@@ -15,11 +15,11 @@ linked. The weak ones are included.
 |---|---|---|
 | Detection latency, payment to alert (p95) | 142 ms at 50 tps, 626 ms at 10,000 tps | Flink job, simulator traffic ([ADR 0025](docs/adr/0025-load-tests.md)) |
 | Stream catch-up throughput | 80,000 transactions/s on average | 4 million queued transactions, bound by 6 Kafka partitions, not CPU (ADR 0025) |
-| Agent quality, golden evaluation | 51/51 runs pass, tool selection 100% | 17 cases x 3 on gpt-6-luna ([report](docs/eval/2026-10-15-luna.md), [ADR 0023](docs/adr/0023-gpt-6-luna.md)) |
+| Agent quality, golden evaluation | 49/51 runs pass, tool selection 100%, regulation relevance 100% (Luna 44/51) | 17 cases x 3 after a domain review tightened them; report writer on gpt-6.1-terra ([report](docs/eval/2026-10-28-full-terra.md), [ADR 0029](docs/adr/0029-terra-investigator.md), [ADR 0017](docs/adr/0017-evaluation-harness.md)) |
 | Model cost per case | $0.0012 in the evaluation, $0.003 end to end | End to end: 23 live alerts, review and repairs included (ADR 0025) |
 | Payment to report with a real model (p95) | **107 s** (analysis alone: 38 s) | 23 live alerts on gpt-6-luna, 8 workers; the model and queue rounds dominate, not detection (ADR 0025) |
 | Prompt tokens read from the provider's cache | 59%; the reviewer's **0%** | 17 cases; the reviewer's prefix is under the 1,024-token minimum ([report](docs/eval/2026-10-16-prompt-cache.md), ADR 0023) |
-| Regulation search, hit@5 / MRR | 0.94 / 0.91 | 32 questions over the MAS corpus, hybrid search and LLM rerank ([ADR 0007](docs/adr/0007-regulatory-rag.md), ADR 0023) |
+| Regulation search, hit@3 / hit@5 / MRR | 0.97 / 0.98 / 0.95 | 105 questions over the MAS corpus (62 dev, 43 test), hybrid search and LLM rerank; a cross-encoder scores 0.90 / 0.93 / 0.82 ([ADR 0007](docs/adr/0007-regulatory-rag.md), [ADR 0030](docs/adr/0030-cross-encoder-reranker.md)) |
 | Prompt injection in a payee name | Model alone cleared the case in **11 of 15** first drafts; the guard blocked all 11 | A flagged case can never be cleared, whatever the model says ([ADR 0016](docs/adr/0016-injection-defenses-and-audit-log.md)) |
 | Analyst API under load (p95) | 14-37 ms up to 385 requests/s; **fails at 500 visits/s** | Gatling; the audit log's per-bank chain lock and a 10-connection pool give out first (ADR 0025) |
 | Shared budget across two instances | Held at exactly 511 of 511 per hour | Counted in Postgres, not in memory (ADR 0025) |
@@ -260,8 +260,10 @@ published to `case.events.v1` through a transactional outbox.
 Inside ANALYSIS a Spring AI Alibaba graph runs the agents (`finsentinel.analysis.mode`: `SINGLE`, one investigator,
 the default; or `MULTI`, deterministic plan, parallel specialists and a report writer, ADR 0010). In both, an LLM
 reviewer checks the report against the author's evidence and can send it back once; its verdict is stored with the
-analysis. The graph checkpoints after every node to `graph_checkpoint` (plain
-JSON). If the platform dies mid-analysis, its claims lapse after `claim-lease` (live runs renew theirs every
+analysis. A case is not claimed until the transactions its alerts name are stored (the platform copies the
+transaction stream itself, and under load the copy fell behind the alerts), or `evidence-wait` after its latest alert;
+then the agents are told what is missing and the report cannot clear the case (ADR 0025). The graph checkpoints after
+every node to `graph_checkpoint` (plain JSON). If the platform dies mid-analysis, its claims lapse after `claim-lease` (live runs renew theirs every
 `claim-heartbeat`), and the next worker to claim the case resumes after the last finished node; a worker whose claim
 was taken can no longer write checkpoints.
 
@@ -336,6 +338,12 @@ indexed as 625 chunks (ADR 0007):
 - **Hybrid retrieval with a listwise rerank**: 20 pgvector (HNSW, cosine) and 20 Postgres full-text candidates, fused
   by reciprocal rank (ranks only, so cosine and `ts_rank` never need normalising), graded 0-3 by `gpt-6-luna` in one
   call. A failed embedding or rerank degrades the ranking, never the search, and is not cached.
+- **A cross-encoder as the alternative, measured**: `reranker/` serves `BAAI/bge-reranker-v2-m3` (FlagEmbedding,
+  compose profile `reranker`), selectable with `rerank.using: cross-encoder`. On 105 questions: hit@3 0.90 and MRR
+  0.82 against the LLM's 0.97 / 0.95 (paired, 7 questions to 0, p = 0.016), the same ranking every run, nothing sent to a provider, 1.6 s per search on the
+  laptop's GPU but 19 s in a 4-vCPU container. Production stays on the LLM ([ADR 0030](docs/adr/0030-cross-encoder-reranker.md)).
+  A "Refers to: §6 (CUSTOMER DUE DILIGENCE)" line for cross-references fixed the question it targeted and cost two
+  others, and hurt vector search when embedded: off by default (`knowledge.context-chars`), same ADR.
 - **The agent writes the queries**: one short question about one topic per call, at most three per case. There is no
   separate rewriting step (multi-query, HyDE): the caller has already turned the case into regulatory questions,
   the rerank closed the paraphrase gap (0.73 to 0.91 hit@5 on paraphrased questions), and a non-deterministic rewrite
@@ -347,14 +355,18 @@ indexed as 625 chunks (ADR 0007):
   would need a tenant (and ACL) column under a row-level security policy, filtering inside the vector query (pgvector
   0.8 iterative scans) rather than after it, and the tenant in the search cache key, which is global today.
 
-| Retrieval mode, 32 questions | hit@5 / MRR |
+| Retrieval mode, 105 questions | hit@3 / hit@5 / MRR |
 |---|---|
-| vector | 0.84 / 0.70 |
-| keyword | 0.59 / 0.50 |
-| hybrid (RRF) | 0.78 / 0.64 |
-| hybrid + rerank | **0.94 / 0.91** |
+| vector | 0.89 / 0.91 / 0.76 |
+| keyword | 0.64 / 0.70 / 0.54 |
+| hybrid (RRF) | 0.80 / 0.85 / 0.68 |
+| vector + LLM rerank | 0.96 / 0.97 / 0.95 |
+| hybrid + LLM rerank | **0.97 / 0.98 / 0.95** |
+| hybrid + cross-encoder | 0.90 / 0.93 / 0.82 |
 
-Hybrid alone does not beat vector here; the rerank is what pays (vector plus rerank has not been measured).
+The questions cover paraphrases, the agent's own queries, definitions, cross-references, near-miss provisions, every
+document and case narratives, split into dev and test. The rerank is what pays: hybrid and vector candidates rank the
+same once reranked, and the fused twenty already hold every answer either search finds (ADR 0007).
 Known gaps, found by comparing with a clause-level diff of the same MAS documents: footnotes and amendment notes are
 dropped rather than kept as metadata, there is no content-conservation check between extracted text and chunks, and
 paragraph numbers are recognised from text alone, not page geometry.
@@ -440,6 +452,7 @@ configuration and add the `--add-opens` flags from `stream-job/pom.xml` (`flink.
 | fake-llm (profile `load`) | 8096 |
 | Web console (`scripts/stack.sh console`) | 8097 |
 | Kafka UI (`kafka-ui` profile) | 8098 |
+| Cross-encoder reranker (`reranker` profile) | 8099 |
 | Grafana (`obs` profile), OTLP gRPC / HTTP | 3000, 4317 / 4318 |
 | Flink UI (local run) | 8082 |
 | Flink UI (`stream` profile) | 8081 |
@@ -452,7 +465,8 @@ configuration and add the `--add-opens` flags from `stream-job/pom.xml` (`flink.
 # Real-model checks (cost money, not deterministic; run several times)
 ./mvnw -pl agent-platform test -Dtest=LiveInvestigationTest -Dlive=true -Dsurefire.failIfNoSpecifiedTests=false
 
-# Retrieval evaluation: hit@5 and MRR for vector, keyword, hybrid, hybrid+rerank (needs fetched documents)
+# Retrieval evaluation: hit@3, hit@5 and MRR for vector, keyword, hybrid, hybrid+rerank (needs fetched documents);
+# also the cross-encoder when the reranker service answers on :8099 (-Dcross-encoder=true to require it)
 ./mvnw -pl agent-platform test -Dtest=RetrievalEvalTest -Dlive=true -Dsurefire.failIfNoSpecifiedTests=false
 ```
 
@@ -494,3 +508,5 @@ proposes updates weekly.
 - [0026 Chaos drills under steady traffic](docs/adr/0026-chaos-drills.md)
 - [0027 A web console over the tenant-scoped API, signed in with PKCE](docs/adr/0027-web-console.md)
 - [0028 A case assistant: multi-turn conversations about one case](docs/adr/0028-case-assistant.md)
+- [0029 GPT-6.1 Terra writes the reports](docs/adr/0029-terra-investigator.md)
+- [0030 A cross-encoder reranker, measured against the LLM reranker](docs/adr/0030-cross-encoder-reranker.md)

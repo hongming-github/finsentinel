@@ -26,7 +26,8 @@ spring:
       chat:
         model: gpt-6-luna
         # Chat Completions (which Spring AI 2.0 uses) takes function tools only without reasoning (gpt-5.4-mini
-        # rejected the combination; gpt-6-luna documents tools on Chat Completions with reasoning effort none only).
+        # rejected the combination; gpt-6-luna documents tools on Chat Completions with reasoning effort none only;
+        # gpt-6.1-terra takes them at none too, probed 2026-10-28; gpt-6.1-sol and gpt-6-astra have no none).
         # The agent's work is tool-driven lookups, so non-reasoning mode is the better latency/cost trade anyway.
         reasoning-effort: none
       embedding:
@@ -112,6 +113,11 @@ finsentinel:
     max-per-hour: 60
     # Claims hold the lock for milliseconds; waiting longer than this means something is stuck.
     claim-lock-timeout: 2s
+    # A case is not claimed until the transactions behind its alerts are stored, or this long after its latest alert
+    # arrived; then it is analysed without them and the agents are told which are missing. The platform's copy of the
+    # transaction stream normally trails the alert by well under a second; under load in phase 9B it fell minutes
+    # behind and 44 analyses ran on no evidence (ADR 0025).
+    evidence-wait: 60s
     tools:
       max-days: 90
       max-transactions: 100
@@ -141,8 +147,10 @@ finsentinel:
           include_reasoning: false
     # The model of each agent role on an ordinary case. "provider:model"; a bare name is OpenAI.
     models:
-      # gpt-6-luna since 2026-10-15 (ADR 0023): 51/51 golden runs against gpt-5.4-mini's 44/48, at a ninth of the cost.
-      investigator: gpt-6-luna
+      # The investigator writes the report: gpt-6.1-terra since 2026-10-28 (ADR 0029), 49/51 golden runs against Luna's
+      # 44/51 on the tightened set (both takeover cases 3/3 against 1/3), at 6x Luna's cost per run. The other roles
+      # stay on gpt-6-luna (ADR 0023): they were not compared.
+      investigator: gpt-6.1-terra
       specialist: gpt-6-luna
       writer: gpt-6-luna
       reviewer: gpt-6-luna
@@ -168,6 +176,8 @@ finsentinel:
     # (OpenAI from GPT-5.6 on); without it writes cost the input rate. Keys with dots, colons or slashes need brackets.
     prices:
       "[gpt-6-luna]": { input: 0.10, cached-input: 0.01, cache-write: 0.125, output: 0.50 }
+      # gpt-6.1-terra: developers.openai.com model page, checked 2026-10-28.
+      "[gpt-6.1-terra]": { input: 1.00, cached-input: 0.05, cache-write: 1.25, output: 5.00 }
       "[gpt-5.5]": { input: 5.00, cached-input: 0.50, output: 30.00 }
       "[gpt-5.4-mini]": { input: 0.75, cached-input: 0.075, output: 4.50 }
       "[gpt-5.4-nano]": { input: 0.20, cached-input: 0.02, output: 1.25 }
@@ -196,6 +206,11 @@ finsentinel:
     sync-on-startup: true
     max-chunks: 5000
     chunk-chars: 2400
+    # A chunk's cross-references named by their headings ("Refers to: §6 (CUSTOMER DUE DILIGENCE)"), shown to the
+    # reranker only, never embedded or handed to the agent; the longest line in characters, 0 = off. Off on measured
+    # data (ADR 0030): it fixed the question it was built for and cost two others on 32 questions. 300 was the value
+    # tried (the LLM reranker reads 700 characters a passage; EUPG 4.29's full line runs to 1,000).
+    context-chars: 0
     min-font-pt: 10
     batch-size: 100
     search:
@@ -204,13 +219,25 @@ finsentinel:
       # an impossible-travel case to "legitimate"; three trimmed ones did not.
       top-k: 3
       rrf-k: 60
+      # Weight of the keyword ranking in the fusion (vector ranking 1). 1.0 on measured data (ADR 0007): 0.2 ordered the
+      # fused list better but pushed keyword-only finds out of the reranker's twenty candidates and lost an agent query.
+      keyword-weight: 1.0
       max-searches-per-case: 3
       agent-passage-chars: 900
       rerank:
         enabled: true
+        # llm or cross-encoder (ADR 0030). The cross-encoder needs the reranker service (compose profile reranker);
+        # when it is down or slow, search keeps the fused order, as for a failed LLM call.
+        using: llm
         # gpt-6-luna since 2026-10-15 (ADR 0023): same hit@5, better MRR than gpt-5.4-nano, which shuts down 2027-04-01.
         model: gpt-6-luna
         max-passage-chars: 700
+        cross-encoder:
+          url: http://localhost:8099
+          model: BAAI/bge-reranker-v2-m3
+          connect-timeout: 1s
+          # 20 candidates of up to 512 tokens on CPU; see ADR 0030 for measured times.
+          timeout: 10s
       # Exact question match only (normalised case and spacing). A semantic (embedding similarity) cache was measured
       # and rejected: one-word-apart questions with different answers score 0.95 cosine (ADR 0013).
       cache:

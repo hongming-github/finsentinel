@@ -22,6 +22,7 @@ class KnowledgeRepository {
         this.jdbcTemplate = jdbcTemplate;
     }
 
+    /** Each document's index version ({@link KnowledgeSync#indexVersion}: the file and its chunks), kept in {@code sha256}. */
     Map<String, String> documentHashes() {
         return jdbc.sql("select doc_id, sha256 from kb_document")
                 .query(rs -> {
@@ -49,7 +50,8 @@ class KnowledgeRepository {
 
     /** Replaces a document and all its chunks atomically, so searches never see half a document. */
     @Transactional
-    void replace(SourceDocument doc, String sha256, List<RegulationChunk> chunks, List<float[]> embeddings) {
+    void replace(SourceDocument doc, String sha256, List<RegulationChunk> chunks, List<String> contexts,
+                 List<float[]> embeddings) {
         jdbc.sql("delete from kb_document where doc_id = :id").param("id", doc.id()).update();
         jdbc.sql("""
                         insert into kb_document (doc_id, short_name, title, source_url, sha256, chunk_count)
@@ -63,8 +65,8 @@ class KnowledgeRepository {
         }
         List<Integer> rows = IntStream.range(0, chunks.size()).boxed().toList();
         jdbcTemplate.batchUpdate("""
-                        insert into kb_chunk (chunk_id, doc_id, ref, section, page, text, embedding)
-                        values (?, ?, ?, ?, ?, ?, cast(? as vector))
+                        insert into kb_chunk (chunk_id, doc_id, ref, section, page, text, context, embedding)
+                        values (?, ?, ?, ?, ?, ?, ?, cast(? as vector))
                         """, rows, rows.size(), (ps, i) -> {
                     RegulationChunk c = chunks.get(i);
                     ps.setString(1, c.chunkId());
@@ -73,7 +75,8 @@ class KnowledgeRepository {
                     ps.setString(4, c.section());
                     ps.setInt(5, c.page());
                     ps.setString(6, c.text());
-                    ps.setString(7, vectorLiteral(embeddings.get(i)));
+                    ps.setString(7, contexts.get(i));
+                    ps.setString(8, vectorLiteral(embeddings.get(i)));
                 });
     }
 
@@ -117,14 +120,14 @@ class KnowledgeRepository {
             return List.of();
         }
         return jdbc.sql("""
-                        select c.chunk_id, c.doc_id, d.short_name, c.ref, c.section, c.page, c.text
+                        select c.chunk_id, c.doc_id, d.short_name, c.ref, c.section, c.page, c.text, c.context
                         from kb_chunk c join kb_document d using (doc_id)
                         where c.chunk_id in (:ids)
                         """)
                 .param("ids", chunkIds)
                 .query((rs, n) -> new StoredPassage(rs.getString("chunk_id"), rs.getString("doc_id"),
                         rs.getString("short_name"), rs.getString("ref"), rs.getString("section"), rs.getInt("page"),
-                        rs.getString("text")))
+                        rs.getString("text"), rs.getString("context")))
                 .list();
     }
 
@@ -143,7 +146,8 @@ class KnowledgeRepository {
         return sb.append(']').toString();
     }
 
+    /** @param context what the passage's cross-references point to, for embedding and reranking only (ADR 0030) */
     record StoredPassage(String chunkId, String docId, String shortName, String ref, String section, int page,
-                         String text) {
+                         String text, String context) {
     }
 }

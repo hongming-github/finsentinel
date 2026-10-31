@@ -36,8 +36,8 @@ final class CaseGrader {
 
     /**
      * @param requiredTools        tools the case requires, and how many of them were called (tool-selection accuracy)
-     * @param regulationsRelevant  null when the case asks for no regulations; otherwise whether a cited passage is in
-     *                             the case's relevant set (regulation relevance)
+     * @param regulationsRelevant  null when the case asks for no regulations; otherwise whether every one of the
+     *                             case's relevant sets has a cited passage in it (regulation relevance)
      */
     record Grade(List<Check> checks, int requiredTools, int requiredToolsCalled, Boolean regulationsRelevant) {
 
@@ -85,11 +85,13 @@ final class CaseGrader {
             List<String> cited = report.regulatoryNotes() == null ? List.of() : report.regulatoryNotes().stream()
                     .flatMap(n -> n.sourceChunkIds().stream()).distinct().toList();
             checks.add(new Check("regulations cited", !cited.isEmpty(), "no regulatory notes"));
-            Set<String> wanted = dataset.chunks(e.regulations().relevantChunkSet());
-            if (!wanted.isEmpty()) {
-                relevant = cited.stream().anyMatch(wanted::contains);
+            // One set per question the notes must answer: a passage on reporting does not say who bears the loss.
+            List<String> unanswered = e.regulations().relevantChunkSets().stream()
+                    .filter(set -> cited.stream().noneMatch(dataset.chunks(set)::contains)).toList();
+            if (!e.regulations().relevantChunkSets().isEmpty()) {
+                relevant = unanswered.isEmpty();
                 checks.add(new Check("regulations relevant", relevant,
-                        "cited " + cited + ", none in set " + e.regulations().relevantChunkSet()));
+                        "cited " + cited + ", none in set(s) " + unanswered));
             }
         }
 

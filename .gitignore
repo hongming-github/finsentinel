@@ -2,6 +2,7 @@ target/
 .idea/
 *.iml
 .vscode/
+.obsidian/
 .DS_Store
 *.log
 .env
@@ -18,3 +19,7 @@ __pycache__/
 # Web console (ADR 0027)
 console/node_modules/
 console/dist/
+
+# Python virtual environments (uv)
+.venv/
+.pytest_cache/

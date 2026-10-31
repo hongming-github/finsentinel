@@ -148,7 +148,8 @@ public class CaseWorker {
         CaseRepository.ClaimBatch batch;
         try {
             batch = Tenancy.callAsSystem(() -> cases.claimWithinBudget(limit, props.claimTimeout(),
-                    props.claimLease(), props.maxAttempts(), props.maxPerHour(), props.claimLockTimeout()));
+                    props.claimLease(), props.evidenceWait(), props.maxAttempts(), props.maxPerHour(),
+                    props.claimLockTimeout()));
         } catch (DataAccessException e) {
             if (!CaseRepository.isLockTimeout(e)) {
                 throw e;
@@ -264,11 +265,18 @@ public class CaseWorker {
         try {
             List<StoredAlert> stored = alerts.findByCase(c.tenantId(), c.caseId());
             List<Alert> caseAlerts = stored.stream().map(StoredAlert::alert).toList();
+            // Claimed with every transaction stored, or after the evidence wait ran out (ADR 0025). Without a wait
+            // (evidence-wait 0) the platform makes no claim about the evidence and does not look.
+            List<String> missing = props.evidenceWait().isPositive()
+                    ? cases.missingTransactions(c.tenantId(), c.caseId()) : List.of();
+            if (!missing.isEmpty()) {
+                span.setAttribute("finsentinel.missing_transactions", missing.size());
+            }
             CaseContext context = new CaseContext(c.caseId(), c.tenantId(), c.accountId(), c.customerId(), caseAlerts,
-                    c.analysisRun(), c.analystNote(), systems.connectedFor(c.tenantId()));
+                    c.analysisRun(), c.analystNote(), systems.connectedFor(c.tenantId()), Set.copyOf(missing));
             CaseAnalysisGraph.Outcome outcome = analysis.analyse(context, claim.claimedAt());
             InvestigationResult result = outcome.investigation();
-            CaseRepository.Completion completion = cases.complete(claim, outcome.mode(), result, outcome.review());
+            CaseRepository.Completion completion = cases.complete(claim, outcome.mode(), result, outcome.review(), missing);
             // Timed only when the analyst gets this report: a superseded run or a lost claim is no one's wait.
             if (completion == CaseRepository.Completion.READY_FOR_DECISION) {
                 metrics.analysed(stored, claim);

@@ -25,7 +25,7 @@ import java.util.stream.Collectors;
 public record GoldenDataset(Map<String, Set<String>> chunkSets, List<GoldenCase> cases) {
 
     static final String RESOURCE = "eval/golden-cases.json";
-    private static final Pattern CHUNK_ID = Pattern.compile("[a-z0-9-]+:[0-9][0-9.]*(:[a-z0-9-]+)?");
+    private static final Pattern CHUNK_ID = Pattern.compile("[a-z0-9-]+:([0-9]+[A-Z]?[0-9.]*|[A-Z](\\.[0-9]+)+|appendix-[0-9]+)(:[a-z0-9-]+)?(-p[0-9]+)?");
     private static final Set<String> SYSTEMS = Set.of("banking", "compliance");
 
     public GoldenDataset {
@@ -124,9 +124,9 @@ public record GoldenDataset(Map<String, Set<String>> chunkSets, List<GoldenCase>
             named.stream().filter(t -> !tools.contains(t)).forEach(t -> problems.add(at + "unknown tool " + t));
             e.requiredTools().stream().filter(e.forbiddenTools()::contains)
                     .forEach(t -> problems.add(at + "tool both required and forbidden: " + t));
-            if (e.regulations() != null && e.regulations().relevantChunkSet() != null
-                    && !chunkSets.containsKey(e.regulations().relevantChunkSet())) {
-                problems.add(at + "unknown chunk set " + e.regulations().relevantChunkSet());
+            if (e.regulations() != null) {
+                e.regulations().relevantChunkSets().stream().filter(s -> !chunkSets.containsKey(s))
+                        .forEach(s -> problems.add(at + "unknown chunk set " + s));
             }
         }
         return problems;

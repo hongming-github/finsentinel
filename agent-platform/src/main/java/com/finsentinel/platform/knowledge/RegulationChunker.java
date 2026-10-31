@@ -16,8 +16,9 @@ import java.util.regex.Pattern;
  *
  * <p>Rules, all learned from the actual documents:
  * <ul>
- *   <li>Numbered sub-section headings (TRM's "3.1 Role of the Board ...") and wrapped unnumbered headings become
- *       the {@code section} context of the paragraphs they introduce instead of chunks of their own.</li>
+ *   <li>Numbered sub-section headings (TRM's "3.1 Role of the Board ..."), Notice 626's roman-numbered ones
+ *       ("(IV) Identification and Verification of Identity of Beneficial Owner") and wrapped unnumbered headings
+ *       become the {@code section} context of the paragraphs they introduce instead of chunks of their own.</li>
  *   <li>Section headings ("4  Duties of the responsible FI") are accepted only when their number is the next
  *       expected one, which keeps footnotes ("13 The cooling off period ...") from posing as headings.</li>
  *   <li>Page numbers, "Internal" footers, "[Amended on ...]" notes, table-of-contents lines and running headers
@@ -28,13 +29,35 @@ import java.util.regex.Pattern;
  */
 final class RegulationChunker {
 
-    private static final Pattern PARAGRAPH = Pattern.compile("^\\s*(\\d{1,2}(?:\\.\\d{1,2}){1,3})\\s+(\\S.*)$");
-    private static final Pattern SECTION = Pattern.compile("^\\s*(\\d{1,2})\\s+([A-Z][^.;:]{2,100}?)\\s*$");
+    /**
+     * "4.7", "3.1.2"; in a lettered section, "11A.3"; in an annex, "A.1". A letter after a paragraph number (6.8A) is
+     * not a start.
+     */
+    private static final Pattern PARAGRAPH = Pattern.compile(
+            "^\\s*((?:\\d{1,2}[A-Z]?|[A-Z])(?:\\.\\d{1,2}){1,3})\\s+(\\S.*)$");
+    /** TRM's "Annex A: Application Security Testing", paragraphs A.1, A.2 ... */
+    private static final Pattern ANNEX = Pattern.compile("^(?:Annex|ANNEX)\\s+([A-Z])\\s*[:–—-]\\s*(\\S.*)$");
+    /** Notice 626's "Appendix 1", a list rather than numbered paragraphs: one chunk each. */
+    private static final Pattern APPENDIX = Pattern.compile("^(?:Appendix|APPENDIX)\\s+(\\d{1,2})$");
+    /** Notice 626's history of amendments after the last paragraph: not regulation text. */
+    private static final Pattern ENDNOTES = Pattern.compile("^Endnotes on History of Amendments$",
+            Pattern.CASE_INSENSITIVE);
+    /** "4  Duties of the responsible FI"; an amendment inserts lettered sections ("11A  VALUE TRANSFERS"). */
+    private static final Pattern SECTION = Pattern.compile("^\\s*(\\d{1,2})([A-Z])?\\s+([A-Z][^.;:]{2,100}?)\\s*$");
     private static final Pattern PAGE_NUMBER = Pattern.compile("^\\s*(?:page\\s+)?\\d{1,3}(?:\\s+of\\s+\\d{1,3})?\\s*$",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern EDIT_NOTE = Pattern.compile("^\\s*\\[(?:Amended|Deleted|Inserted|Added)[^\\]]*\\]\\s*$");
     private static final Pattern TOC_LEADER = Pattern.compile("\\.{5,}|…{3,}");
-    private static final Pattern DEFINITION = Pattern.compile("^\\s*[“\"]([^”\"]{1,80})[”\"]\\s+(?:means|has|includes|refers|shall)\\b.*");
+    /** Notice 626 numbers its sub-headings "(I) Identification of Customer", "(II) ...". */
+    private static final Pattern ROMAN_HEADING = Pattern.compile("^\\(([IVX]{1,5})\\)\\s+([A-Z].*)$");
+    /**
+     * A defined term at the start of a line, in each form the MAS documents use: {@code “term” means}, {@code “term”
+     * include(s)}, {@code “term”, in relation to X, means}, {@code “term” or “other term” means}, {@code “term” –}.
+     * A term followed by anything else ({@code “bank” or “finance company” as the case may be}) continues the
+     * definition before it.
+     */
+    private static final Pattern DEFINITION = Pattern.compile("^\\s*[“\"]([^”\"]{1,80})[”\"]\\s*,?\\s*"
+            + "(?:(?:or\\s+[“\"][^”\"]{1,80}[”\"]\\s+)?(?:means|has|includes?|refers|shall)\\b|in relation to\\b|[–—]).*");
 
     private final int maxChars;
 
@@ -54,22 +77,44 @@ final class RegulationChunker {
         List<Paragraph> paragraphs = new ArrayList<>();
         Paragraph current = null;
         int section = 0;
+        String sectionId = "";
         String sectionTitle = "";
+        boolean backMatter = false;
         for (int p = 0; p < pages.size(); p++) {
             for (String raw : pages.get(p).split("\\R")) {
                 String line = raw.strip();
                 if (isNoise(line, runningHeaders)) {
                     continue;
                 }
+                // Back matter after the last section ends the paragraph before it; numbered sections do not resume.
+                Matcher annex = ANNEX.matcher(line);
+                Matcher appendix = APPENDIX.matcher(line);
+                if (section > 0 && (annex.matches() || appendix.matches() || ENDNOTES.matcher(line).matches())) {
+                    backMatter = true;
+                    current = null;
+                    if (annex.matches()) {
+                        sectionId = annex.group(1);
+                        sectionTitle = "Annex " + annex.group(1) + ": " + annex.group(2).strip();
+                    } else if (appendix.matches()) {
+                        sectionId = "appendix-" + appendix.group(1);
+                        sectionTitle = "Appendix " + appendix.group(1);
+                        current = new Paragraph(sectionId, sectionTitle, p + 1);
+                        paragraphs.add(current);
+                    } else {
+                        sectionId = "";
+                    }
+                    continue;
+                }
                 Matcher sectionMatch = SECTION.matcher(line);
-                if (sectionMatch.matches() && Integer.parseInt(sectionMatch.group(1)) == section + 1) {
-                    section++;
-                    sectionTitle = sectionMatch.group(2).strip();
+                if (!backMatter && sectionMatch.matches() && nextSection(sectionMatch, section, sectionId)) {
+                    section = Integer.parseInt(sectionMatch.group(1));
+                    sectionId = sectionMatch.group(1) + (sectionMatch.group(2) == null ? "" : sectionMatch.group(2));
+                    sectionTitle = sectionMatch.group(3).strip();
                     current = null;
                     continue;
                 }
                 Matcher paragraphMatch = PARAGRAPH.matcher(line);
-                if (paragraphMatch.matches() && belongsToSection(paragraphMatch.group(1), section)
+                if (paragraphMatch.matches() && belongsToSection(paragraphMatch.group(1), sectionId)
                         && startsParagraph(paragraphMatch, current)) {
                     current = new Paragraph(paragraphMatch.group(1), sectionTitle, p + 1);
                     current.lines.add(paragraphMatch.group(2));
@@ -107,7 +152,7 @@ final class RegulationChunker {
             List<String> trailing = trailingHeading(paragraph.lines);
             if (!trailing.isEmpty() && next.sectionTitle.equals(paragraph.sectionTitle)) {
                 paragraph.lines.subList(paragraph.lines.size() - trailing.size(), paragraph.lines.size()).clear();
-                next.subHeading = String.join(" ", trailing);
+                next.subHeading = joinHeading(trailing);
             }
         }
         paragraphs.removeIf(p -> p.heading);
@@ -137,10 +182,25 @@ final class RegulationChunker {
         }
         List<String> candidate = lines.subList(start, end);
         String joined = String.join(" ", candidate);
-        boolean headingLike = Character.isUpperCase(candidate.getFirst().charAt(0))
+        boolean headingLike = (ROMAN_HEADING.matcher(candidate.getFirst()).matches()
+                || Character.isUpperCase(candidate.getFirst().charAt(0)))
                 && joined.length() <= 200
                 && !DEFINITION.matcher(candidate.getFirst()).matches();
         return headingLike ? List.copyOf(candidate) : List.of();
+    }
+
+    /**
+     * A wrapped heading's lines joined with spaces; a roman-numbered heading under an unnumbered one ("Responsibility
+     * of the Ordering Institution" then "(I) Identification and Recording of Information") is a level of its own.
+     */
+    private static String joinHeading(List<String> lines) {
+        StringBuilder out = new StringBuilder();
+        for (String line : lines) {
+            Matcher roman = ROMAN_HEADING.matcher(line);
+            String text = roman.matches() ? "(" + roman.group(1) + ") " + roman.group(2) : line;
+            out.append(out.isEmpty() ? "" : roman.matches() ? " / " : " ").append(text);
+        }
+        return out.toString();
     }
 
     private static boolean endsSentence(String line) {
@@ -230,11 +290,32 @@ final class RegulationChunker {
         return ascending && !Character.isLowerCase(paragraph.group(2).charAt(0));
     }
 
+    /**
+     * Section numbers ascend from 1 (dates and footnotes look like headings); an inserted lettered section follows its
+     * number: 11, then 11A, 11B, then 12.
+     */
+    private static boolean nextSection(Matcher match, int section, String sectionId) {
+        int number = Integer.parseInt(match.group(1));
+        String letter = match.group(2);
+        if (letter == null) {
+            return number == section + 1;
+        }
+        if (section == 0 || number != section) {
+            return false;
+        }
+        char last = sectionId.charAt(sectionId.length() - 1);
+        return letter.charAt(0) == (Character.isLetter(last) ? last + 1 : 'A');
+    }
+
+    /** Compares "11A.3" with "11A.11": number by number, a section's letter after its number. */
     static int compareRefs(String a, String b) {
         String[] x = a.split("\\.");
         String[] y = b.split("\\.");
         for (int i = 0; i < Math.min(x.length, y.length); i++) {
-            int c = Integer.compare(Integer.parseInt(x[i]), Integer.parseInt(y[i]));
+            int c = Integer.compare(number(x[i]), number(y[i]));
+            if (c == 0) {
+                c = x[i].compareTo(y[i]);
+            }
             if (c != 0) {
                 return c;
             }
@@ -242,9 +323,13 @@ final class RegulationChunker {
         return Integer.compare(x.length, y.length);
     }
 
-    private static boolean belongsToSection(String ref, int section) {
-        int major = Integer.parseInt(ref.substring(0, ref.indexOf('.')));
-        return section > 0 && major == section;
+    /** An annex's letter ("A" of "A.1") sorts before every number; refs in one annex share it. */
+    private static int number(String part) {
+        return part.matches("[A-Z]") ? 0 : Integer.parseInt(part.replaceAll("[A-Z]$", ""));
+    }
+
+    private static boolean belongsToSection(String ref, String sectionId) {
+        return !sectionId.isEmpty() && ref.indexOf('.') > 0 && ref.substring(0, ref.indexOf('.')).equals(sectionId);
     }
 
     private static boolean isNoise(String line, Set<String> runningHeaders) {

@@ -55,6 +55,25 @@ class GroundingTest {
                 "the answer names passage " + named + ", which you were not given");
     }
 
+    /** Lettered sections ("11A"), annexes ("A.1"), appendices and parts of long paragraphs ("-p2"), read whole. */
+    @Test
+    void letteredAnnexAppendixAndSplitPassageIdsAreReadWhole() {
+        String lettered = "notice-626-2025:11A.3";
+        String part = "notice-626-2025:6.14-p2";
+        String annex = "trm-2021:A.1";
+        String appendix = "notice-626-2025:appendix-2-p1";
+        AssistantModel.Answer answer = new AssistantModel.Answer("Value transfers (" + lettered + "), beneficial "
+                + "owners (" + part + "), testing (" + annex + ") and banks (" + appendix + ").", List.of(),
+                List.of(lettered, part, annex, appendix));
+
+        assertThat(Grounding.problems(answer, CASE, Set.of(), Set.of(lettered, part, annex, appendix), "")).isEmpty();
+        assertThat(Grounding.problems(answer, CASE, Set.of(), Set.of("notice-626-2025:6.14-p1"), "")).contains(
+                "the answer names passage " + lettered + ", which you were not given",
+                "the answer names passage " + part + ", which you were not given",
+                "the answer names passage " + annex + ", which you were not given",
+                "the answer names passage " + appendix + ", which you were not given");
+    }
+
     @Test
     void aSummaryRepeatsOnlyIdsOfTheTurnsItFolds() {
         assertThat(Grounding.summaryProblems("Asked about " + TXN + " and eupg-2024:4.2.",

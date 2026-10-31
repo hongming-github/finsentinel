@@ -18,7 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * How lenient the golden cases are (ADR 0017): an agent that never judges, answering NEEDS_REVIEW with one fixed risk
  * score whatever the case, graded against every case. It is given everything that does not take judgement: it calls
- * every required tool, cites a relevant passage wherever regulations are required, and the platform flags planted
+ * every required tool, cites a passage from each relevant set wherever regulations are required, and the platform flags planted
  * instructions as it would. A case it passes checks process, not judgement. The evaluation's gate must still turn it
  * down at every fixed score, or a passing evaluation says nothing about the agents.
  */
@@ -51,14 +51,14 @@ class LenientAgentBaselineTest {
         }
     }
 
-    /** NEEDS_REVIEW at a fixed score, every required tool called, a relevant passage cited where one is required. */
+    /** NEEDS_REVIEW at a fixed score, every required tool called, a passage from each relevant set where required. */
     private InvestigationResult lazy(GoldenCase c, int score, String summary) {
         GoldenCase.Expect e = c.expect();
         List<CaseReport.RegulatoryNote> notes = new ArrayList<>();
         if (e.regulations() != null && e.regulations().required()) {
-            String chunk = dataset.chunks(e.regulations().relevantChunkSet()).stream().sorted().findFirst()
-                    .orElse("notice-626-2025:14.2");
-            notes.add(new CaseReport.RegulatoryNote("The bank's obligations apply.", List.of(chunk)));
+            List<String> chunks = e.regulations().relevantChunkSets().stream()
+                    .map(set -> dataset.chunks(set).stream().sorted().findFirst().orElseThrow()).toList();
+            notes.add(new CaseReport.RegulatoryNote("The bank's obligations apply.", chunks));
         }
         CaseReport report = new CaseReport(Disposition.NEEDS_REVIEW, score, summary,
                 List.of(new CaseReport.Finding("The alert's transactions need a closer look.", List.of())),

@@ -77,6 +77,107 @@ class RegulationChunkerTest {
     }
 
     @Test
+    void romanNumeralSubheadingsIntroduceTheirParagraphs() {
+        // Notice 626 numbers its sub-headings "(I)", "(II)" ...: read as text, 6.13 kept the sub-heading of 6.2.
+        List<RegulationChunk> chunks = chunker.chunk("doc", List.of("""
+                1        Customer due diligence
+                1.1      A bank shall not open anonymous accounts.
+                Where There Are Reasonable Grounds for Suspicion
+                1.2      Where a bank suspects money laundering, it shall perform CDD measures.
+                (I)      Identification of Customer
+                1.3      A bank shall identify each customer.
+                (II)     Identification and Verification of Identity of Natural Person Appointed to Act on a
+                Customer’s Behalf
+                1.4      Where a customer appoints a natural person to act on its behalf, the bank shall identify them.
+                1.5      A bank shall verify the due authority of each such person.
+                """));
+
+        assertThat(chunks).extracting(RegulationChunk::ref).containsExactly("1.1", "1.2", "1.3", "1.4", "1.5");
+        assertThat(chunks.get(1).text()).isEqualTo("Where a bank suspects money laundering, it shall perform CDD measures.");
+        assertThat(chunks.get(2).section()).isEqualTo("Customer due diligence / (I) Identification of Customer");
+        assertThat(chunks.get(3).section()).isEqualTo("Customer due diligence / (II) Identification and Verification of "
+                + "Identity of Natural Person Appointed to Act on a Customer’s Behalf");
+        assertThat(chunks.get(4).section()).as("sub-heading carries forward").isEqualTo(chunks.get(3).section());
+    }
+
+    @Test
+    void annexesAndAppendicesEndTheLastParagraph() {
+        // TRM's last paragraph swallowed Annexes A to C, Notice 626's its amendment history and both appendices.
+        List<RegulationChunk> chunks = chunker.chunk("doc", List.of("""
+                1        IT audit
+                1.1      The FI should ensure its IT auditors have the requisite skills.
+                Endnotes on History of Amendments
+                1.      Amendment with effect from 1 July 2025.
+                Annex A: Application Security Testing
+                A.1      Application security testing aims to find exploitable weaknesses.
+                A.2      Common testing methods include static and dynamic analysis.
+                Annex B: BYOD Security
+                B.1      BYOD allows staff to use their own devices.
+                Appendix 1
+                1. Financial institutions regulated by the Authority.
+                Note: the institutions in Appendix 2 fall within
+                Appendix 1.
+                Appendix 2
+                1. Banks in Singapore licensed under the BA.
+                """));
+
+        assertThat(chunks).extracting(RegulationChunk::chunkId).containsExactly("doc:1.1", "doc:A.1", "doc:A.2",
+                "doc:B.1", "doc:appendix-1", "doc:appendix-2");
+        assertThat(chunks.getFirst().text()).isEqualTo("The FI should ensure its IT auditors have the requisite skills.");
+        assertThat(chunks.get(1).section()).isEqualTo("Annex A: Application Security Testing");
+        assertThat(chunks.get(3).section()).isEqualTo("Annex B: BYOD Security");
+        assertThat(chunks.get(4).section()).isEqualTo("Appendix 1");
+        assertThat(chunks.get(4).text()).as("a reference wrapped to a line start is not a heading")
+                .endsWith("fall within\nAppendix 1.");
+        assertThat(chunks.get(5).text()).isEqualTo("1. Banks in Singapore licensed under the BA.");
+    }
+
+    @Test
+    void aLetteredSectionInsertedByAmendmentIsASectionOfItsOwn() {
+        // Notice 626 inserted "11A VALUE TRANSFERS" between 11 and 12: read as text, the whole section sat inside
+        // 11.2's last definition. Lettered paragraphs within a section (6.8A) stay with the paragraph before them.
+        List<RegulationChunk> chunks = chunker.chunk("doc", List.of("""
+                1        Wire transfers
+                1.1      This paragraph applies to wire transfers.
+                1.2      For the purposes of paragraph 1 –
+                “wire transfer originator” means the account holder who allows the wire transfer.
+                1A       Value transfers
+                1A.1 Paragraph 1A shall apply to a bank that sends digital tokens.
+                1A.2 Before effecting a value transfer, a bank shall identify the originator, as paragraph
+                1A.1 requires.
+                1A.3 A bank shall keep the records for five years.
+                1A.3A A bank shall also keep the originator's address.
+                2        Record keeping
+                2.1      A bank shall keep records.
+                """));
+
+        assertThat(chunks).extracting(RegulationChunk::chunkId).containsExactly("doc:1.1", "doc:1.2",
+                "doc:1.2:wire-transfer-originator", "doc:1A.1", "doc:1A.2", "doc:1A.3", "doc:2.1");
+        assertThat(chunks.get(2).text()).isEqualTo(
+                "“wire transfer originator” means the account holder who allows the wire transfer.");
+        assertThat(chunks.get(3).section()).isEqualTo("Value transfers");
+        assertThat(chunks.get(4).text()).as("a cross-reference wrapped to a line start stays in its paragraph")
+                .endsWith("1A.1 requires.");
+        assertThat(chunks.get(5).text()).contains("1A.3A A bank shall also keep the originator's address.");
+        assertThat(chunks.get(6).section()).isEqualTo("Record keeping");
+    }
+
+    @Test
+    void aRomanNumeralSubheadingUnderAnUnnumberedOneIsALevelOfItsOwn() {
+        List<RegulationChunk> chunks = chunker.chunk("doc", List.of("""
+                1        Wire transfers
+                1.1      This paragraph applies to wire transfers.
+                Responsibility of the Ordering Institution
+                (I)      Identification and Recording of Information
+                1.2      Before effecting a wire transfer, a bank shall identify the originator.
+                """));
+
+        assertThat(chunks.getFirst().text()).isEqualTo("This paragraph applies to wire transfers.");
+        assertThat(chunks.get(1).section()).isEqualTo(
+                "Wire transfers / Responsibility of the Ordering Institution / (I) Identification and Recording of Information");
+    }
+
+    @Test
     void numberedSubsectionHeadingIsNotItsOwnChunk() {
         List<RegulationChunk> chunks = chunker.chunk("doc", List.of("""
                 1        Technology Risk Governance and Oversight
@@ -103,6 +204,44 @@ class RegulationChunkerTest {
         assertThat(chunks).extracting(RegulationChunk::chunkId)
                 .containsExactly("doc:1.1:account-holder", "doc:1.1:protected-account");
         assertThat(chunks.get(1).text()).contains("(a) is held in the name");
+    }
+
+    @Test
+    void definitionsInEveryFormTheMasDocumentsUseStartTheirOwnChunk() {
+        // Each form below was merged into the previous definition's chunk, so "unauthorised transaction" was
+        // retrieved, and cited, as "unique identifier".
+        List<RegulationChunk> chunks = chunker.chunk("doc", List.of("""
+                1        Definitions
+                1.1      For the purposes of these Guidelines:
+                “unique identifier” means a combination of letters, numbers or symbols;
+                “unauthorised transaction”   in relation to any protected account, means any payment
+                transaction initiated by any person without the knowledge of an account user;
+                “subscriber”, in relation to a responsible Telco, means—
+                “high-risk activities” include, but are not limited to—
+                “CDD measures” or “customer due diligence measures” means the measures required;
+                “connected party” –
+                        (a) in relation to a legal person, means any director;
+                “similar services” includes services undertaken for securities transactions;
+                """));
+
+        assertThat(chunks).extracting(RegulationChunk::chunkId).containsExactly("doc:1.1:unique-identifier",
+                "doc:1.1:unauthorised-transaction", "doc:1.1:subscriber", "doc:1.1:high-risk-activities",
+                "doc:1.1:cdd-measures", "doc:1.1:connected-party", "doc:1.1:similar-services");
+        assertThat(chunks.get(1).text()).endsWith("without the knowledge of an account user;");
+        assertThat(chunks.get(5).text()).contains("(a) in relation to a legal person");
+    }
+
+    @Test
+    void aQuotedTermInsideADefinitionDoesNotStartANewOne() {
+        List<RegulationChunk> chunks = chunker.chunk("doc", List.of("""
+                1        Definitions
+                1.1      For the purposes of these Guidelines:
+                “protected account” means any payment account that—
+                “bank” or “finance company” as the case may be, and held in the name of individuals;
+                """));
+
+        assertThat(chunks).extracting(RegulationChunk::chunkId).doesNotContain("doc:1.1:bank");
+        assertThat(chunks.getLast().text()).contains("“bank” or “finance company” as the case may be");
     }
 
     @Test
