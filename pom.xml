@@ -52,10 +52,10 @@
              The Spring modules import these ahead of the Boot BOM, which would otherwise win (see agent-platform). -->
         <jackson2.version>2.21.7</jackson2.version>
         <jackson3.version>3.1.7</jackson3.version>
-        <netty.version>4.2.19.Final</netty.version>
-        <lz4.version>1.12.1</lz4.version>
+        <netty.version>4.2.20.Final</netty.version>
+        <lz4.version>1.13.0</lz4.version>
         <snappy.version>1.1.10.12</snappy.version>
-        <guava.version>33.7.2-jre</guava.version>
+        <guava.version>33.8.0-jre</guava.version>
         <avro.version>1.12.2</avro.version>
         <testcontainers.version>2.0.5</testcontainers.version>
         <slf4j.version>2.0.20</slf4j.version>
@@ -65,7 +65,7 @@
         <!-- Compiler warnings fail the build (-Xlint, see the compiler plugin); -Dmaven.compiler.failOnWarning=false lists
              them all at once. -->
         <maven.compiler.failOnWarning>true</maven.compiler.failOnWarning>
-        <errorprone.version>2.51.0</errorprone.version>
+        <errorprone.version>2.52.0</errorprone.version>
         <archunit.version>1.5.1</archunit.version>
         <!-- Load tests (load-test module, ADR 0025); run by hand with gatling:test, never in the build's lifecycle. -->
         <gatling.version>3.16.0</gatling.version>
