@@ -71,7 +71,7 @@ services:
   # kafkasql storage keeps schemas in a Kafka topic, so they survive restarts without another database.
   # Schemas are registered on purpose: ./mvnw -pl contracts -am compile exec:java
   schema-registry:
-    image: apicurio/apicurio-registry:3.3.3
+    image: apicurio/apicurio-registry:3.3.4
     profiles: [core]
     depends_on:
       kafka:
@@ -114,7 +114,7 @@ services:
   # Identity provider: realm "finsentinel" (users, roles, tenant claim, MCP clients) imported from keycloak/.
   # Development mode, in-memory database: the realm is re-imported on every start. 8080 is taken by other projects.
   keycloak:
-    image: quay.io/keycloak/keycloak:26.8.1
+    image: quay.io/keycloak/keycloak:26.8.2
     profiles: [core]
     ports:
       - "8094:8080"
@@ -197,7 +197,7 @@ services:
 
   # Grafana + Prometheus + Tempo + Loki + OTel collector in one container. Grafana on :3000.
   lgtm:
-    image: grafana/otel-lgtm:0.38.1
+    image: grafana/otel-lgtm:0.40.0
     profiles: [obs]
     ports:
       - "3000:3000"
